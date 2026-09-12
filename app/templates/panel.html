@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ provider_name }}</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="{{ root_path }}/static/style.css" />
   </head>
   <body class="panel">
     <header>
@@ -32,9 +32,10 @@
       <pre id="log">Waiting for KiCad…</pre>
     </section>
 
-    <script src="/static/kicad-bridge.js"></script>
+    <script src="{{ root_path }}/static/kicad-bridge.js"></script>
     <script>
       (function () {
+        var BASE = "{{ root_path }}";
         var logEl = document.getElementById("log");
         function log(msg) {
           var stamp = new Date().toLocaleTimeString();
@@ -63,7 +64,7 @@
         var logoutBtn = document.getElementById("logout");
         if (logoutBtn) {
           logoutBtn.addEventListener("click", function () {
-            fetch("/api/v1/session/logout", { method: "POST" }).then(function () {
+            fetch(BASE + "/api/v1/session/logout", { method: "POST" }).then(function () {
               window.KicadBridge.logout().catch(function () {});
               window.location.reload();
             });

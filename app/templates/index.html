@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>KiCad Library Manager</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="{{ root_path }}/static/style.css" />
   </head>
   <body>
     <main>
       <h1>Hello, world 👋</h1>
       <p class="lead">KiCad Library Manager is up and running.</p>
-      <p class="meta">version {{ version }} &middot; <a href="/panel">/panel</a> &middot; <a href="/.well-known/kicad-remote-provider">provider metadata</a> &middot; <a href="/healthz">/healthz</a> &middot; <a href="/docs">/docs</a></p>
+      <p class="meta">version {{ version }} &middot; <a href="{{ root_path }}/panel">/panel</a> &middot; <a href="{{ root_path }}/.well-known/kicad-remote-provider">provider metadata</a> &middot; <a href="{{ root_path }}/healthz">/healthz</a> &middot; <a href="{{ root_path }}/docs">/docs</a></p>
       <p class="meta">{% if auth_configured %}OAuth2 authentication enabled{% else %}Authentication not configured{% endif %}</p>
     </main>
   </body>

@@ -31,9 +31,20 @@ class BootstrapResponse(BaseModel):
     nonce_url: str
 
 
-def _same_origin(candidate: str, origin: str) -> bool:
-    left, right = urlsplit(candidate), urlsplit(origin)
-    return (left.scheme, left.hostname, left.port) == (right.scheme, right.hostname, right.port)
+def _is_internal_url(candidate: str, public_url: str) -> bool:
+    """True when candidate points inside our own deployment.
+
+    Origin alone is not enough when the app is mounted under a path prefix:
+    another app on the same host would share the origin but not the prefix.
+    """
+    left, right = urlsplit(candidate), urlsplit(public_url)
+    if (left.scheme, left.hostname, left.port) != (right.scheme, right.hostname, right.port):
+        return False
+
+    prefix = right.path.rstrip("/")
+    if not prefix:
+        return True
+    return left.path == prefix or left.path.startswith(prefix + "/")
 
 
 def get_store(request: Request) -> SessionStore:
@@ -77,7 +88,7 @@ async def bootstrap(
     # open redirect here would leak the freshly minted session to any origin the
     # caller names.
     next_url = payload.next_url or settings.panel_url
-    if not _same_origin(next_url, settings.public_url):
+    if not _is_internal_url(next_url, settings.public_url):
         next_url = settings.panel_url
 
     nonce = store.mint_nonce(principal.subject, principal.claims, next_url)

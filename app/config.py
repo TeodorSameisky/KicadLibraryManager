@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 
 def _bool(name: str, default: bool = False) -> bool:
@@ -57,6 +58,21 @@ class Settings:
     capability_parts: bool
     capability_direct_downloads: bool
     capability_inline_payloads: bool
+
+    @property
+    def root_path(self) -> str:
+        """Path prefix this app is mounted under, e.g. "/kicadLibrary".
+
+        A reverse proxy that strips the prefix leaves the app seeing "/panel"
+        while the browser sits at "/kicadLibrary/panel", so every URL we emit
+        has to carry the prefix back or it resolves against the site root.
+        """
+        return urlsplit(self.public_url).path.rstrip("/")
+
+    @property
+    def origin(self) -> str:
+        parts = urlsplit(self.public_url)
+        return f"{parts.scheme}://{parts.netloc}"
 
     @property
     def api_base_url(self) -> str:

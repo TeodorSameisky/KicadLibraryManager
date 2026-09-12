@@ -32,6 +32,7 @@ app = FastAPI(
     description="Serves KiCad symbols, footprints and 3D models to the Remote Symbols panel.",
     version="0.1.0",
     lifespan=lifespan,
+    root_path=get_settings().root_path,
 )
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -46,7 +47,11 @@ async def index(request: Request, settings: Settings = Depends(get_settings)) ->
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"version": app.version, "auth_configured": settings.auth_configured},
+        context={
+            "version": app.version,
+            "auth_configured": settings.auth_configured,
+            "root_path": settings.root_path,
+        },
     )
 
 
@@ -64,6 +69,7 @@ async def panel(
             "auth_configured": settings.auth_configured,
             "provider_name": settings.provider_name,
             "session": session,
+            "root_path": settings.root_path,
         },
     )
 
