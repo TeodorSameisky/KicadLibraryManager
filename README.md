@@ -66,6 +66,14 @@ not** — they publish no RFC 8414 metadata and do not support PKCE.
 Setting `AUTH_ENABLED=false` advertises auth type `none`, which leaves the panel
 and every asset readable by anyone who can reach the URL.
 
+### Security headers
+
+`Strict-Transport-Security` is set by the app rather than the proxy, since
+Coolify has no HSTS toggle and hand-written Traefik labels are overwritten on
+redeploy. It is emitted only on HTTPS requests, honouring `X-Forwarded-Proto`
+behind a terminating proxy. `HSTS_PRELOAD` stays off by default: preload list
+entries are effectively irreversible.
+
 ### TLS is required
 
 OAuth2 and `Secure` cookies do not work over plain HTTP, and KiCad validates

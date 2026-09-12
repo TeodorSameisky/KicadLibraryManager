@@ -13,6 +13,7 @@ from app.auth import routes as auth_routes
 from app.auth.oidc import OidcVerifier
 from app.auth.session import Session, SessionStore
 from app.config import Settings, get_settings
+from app.middleware import SecurityHeadersMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -34,6 +35,8 @@ app = FastAPI(
     lifespan=lifespan,
     root_path=get_settings().root_path,
 )
+
+app.add_middleware(SecurityHeadersMiddleware, settings=get_settings())
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")

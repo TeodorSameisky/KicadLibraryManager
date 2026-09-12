@@ -51,6 +51,11 @@ class Settings:
     cookie_name: str
     cookie_secure: bool
 
+    hsts_enabled: bool
+    hsts_max_age: int
+    hsts_include_subdomains: bool
+    hsts_preload: bool
+
     allow_insecure_localhost: bool
     max_download_bytes: int
     supported_asset_types: tuple[str, ...]
@@ -107,6 +112,12 @@ def get_settings() -> Settings:
         session_ttl_seconds=_int("SESSION_TTL_SECONDS", 8 * 60 * 60),
         cookie_name=os.environ.get("SESSION_COOKIE_NAME", "klm_session"),
         cookie_secure=_bool("COOKIE_SECURE", public_url.startswith("https://")),
+        hsts_enabled=_bool("HSTS_ENABLED", True),
+        hsts_max_age=_int("HSTS_MAX_AGE", 31536000),
+        hsts_include_subdomains=_bool("HSTS_INCLUDE_SUBDOMAINS", False),
+        # Preload is a one-way door: browsers ship the entry and removal takes
+        # months, so it stays opt-in.
+        hsts_preload=_bool("HSTS_PRELOAD", False),
         allow_insecure_localhost=_bool("ALLOW_INSECURE_LOCALHOST", True),
         max_download_bytes=_int("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
         supported_asset_types=_csv("SUPPORTED_ASSET_TYPES", ("symbol", "footprint", "3dmodel")),
