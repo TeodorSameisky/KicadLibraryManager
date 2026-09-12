@@ -64,3 +64,35 @@ def test_internal_url_check(candidate, expected):
 def test_internal_url_check_without_prefix():
     assert _is_internal_url("https://host/panel", "https://host") is True
     assert _is_internal_url("https://other/panel", "https://host") is False
+
+
+# --- Root-mounted deployment (https://kicad.sameisky.tech) -------------------
+
+
+@pytest.fixture()
+def root_mounted_client(build_client):
+    return build_client(PUBLIC_URL="https://kicad.sameisky.tech")
+
+
+def test_root_mount_has_empty_prefix(root_mounted_client):
+    from app.config import get_settings
+
+    settings = get_settings()
+    assert settings.root_path == ""
+    assert settings.origin == "https://kicad.sameisky.tech"
+    assert settings.panel_url == "https://kicad.sameisky.tech/panel"
+    assert settings.session_bootstrap_url == "https://kicad.sameisky.tech/api/v1/session/bootstrap"
+
+
+def test_root_mount_emits_bare_asset_paths(root_mounted_client):
+    """With no prefix the templates must not emit a doubled or dangling slash."""
+    html = root_mounted_client.get("/panel").text
+    assert 'href="/static/style.css"' in html
+    assert 'src="/static/kicad-bridge.js"' in html
+    assert "//static/" not in html
+
+
+def test_root_mount_cookie_is_secure_on_https(root_mounted_client):
+    from app.config import get_settings
+
+    assert get_settings().cookie_secure is True
