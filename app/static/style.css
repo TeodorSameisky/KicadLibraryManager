@@ -42,3 +42,64 @@ h1 {
 .meta { font-size: 0.875rem; color: var(--muted); }
 
 a { color: var(--accent); }
+
+/* --- Remote Symbols panel --- */
+
+body.panel {
+  display: block;
+  place-items: initial;
+  padding: 1.25rem;
+}
+
+body.panel header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  padding-bottom: 0.75rem;
+}
+
+body.panel h1 { font-size: 1.25rem; margin: 0; }
+
+body.panel main { padding: 2rem 0; text-align: left; }
+
+.session { display: flex; gap: 0.5rem; align-items: center; }
+
+.badge {
+  font-size: 0.8125rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 20%, transparent);
+  color: var(--muted);
+}
+
+.badge.ok { background: color-mix(in srgb, #2e9e5b 25%, transparent); color: #2e9e5b; }
+.badge.warn { background: color-mix(in srgb, #c98a1b 25%, transparent); color: #c98a1b; }
+
+button {
+  font: inherit;
+  padding: 0.3rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button:hover { border-color: var(--accent); color: var(--accent); }
+
+.log { margin-top: 1.5rem; }
+.log h2 { font-size: 0.9375rem; color: var(--muted); margin: 0 0 0.5rem; }
+
+.log pre {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  font-size: 0.8125rem;
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}

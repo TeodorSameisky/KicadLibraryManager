@@ -1,5 +1,6 @@
 .git
 .gitignore
+.gitattributes
 .venv
 venv
 __pycache__
@@ -10,5 +11,8 @@ __pycache__
 .ruff_cache
 .env
 .env.*
+!.env.example
+tests
+requirements-dev.txt
 README.md
 docker-compose.yml

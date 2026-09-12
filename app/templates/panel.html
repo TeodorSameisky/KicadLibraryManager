@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ provider_name }}</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="panel">
+    <header>
+      <h1>{{ provider_name }}</h1>
+      <div class="session">
+        {% if session %}
+          <span class="badge ok">Signed in as {{ session.display_name }}</span>
+          <button type="button" id="logout">Sign out</button>
+        {% elif auth_configured %}
+          <span class="badge">Not signed in</span>
+          <button type="button" id="login">Sign in</button>
+        {% else %}
+          <span class="badge warn">Authentication disabled</span>
+        {% endif %}
+      </div>
+    </header>
+
+    <main>
+      <p class="lead">No parts indexed yet.</p>
+      <p class="meta">Connect a library repository to populate the catalog.</p>
+    </main>
+
+    <section class="log">
+      <h2>Session log</h2>
+      <pre id="log">Waiting for KiCad…</pre>
+    </section>
+
+    <script src="/static/kicad-bridge.js"></script>
+    <script>
+      (function () {
+        var logEl = document.getElementById("log");
+        function log(msg) {
+          var stamp = new Date().toLocaleTimeString();
+          logEl.textContent = "[" + stamp + "] " + msg + "\n" + (logEl.textContent === "Waiting for KiCad…" ? "" : logEl.textContent);
+        }
+
+        if (!window.KicadBridge.isEmbedded()) {
+          log("Not running inside KiCad — RPC calls are unavailable.");
+        }
+
+        window.KicadBridge.onMessage(function (env) {
+          if (env.command === "NEW_SESSION") log("Session established with KiCad.");
+        });
+
+        var loginBtn = document.getElementById("login");
+        if (loginBtn) {
+          loginBtn.addEventListener("click", function () {
+            log("Requesting sign-in…");
+            window.KicadBridge.login().then(
+              function () { log("Sign-in accepted; reloading."); window.location.reload(); },
+              function (err) { log("Sign-in failed: " + err.message); }
+            );
+          });
+        }
+
+        var logoutBtn = document.getElementById("logout");
+        if (logoutBtn) {
+          logoutBtn.addEventListener("click", function () {
+            fetch("/api/v1/session/logout", { method: "POST" }).then(function () {
+              window.KicadBridge.logout().catch(function () {});
+              window.location.reload();
+            });
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

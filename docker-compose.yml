@@ -5,4 +5,9 @@ services:
       - "8000:8000"
     environment:
       PORT: 8000
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      OIDC_METADATA_URL: ${OIDC_METADATA_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid,profile,email}
     restart: unless-stopped
