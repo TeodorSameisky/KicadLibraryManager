@@ -11,12 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.kicad.issues import Issue, Severity, errors, warnings
 from app.kicad.library import (
     Footprint,
-    Issue,
     LibraryIndex,
     Model,
-    Severity,
     Symbol,
     normalise_model_ref,
 )
@@ -74,11 +73,11 @@ class Catalog:
 
     @property
     def errors(self) -> list[Issue]:
-        return [i for i in self.all_issues if i.severity is Severity.ERROR]
+        return errors(self.all_issues)
 
     @property
     def warnings(self) -> list[Issue]:
-        return [i for i in self.all_issues if i.severity is Severity.WARNING]
+        return warnings(self.all_issues)
 
     def symbol_count(self) -> int:
         return sum(len(i.symbols) for i in self.indexes.values())

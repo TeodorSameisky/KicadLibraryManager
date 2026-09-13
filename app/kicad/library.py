@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 
+from app.kicad.issues import Issue, Severity
 from app.kicad.sexpr import ParseError, SExpr, loads
 
 SYMBOL_DIR_SUFFIX = ".kicad_symdir"
@@ -25,23 +25,6 @@ LFS_POINTER_PREFIX = "version https://git-lfs.github.com/spec/v1"
 LFS_POINTER_MAX_BYTES = 512
 
 _ENV_VAR = re.compile(r"^\$\{[^}]+\}[/\\]?")
-
-
-class Severity(str, Enum):
-    ERROR = "error"
-    WARNING = "warning"
-
-
-@dataclass(frozen=True)
-class Issue:
-    severity: Severity
-    kind: str
-    message: str
-    path: str | None = None
-
-    def __str__(self) -> str:
-        where = f" [{self.path}]" if self.path else ""
-        return f"{self.severity.value}: {self.message}{where}"
 
 
 @dataclass

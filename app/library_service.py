@@ -17,7 +17,8 @@ from enum import Enum
 from pathlib import Path
 
 from app.kicad.catalog import Catalog
-from app.kicad.library import Issue, index_repository
+from app.kicad.issues import Issue, errors, warnings
+from app.kicad.library import index_repository
 from app.kicad.parts import PartsIndex, check_against_catalog, load_parts
 from app.kicad.sources import Source, SourceError, SyncResult, load_sources, sync
 
@@ -64,11 +65,11 @@ class Snapshot:
 
     @property
     def errors(self) -> list[Issue]:
-        return [i for i in self.issues if i.severity.value == "error"]
+        return errors(self.issues)
 
     @property
     def warnings(self) -> list[Issue]:
-        return [i for i in self.issues if i.severity.value == "warning"]
+        return warnings(self.issues)
 
     def part_count(self) -> int:
         return len(self.parts.parts) if self.parts else 0

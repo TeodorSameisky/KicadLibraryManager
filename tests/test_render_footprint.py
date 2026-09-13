@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.kicad.render_footprint import render_footprint
+from app.kicad.render import render_footprint
 from app.kicad.sexpr import loads
 
 

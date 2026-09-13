@@ -27,6 +27,10 @@ def _csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
+class ConfigError(Exception):
+    """Configuration that cannot produce a working deployment."""
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime settings.
@@ -98,6 +102,52 @@ class Settings:
     @property
     def auth_configured(self) -> bool:
         return bool(self.auth_enabled and self.oidc_metadata_url and self.oidc_client_id)
+
+    def problems(self) -> list[str]:
+        """Misconfigurations worth reporting at startup.
+
+        Each of these otherwise surfaces much later as a puzzle: KiCad loading
+        a panel on the user's own machine, or a login that drops its session
+        with nothing in the logs to say why.
+        """
+        found: list[str] = []
+        parts = urlsplit(self.public_url)
+
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            found.append(
+                f"PUBLIC_URL must be an absolute URL; got {self.public_url!r}")
+        elif parts.hostname in ("localhost", "127.0.0.1", "::1"):
+            found.append(
+                "PUBLIC_URL points at localhost, so KiCad would load the panel "
+                "from each user's own machine; set it to the deployed address")
+
+        if self.auth_enabled and not self.auth_configured:
+            missing = [
+                name for name, value in (
+                    ("OIDC_METADATA_URL", self.oidc_metadata_url),
+                    ("OIDC_CLIENT_ID", self.oidc_client_id),
+                )
+                if not value
+            ]
+            found.append(
+                f"AUTH_ENABLED is on but {', '.join(missing)} is not set")
+
+        if self.auth_configured and parts.scheme != "https":
+            found.append(
+                "OAuth2 requires https: Secure session cookies are dropped over "
+                "http, which presents as a login that silently does nothing")
+
+        if self.cookie_secure and parts.scheme != "https":
+            found.append(
+                "COOKIE_SECURE is on but PUBLIC_URL is http, so the session "
+                "cookie will never be sent back")
+
+        if not (self.capability_direct_downloads or self.capability_inline_payloads):
+            found.append(
+                "KiCad refuses a provider that advertises neither "
+                "CAPABILITY_DIRECT_DOWNLOADS nor CAPABILITY_INLINE_PAYLOADS")
+
+        return found
 
 
 @lru_cache(maxsize=1)

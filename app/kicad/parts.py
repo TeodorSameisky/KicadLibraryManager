@@ -14,13 +14,26 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 
-from app.kicad.library import Issue, Severity
+from app.kicad.issues import Issue, Severity, errors, warnings
 
 IPN_PATTERN = re.compile(r"^(?P<category>[A-Za-z0-9]+)-(?P<number>\d+)$")
+
+
+class AssetResolver(Protocol):
+    """What this module needs of a catalog, without depending on one.
+
+    Parts are loaded before anything knows how many sources exist, and the
+    catalog already knows about libraries; importing it here would make the
+    dependency circular for the sake of two lookups.
+    """
+
+    def find_symbol(self, library: str, name: str) -> list: ...
+
+    def find_footprint(self, library: str, name: str) -> list: ...
 
 PART_STATUSES = ("draft", "approved", "obsolete")
 LIFECYCLES = ("active", "nrnd", "obsolete", "unknown")
@@ -82,11 +95,11 @@ class PartsIndex:
 
     @property
     def errors(self) -> list[Issue]:
-        return [i for i in self.issues if i.severity is Severity.ERROR]
+        return errors(self.issues)
 
     @property
     def warnings(self) -> list[Issue]:
-        return [i for i in self.issues if i.severity is Severity.WARNING]
+        return warnings(self.issues)
 
     def parts_using(self, mpn: str) -> list[Part]:
         """Every IPN listing this manufacturer part.
@@ -304,7 +317,7 @@ def load_parts(root: Path) -> PartsIndex:
     return index
 
 
-def check_against_catalog(index: PartsIndex, catalog) -> None:
+def check_against_catalog(index: PartsIndex, catalog: AssetResolver) -> None:
     """Resolve each part's symbol and footprint against the asset catalog.
 
     Separate from loading because the assets may live in other repositories

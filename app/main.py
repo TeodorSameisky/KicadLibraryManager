@@ -4,18 +4,26 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import asyncio
 import logging
 
-from app import catalog_routes, provider
+from app import provider
+from app.api import catalog as catalog_api
+from app.api import previews as previews_api
+from app.views import pages
 from app.auth import routes as auth_routes
 from app.auth.oidc import OidcVerifier
 from app.auth.session import Session, SessionStore
 from app.config import Settings, get_settings
+from app.observability import (
+    RequestContextMiddleware,
+    configure_logging,
+    unhandled_exception_handler,
+)
 from app.library_service import State, build_service
 from app.middleware import SecurityHeadersMiddleware
 
@@ -35,7 +43,14 @@ async def _initial_index(service) -> None:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    configure_logging()
     settings = get_settings()
+
+    # Reported rather than raised: a container that refuses to start cannot be
+    # inspected, and every one of these is fixable from the deployment's own
+    # settings page while the app keeps serving what it can.
+    for problem in settings.problems():
+        log.error("configuration: %s", problem)
     application.state.session_store = SessionStore(
         nonce_ttl_seconds=settings.nonce_ttl_seconds,
         session_ttl_seconds=settings.session_ttl_seconds,
@@ -65,12 +80,16 @@ app = FastAPI(
 )
 
 app.add_middleware(SecurityHeadersMiddleware, settings=get_settings())
+app.add_middleware(RequestContextMiddleware)
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 app.include_router(provider.router)
-app.include_router(catalog_routes.router)
+app.include_router(catalog_api.router)
+app.include_router(previews_api.router)
+app.include_router(pages.router)
 app.include_router(auth_routes.router)
 
 
@@ -87,27 +106,30 @@ async def index(request: Request, settings: Settings = Depends(get_settings)) ->
     )
 
 
-@app.get("/panel", response_class=HTMLResponse)
-async def panel(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-    session: Session | None = Depends(auth_routes.current_session),
-) -> HTMLResponse:
-    """The page KiCad loads inside its Remote Symbols WebView."""
-    return templates.TemplateResponse(
-        request=request,
-        name="panel.html",
-        context={
-            "auth_configured": settings.auth_configured,
-            "provider_name": settings.provider_name,
-            "session": session,
-            "root_path": settings.root_path,
-            "indexing": request.app.state.library.state is State.SYNCING,
-        },
-    )
-
-
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    """Liveness probe used by Docker and Coolify."""
+    """Liveness: the process is running and can serve.
+
+    Deliberately independent of the library. A source being unreachable is not
+    a reason to restart the container, and a liveness probe that fails for it
+    turns a git outage into a crash loop.
+    """
     return {"status": "ok", "version": app.version}
+
+
+@app.get("/readyz")
+async def readyz(request: Request) -> JSONResponse:
+    """Readiness: whether there is a catalog to serve."""
+    service = request.app.state.library
+    snapshot = service.snapshot
+    ready = service.state is State.READY and snapshot.finished_at is not None
+
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ready" if ready else service.state.value,
+            "parts": snapshot.part_count(),
+            "sources": len(snapshot.sources),
+            "error": service.error,
+        },
+    )
