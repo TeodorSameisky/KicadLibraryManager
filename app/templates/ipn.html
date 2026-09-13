@@ -15,6 +15,11 @@
     <main>
       <p class="lead">{{ part.description or "No description" }}</p>
 
+      <div class="preview-large">
+        <img src="{{ root_path }}/api/v1/parts/{{ part.ipn | urlencode }}/symbol.svg"
+             alt="Symbol for {{ part.ipn }}" />
+      </div>
+
       <h2 class="section">Library</h2>
       <table class="grid">
         <tr><th>Symbol</th><td>{{ part.symbol or "&mdash;" }}</td></tr>

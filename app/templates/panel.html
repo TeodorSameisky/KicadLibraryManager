@@ -105,8 +105,11 @@
             var mpn = p.preferred_mpn
               ? p.preferred_mpn + (p.mpn_count > 1 ? " +" + (p.mpn_count - 1) : "")
               : "no source";
+            var href = BASE + "/ipn/" + encodeURIComponent(p.ipn);
             return '<li class="part">'
-              + '<a class="ipn" href="' + BASE + '/ipn/' + encodeURIComponent(p.ipn) + '">'
+              + '<span class="preview"><img loading="lazy" alt="" src="'
+              + BASE + '/api/v1/parts/' + encodeURIComponent(p.ipn) + '/symbol.svg"></span>'
+              + '<a class="ipn" href="' + href + '">'
               + p.ipn + '</a>'
               + '<span class="desc">' + (p.description || "") + '</span>'
               + '<span class="meta mpn">' + mpn + '</span>'

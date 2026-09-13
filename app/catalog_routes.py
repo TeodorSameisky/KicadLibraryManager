@@ -8,10 +8,12 @@ stable.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from app.kicad.assets import build_assets
-from app.kicad.build import BuildError
+from app.kicad.build import BuildError, build_symbol
+from app.kicad.render import render_symbol
+from app.kicad.sexpr import loads
 from app.config import Settings, get_settings
 from app.library_service import LibraryService, State
 
@@ -143,6 +145,37 @@ async def part_assets(
             for a in bundle.assets
         ],
     }
+
+
+@router.get("/api/v1/parts/{ipn}/symbol.svg")
+async def part_symbol_svg(
+    ipn: str,
+    settings: Settings = Depends(get_settings),
+    service: LibraryService = Depends(get_service),
+) -> Response:
+    """The symbol drawn as SVG, for previewing a part before placing it.
+
+    Rendered from the same payload KiCad receives, so what is on screen is
+    what lands on the schematic.
+    """
+    part = service.get_part(ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail=f"No part {ipn}")
+
+    snapshot = service.snapshot
+    try:
+        payload = build_symbol(part, snapshot.catalog, snapshot.parts,
+                               settings.public_url, settings.remote_library_prefix)
+    except BuildError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    node = loads(payload.text).child("symbol")
+    svg = render_symbol(node, f"{part.ipn} {part.description}".strip())
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/ipn/{ipn}", response_class=HTMLResponse)

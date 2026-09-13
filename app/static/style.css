@@ -167,3 +167,47 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 
 .part .place:disabled { opacity: 0.5; cursor: default; }
+
+/* --- symbol previews --- */
+
+:root {
+  --symbol-line: #14171c;
+  --symbol-fill: #fffbe6;
+  --symbol-pin: #8a94a6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --symbol-line: #e8eaed;
+    --symbol-fill: #2a2410;
+    --symbol-pin: #6b7480;
+  }
+}
+
+:root[data-theme="dark"] {
+  --symbol-line: #e8eaed;
+  --symbol-fill: #2a2410;
+  --symbol-pin: #6b7480;
+}
+
+.preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+}
+
+.preview svg { max-height: 3rem; width: auto; }
+
+.preview-large {
+  padding: 1.25rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+  display: inline-flex;
+}
+
+.preview-large svg { max-height: 11rem; width: auto; }
+
+.part {
+  grid-template-columns: 3.5rem minmax(7rem, auto) 1fr auto auto;
+}

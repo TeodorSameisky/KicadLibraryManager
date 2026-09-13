@@ -131,3 +131,23 @@ def test_endpoints_are_usable_before_the_first_index(client):
     assert status["parts"] == 0
     assert parts["parts"] == []
     assert client.get("/healthz").status_code == 200
+
+
+def test_symbol_svg_is_served(ready):
+    """Rendered from the same payload KiCad receives."""
+    response = ready.get("/api/v1/parts/1102-0001/symbol.svg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.text.startswith("<svg")
+    assert "var(--symbol-line)" in response.text
+
+
+def test_symbol_svg_for_an_unknown_part_is_404(ready):
+    assert ready.get("/api/v1/parts/9999-9999/symbol.svg").status_code == 404
+
+
+def test_the_ipn_page_shows_the_preview(ready):
+    html = ready.get("/ipn/1102-0001").text
+
+    assert "/api/v1/parts/1102-0001/symbol.svg" in html
