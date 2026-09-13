@@ -64,3 +64,14 @@ def test_at_least_one_transport_is_advertised(client):
     """
     caps = client.get("/.well-known/kicad-remote-provider").json()["capabilities"]
     assert caps["direct_downloads_v1"] or caps["inline_payloads_v1"]
+
+
+def test_scopes_stay_small_by_default(client):
+    """KiCad's Windows credential store caps the token bundle at ~1280 chars.
+
+    authentik's "profile" scope carries the group list and can push the bundle
+    past that, so it is not requested unless explicitly configured.
+    """
+    scopes = client.get("/.well-known/kicad-remote-provider").json()["auth"]["scopes"]
+    assert "openid" in scopes
+    assert "profile" not in scopes

@@ -58,6 +58,18 @@ Any OIDC provider works, configured via `OIDC_METADATA_URL` and
 provider's JWKS) and opaque tokens (resolved via `userinfo_endpoint`) are
 supported.
 
+### Keep the requested scopes small
+
+KiCad persists its token bundle (access + refresh + id_token) in the OS
+credential store. On Windows that is the Credential Manager, capped at 2560
+bytes -- about 1280 characters, since it stores UTF-16. An oversized bundle
+fails *after* a successful login with "Failed to store remote provider tokens
+securely".
+
+authentik's `profile` scope includes the user's group list and can push the
+bundle past that limit, so the default is `openid,email`. Drop to `openid`
+alone if it still fails; the panel then shows the subject id instead of a name.
+
 The provider must allow **PKCE on a public client** and a **dynamic 127.0.0.1
 loopback redirect URI**, since KiCad picks an ephemeral port. Keycloak,
 Authentik, Auth0, Zitadel, Google and GitLab all qualify. **GitHub OAuth Apps do

@@ -106,7 +106,12 @@ def get_settings() -> Settings:
         auth_enabled=_bool("AUTH_ENABLED", False),
         oidc_metadata_url=os.environ.get("OIDC_METADATA_URL") or None,
         oidc_client_id=os.environ.get("OIDC_CLIENT_ID") or None,
-        oidc_scopes=_csv("OIDC_SCOPES", ("openid", "profile", "email")),
+        # "profile" is deliberately absent: authentik's profile scope carries the
+        # user's group list, and KiCad persists its token bundle in the OS
+        # credential store -- capped at 2560 bytes (~1280 UTF-16 chars) on
+        # Windows. Oversized tokens fail with "Failed to store remote provider
+        # tokens securely" after an otherwise successful login.
+        oidc_scopes=_csv("OIDC_SCOPES", ("openid", "email")),
         oidc_audience=os.environ.get("OIDC_AUDIENCE") or None,
         nonce_ttl_seconds=_int("NONCE_TTL_SECONDS", 120),
         session_ttl_seconds=_int("SESSION_TTL_SECONDS", 8 * 60 * 60),
