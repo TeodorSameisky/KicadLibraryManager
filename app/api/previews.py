@@ -12,9 +12,14 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
-from app.api.dependencies import get_service, read_asset_text, require_part
+from app.api.dependencies import (
+    find_model,
+    get_service,
+    read_asset_text,
+    require_part,
+)
 from app.config import Settings, get_settings
 from app.kicad.build import BuildError, build_symbol
 from app.kicad.parts import Part
@@ -103,3 +108,27 @@ async def part_footprint_svg(
             detail=f"no footprint available for {ipn}",
         )
     return _svg_response(svg)
+
+
+@router.get("/parts/{ipn}/model.step")
+async def part_model(
+    ipn: str,
+    service: LibraryService = Depends(get_service),
+) -> FileResponse:
+    """The part's 3D model, as the STEP file the library holds.
+
+    Served as-is and tessellated in the browser. Converting here would mean
+    carrying a CAD kernel in the image and spending its CPU on every model,
+    where the browser does it once and caches the result.
+    """
+    part = require_part(ipn, service)
+    path = find_model(part, service.snapshot)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"no 3D model available for {ipn}")
+
+    return FileResponse(
+        path,
+        media_type="model/step",
+        filename=path.name,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

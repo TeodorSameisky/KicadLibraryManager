@@ -186,3 +186,15 @@ def test_the_standalone_svg_endpoints_still_work(ready):
     """The panel's thumbnails use them, where no interaction is needed."""
     assert ready.get("/api/v1/parts/1102-0001/symbol.svg").status_code == 200
     assert ready.get("/api/v1/parts/1102-0001/footprint.svg").status_code == 200
+
+
+def test_model_endpoint_is_404_without_a_model(ready):
+    """The fixture's footprint references no 3D model."""
+    assert ready.get("/api/v1/parts/1102-0001/model.step").status_code == 404
+
+
+def test_the_page_offers_no_viewer_without_a_model(ready):
+    html = ready.get("/ipn/1102-0001").text
+
+    assert "model-viewer" not in html
+    assert "model-viewer.js" not in html, "8MB of kernel is not loaded speculatively"

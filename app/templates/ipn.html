@@ -2,6 +2,7 @@
 
 {% block title %}{{ part.ipn }} &middot; {{ provider_name }}{% endblock %}
 {% block page_class %}page--narrow{% endblock %}
+{% block body_attrs %}data-base-path="{{ root_path }}"{% endblock %}
 
 {% block content %}
   <header class="topbar">
@@ -25,6 +26,17 @@
         <figure class="preview">
           {{ footprint_svg | safe }}
           <figcaption>Footprint</figcaption>
+        </figure>
+      {% endif %}
+      {% if has_model %}
+        <figure class="preview preview--model">
+          <div class="model" id="model-viewer" data-ipn="{{ part.ipn }}">
+            <button type="button" class="button" id="model-load">Show 3D model</button>
+          </div>
+          <figcaption>
+            3D model
+            <span class="model__status" id="model-status"></span>
+          </figcaption>
         </figure>
       {% endif %}
     </div>
@@ -97,4 +109,7 @@
 
 {% block scripts %}
   <script src="{{ root_path }}/static/js/pin-map.js"></script>
+  {% if has_model %}
+    <script src="{{ root_path }}/static/js/model-viewer.js"></script>
+  {% endif %}
 {% endblock %}

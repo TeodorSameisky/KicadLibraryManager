@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
-from app.api.dependencies import get_service, require_part
+from app.api.dependencies import find_model, get_service, require_part
 from app.api.previews import footprint_svg, symbol_svg
 from app.auth.routes import current_session
 from app.auth.session import Session
@@ -59,6 +59,7 @@ async def ipn_page(
             # Inlined rather than linked, so pins and pads can be linked.
             "symbol_svg": symbol_svg(part, snapshot, settings),
             "footprint_svg": footprint_svg(part, snapshot),
+            "has_model": find_model(part, snapshot) is not None,
             "root_path": settings.root_path,
             "provider_name": settings.provider_name,
             "indexing": service.state is State.SYNCING,

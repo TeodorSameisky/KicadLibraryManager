@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import HTTPException, Request
 
+from app.kicad.library import normalise_model_ref
 from app.kicad.parts import Part, PartsIndex
 from app.library_service import LibraryService
 
@@ -51,6 +52,27 @@ def part_sources(part: Part, parts_index: PartsIndex) -> list[dict]:
             }
         )
     return out
+
+
+def find_model(part: Part, snapshot) -> Path | None:
+    """The 3D model a part resolves to, or None.
+
+    Reached through the footprint: a symbol never names a model, and the
+    reference lives in the .kicad_mod alongside its placement offsets.
+    """
+    if not part.footprint or ":" not in part.footprint:
+        return None
+
+    library, name = part.footprint.split(":", 1)
+    located = snapshot.catalog.find_footprint(library, name)
+    if not located:
+        return None
+
+    for ref in located[0].asset.model_refs:
+        found = snapshot.catalog.find_model(normalise_model_ref(ref))
+        if found and not found[0].asset.is_lfs_pointer:
+            return Path(found[0].asset.path)
+    return None
 
 
 def read_asset_text(path: Path) -> str | None:

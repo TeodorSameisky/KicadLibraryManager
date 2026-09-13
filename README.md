@@ -26,6 +26,22 @@ is not — the catalog is currently empty.
 | `/api/v1/parts/{ipn}/assets` | The payload KiCad places |
 | `/api/v1/parts/{ipn}/symbol.svg` | Symbol preview |
 | `/api/v1/parts/{ipn}/footprint.svg` | Land pattern preview |
+| `/api/v1/parts/{ipn}/model.step` | The 3D model, as the library holds it |
+
+### 3D models
+
+STEP is a boundary representation rather than a mesh, so drawing one needs a
+CAD kernel. That kernel runs in the browser: `occt-import-js` is OpenCascade
+compiled to WebAssembly, which keeps a 400MB dependency out of the image and
+its CPU off every page view. It is 7.6MB and loads only when a viewer is
+opened, never speculatively.
+
+KiCad 10 ships STEP only; the VRML meshes earlier versions carried are gone,
+so there is no lighter format to fall back on.
+
+Models carry no single colour -- each face has its own, which is what
+separates a resistor's black body from its terminations -- so faces become
+geometry groups with a material each.
 
 Previews are drawn from the parsed files rather than by shelling out to
 KiCad. The part page inlines them so that hovering a pin highlights the pad
