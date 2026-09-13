@@ -122,6 +122,9 @@ def get_settings() -> Settings:
         max_download_bytes=_int("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
         supported_asset_types=_csv("SUPPORTED_ASSET_TYPES", ("symbol", "footprint", "3dmodel")),
         capability_parts=_bool("CAPABILITY_PARTS", False),
-        capability_direct_downloads=_bool("CAPABILITY_DIRECT_DOWNLOADS", False),
-        capability_inline_payloads=_bool("CAPABILITY_INLINE_PAYLOADS", False),
+        # KiCad refuses to register a provider unless at least one asset
+        # transport is advertised, so these default on even before the catalog
+        # can serve anything.
+        capability_direct_downloads=_bool("CAPABILITY_DIRECT_DOWNLOADS", True),
+        capability_inline_payloads=_bool("CAPABILITY_INLINE_PAYLOADS", True),
     )

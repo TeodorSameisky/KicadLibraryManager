@@ -53,3 +53,14 @@ def test_bootstrap_url_shares_origin_with_panel(client):
     panel = urlsplit(body["panel_url"])
     bootstrap = urlsplit(body["session_bootstrap_url"])
     assert (panel.scheme, panel.netloc) == (bootstrap.scheme, bootstrap.netloc)
+
+
+def test_at_least_one_transport_is_advertised(client):
+    """KiCad rejects registration outright when neither transport is enabled.
+
+    Observed from KiCad 10: "Remote provider metadata must enable
+    direct_downloads_v1, inline_payloads_v1, or both." The JSON schema permits
+    all-false, so only this test catches it.
+    """
+    caps = client.get("/.well-known/kicad-remote-provider").json()["capabilities"]
+    assert caps["direct_downloads_v1"] or caps["inline_payloads_v1"]
