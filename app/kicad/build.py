@@ -71,6 +71,54 @@ def _replace_property(target: SExpr, prop: SExpr) -> None:
     target.items.insert(last, copy.deepcopy(prop))
 
 
+def _split_unit_suffix(unit_name: str, symbol_name: str) -> tuple[int, int] | None:
+    """Read the trailing _<unit>_<style> from a unit sub-symbol's name."""
+    if not unit_name.startswith(symbol_name + "_"):
+        return None
+    parts = unit_name[len(symbol_name) + 1:].split("_")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        return None
+    return int(parts[0]), int(parts[1])
+
+
+def _merge_common_units(symbol: SExpr, name: str) -> None:
+    """Fold unit 0 into every real unit.
+
+    Unit 0 means "common to all units", so distributing it changes nothing
+    semantically. It is done because KiCad's remote-symbol receive path drops
+    symbols that use it: every symbol that arrives intact from a working
+    provider carries a single _1_1 unit holding both graphics and pins.
+    """
+    units: dict[tuple[int, int], SExpr] = {}
+    for sub in list(symbol.children("symbol")):
+        atoms = sub.atoms()
+        parsed = _split_unit_suffix(atoms[0], name) if atoms else None
+        if parsed is None:
+            continue
+        units[parsed] = sub
+        symbol.items.remove(sub)
+
+    if not units:
+        return
+
+    styles = {style for _, style in units}
+    numbers = {unit for unit, _ in units if unit > 0}
+    if not numbers:
+        numbers = {1}  # graphics existed only as unit 0
+
+    for style in sorted(styles):
+        common = units.get((0, style))
+        for number in sorted(numbers):
+            body = [i for i in (common.items[2:] if common else [])]
+            own = units.get((number, style))
+            if own is not None:
+                body.extend(own.items[2:])
+            if not body:
+                continue
+            merged = SExpr(items=[Atom("symbol"), f"{name}_{number}_{style}", *body])
+            symbol.items.append(merged)
+
+
 def flatten(nodes: list[SExpr], name: str) -> SExpr:
     """Collapse an inheritance chain into one self-contained symbol.
 
@@ -102,6 +150,15 @@ def flatten(nodes: list[SExpr], name: str) -> SExpr:
         i for i in base.items
         if not (isinstance(i, SExpr) and i.head == "extends")
     ]
+
+    # Keep embedded_fonts last, as KiCad writes it.
+    trailing = [i for i in base.items
+                if isinstance(i, SExpr) and i.head == "embedded_fonts"]
+    for item in trailing:
+        base.items.remove(item)
+
+    _merge_common_units(base, name)
+    base.items.extend(trailing)
     return base
 
 

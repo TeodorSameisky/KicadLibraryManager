@@ -12,14 +12,39 @@ HEAD = (
 
 
 def symbol(name, extends=None, footprint="", units=0):
-    body = HEAD + f'\t(symbol "{name}"\n'
+    """A symbol file.
+
+    `units` follows KiCad's convention: unit 0 carries the body shared by all
+    units, unit 1 onwards carry the pins.
+    """
+    lines = [HEAD, f'\t(symbol "{name}"']
     if extends:
-        body += f'\t\t(extends "{extends}")\n'
-    body += f'\t\t(property "Value" "{name}")\n'
-    body += f'\t\t(property "Footprint" "{footprint}")\n'
+        lines.append(f'\t\t(extends "{extends}")')
+    lines.append(f'\t\t(property "Value" "{name}")')
+    lines.append(f'\t\t(property "Footprint" "{footprint}")')
+
     for i in range(units):
-        body += f'\t\t(symbol "{name}_{i}_1")\n'
-    return body + "\t)\n)\n"
+        lines.append(f'\t\t(symbol "{name}_{i}_1"')
+        if i == 0:
+            lines += [
+                "\t\t\t(rectangle",
+                "\t\t\t\t(start -1.016 -2.54)",
+                "\t\t\t\t(end 1.016 2.54)",
+                "\t\t\t)",
+            ]
+        else:
+            for y, rot, num in (("3.81", "270", "1"), ("-3.81", "90", "2")):
+                lines += [
+                    "\t\t\t(pin passive line",
+                    f"\t\t\t\t(at 0 {y} {rot})",
+                    "\t\t\t\t(length 1.27)",
+                    f'\t\t\t\t(number "{num}")',
+                    "\t\t\t)",
+                ]
+        lines.append("\t\t)")
+
+    lines += ["\t)", ")", ""]
+    return "\n".join(lines)
 
 
 def footprint(name, model=None):

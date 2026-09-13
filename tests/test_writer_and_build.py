@@ -162,13 +162,67 @@ def test_inheritance_is_flattened_into_one_symbol(lib):
     assert list(placed.children("symbol")), "the parent's graphics came across"
 
 
-def test_flattened_units_are_renamed(lib):
-    """A unit still named after the parent is drawn as a different symbol."""
+def test_common_unit_is_merged_into_a_real_unit(lib):
+    """KiCad's remote-symbol path drops symbols that use unit 0.
+
+    Unit 0 means "common to all units", so folding it into each real unit
+    changes nothing semantically -- and every symbol that arrives intact from
+    a working provider carries a single _1_1 unit.
+    """
     tree, _, _ = parse(lib.build())
     placed = list(tree.children("symbol"))[0]
 
     units = [u.atoms()[0] for u in placed.children("symbol")]
-    assert units == ["R_0603_0_1", "R_0603_1_1"]
+    assert units == ["R_0603_1_1"]
+
+    heads = [i.head for i in placed.child("symbol").items if hasattr(i, "head")]
+    assert "rectangle" in heads, "the body came from unit 0"
+    assert heads.count("pin") == 2, "the pins came from unit 1"
+
+
+def test_common_unit_is_distributed_across_several_units():
+    """A quad opamp shares one body across four units."""
+    from app.kicad.build import flatten
+    from app.kicad.sexpr import loads as parse_sexpr
+
+    node = parse_sexpr(
+        '(symbol "X"'
+        ' (symbol "X_0_1" (rectangle (start 0 0)))'
+        ' (symbol "X_1_1" (pin passive line (at 0 1 0)))'
+        ' (symbol "X_2_1" (pin passive line (at 0 2 0)))'
+        ")"
+    )
+    flat = flatten([node], "X")
+
+    units = {u.atoms()[0]: u for u in flat.children("symbol")}
+    assert set(units) == {"X_1_1", "X_2_1"}
+    for unit in units.values():
+        heads = [i.head for i in unit.items if hasattr(i, "head")]
+        assert "rectangle" in heads, "the shared body reaches every unit"
+        assert "pin" in heads
+
+
+def test_a_symbol_already_using_unit_one_is_left_alone():
+    from app.kicad.build import flatten
+    from app.kicad.sexpr import loads as parse_sexpr
+
+    node = parse_sexpr('(symbol "X" (symbol "X_1_1" (pin passive line (at 0 0 0))))')
+    flat = flatten([node], "X")
+
+    assert [u.atoms()[0] for u in flat.children("symbol")] == ["X_1_1"]
+
+
+def test_embedded_fonts_stays_last():
+    """KiCad writes it after the units; anything else looks hand-edited."""
+    from app.kicad.build import flatten
+    from app.kicad.sexpr import loads as parse_sexpr
+
+    node = parse_sexpr(
+        '(symbol "X" (symbol "X_0_1" (rectangle (start 0 0))) (embedded_fonts no))'
+    )
+    flat = flatten([node], "X")
+
+    assert flat.items[-1].head == "embedded_fonts"
 
 
 def test_child_overrides_win_over_the_ancestor(lib):
