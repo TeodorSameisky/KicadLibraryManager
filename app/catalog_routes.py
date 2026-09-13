@@ -122,7 +122,8 @@ async def part_assets(
 
     snapshot = service.snapshot
     try:
-        bundle = build_assets(part, snapshot.catalog, snapshot.parts, settings.public_url)
+        bundle = build_assets(part, snapshot.catalog, snapshot.parts,
+                              settings.public_url, settings.remote_library_prefix)
     except BuildError as exc:
         # Refusing beats placing a part with no body or no land pattern.
         raise HTTPException(status_code=409, detail=str(exc)) from exc

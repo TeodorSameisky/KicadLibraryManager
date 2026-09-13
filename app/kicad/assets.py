@@ -14,7 +14,7 @@ from pathlib import Path
 
 import zstandard
 
-from app.kicad.build import BuildError, build_symbol
+from app.kicad.build import DEFAULT_REMOTE_PREFIX, BuildError, build_symbol
 from app.kicad.catalog import Catalog
 from app.kicad.library import normalise_model_ref
 from app.kicad.parts import Part, PartsIndex
@@ -91,11 +91,12 @@ def build_assets(
     catalog: Catalog,
     parts_index: PartsIndex,
     public_url: str,
+    remote_prefix: str = DEFAULT_REMOTE_PREFIX,
 ) -> AssetBundle:
     """Everything KiCad needs to place `part`, in the order it should be sent."""
     bundle = AssetBundle(ipn=part.ipn)
 
-    symbol = build_symbol(part, catalog, parts_index, public_url)
+    symbol = build_symbol(part, catalog, parts_index, public_url, remote_prefix)
 
     footprint = None
     if part.footprint and ":" in part.footprint:

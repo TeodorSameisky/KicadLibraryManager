@@ -228,8 +228,9 @@ def test_embedded_fonts_stays_last():
 def test_child_overrides_win_over_the_ancestor(lib):
     _, _, props = parse(lib.build())
 
-    # R_0603 sets the footprint; R leaves it empty.
-    assert props["Footprint"] == "Passives:R_0603_1608Metric"
+    # R_0603 sets the footprint; R leaves it empty. The value is then rewritten
+    # to the library KiCad will file it under.
+    assert props["Footprint"] == "remote_passives:R_0603_1608Metric"
 
 
 def test_ipn_fields_are_injected(lib):
@@ -238,7 +239,7 @@ def test_ipn_fields_are_injected(lib):
     assert props["IPN"] == "1102-0001"
     assert props["Value"] == "10k"
     assert props["Tolerance"] == "1%"
-    assert props["Footprint"] == "Passives:R_0603_1608Metric"
+    assert props["Footprint"] == "remote_passives:R_0603_1608Metric"
     assert props["Description"] == "Resistor 10k 1% 0603"
 
 
@@ -311,3 +312,48 @@ def test_coordinate_lists_are_packed_and_wrapped():
 def test_a_short_point_list_stays_on_one_line():
     rendered = dumps(loads("(polyline (pts (xy 0 0) (xy 1 1)))"))
     assert "(xy 0 0) (xy 1 1)" in rendered
+
+
+def test_footprint_reference_points_where_kicad_files_it(lib):
+    """KiCad saves received footprints under <prefix>_<sanitised library>.
+
+    A symbol referring to the source library name points at a library the user
+    does not have, and "Update PCB from Schematic" fails with footprint not
+    found -- even when the footprint was sent successfully.
+    """
+    _, _, props = parse(lib.build())
+
+    assert props["Footprint"] == "remote_passives:R_0603_1608Metric"
+
+
+def test_the_remote_prefix_is_configurable(lib):
+    """KiCad lets the user change it in Remote Symbol Settings."""
+    from app.kicad.build import build_symbol as build
+    from app.kicad.catalog import Catalog as Cat
+    from app.kicad.library import index_repository as index
+    from app.kicad.parts import load_parts as load
+
+    cat = Cat()
+    cat.add("company", index(lib.root))
+    cat.check_references()
+    parts = load(lib.root)
+    payload = build(parts.parts["1102-0001"], cat, parts, "https://x", remote_prefix="corp")
+
+    placed = list(loads(payload.text).children("symbol"))[0]
+    props = {p.atoms()[0]: p.atoms()[1] for p in placed.children("property")}
+    assert props["Footprint"] == "corp_passives:R_0603_1608Metric"
+
+
+@pytest.mark.parametrize(
+    "library,expected",
+    [
+        ("Passives", "remote_passives"),
+        ("PadsLib", "remote_padslib"),
+        ("My Library", "remote_my_library"),
+        ("Connector_PinHeader_2.54mm", "remote_connector_pinheader_2_54mm"),
+    ],
+)
+def test_library_sanitisation(library, expected):
+    from app.kicad.build import remote_library_name
+
+    assert remote_library_name(library) == expected

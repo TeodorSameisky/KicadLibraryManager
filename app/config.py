@@ -58,6 +58,7 @@ class Settings:
 
     library_sources: str
     library_workdir: str
+    remote_library_prefix: str
 
     allow_insecure_localhost: bool
     max_download_bytes: int
@@ -122,6 +123,7 @@ def get_settings() -> Settings:
         cookie_secure=_bool("COOKIE_SECURE", public_url.startswith("https://")),
         library_sources=os.environ.get("LIBRARY_SOURCES", ""),
         library_workdir=os.environ.get("LIBRARY_WORKDIR", "/data/sources"),
+        remote_library_prefix=os.environ.get("REMOTE_LIBRARY_PREFIX", "remote"),
         hsts_enabled=_bool("HSTS_ENABLED", True),
         hsts_max_age=_int("HSTS_MAX_AGE", 31536000),
         hsts_include_subdomains=_bool("HSTS_INCLUDE_SUBDOMAINS", False),

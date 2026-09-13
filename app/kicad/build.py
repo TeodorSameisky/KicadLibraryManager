@@ -22,6 +22,11 @@ from app.kicad.writer import dumps, sexpr, set_property
 IPN_FIELD = "IPN"
 DATASHEET_FIELD = "Datasheet"
 
+# KiCad files received assets under "<prefix>_<sanitised library>", so a symbol
+# referring to its source library name points at a library the user does not
+# have. The prefix is configurable in KiCad; "remote" is its default.
+DEFAULT_REMOTE_PREFIX = "remote"
+
 
 class BuildError(Exception):
     """A part could not be turned into something placeable."""
@@ -49,6 +54,16 @@ def _load_symbol_node(symbol: Symbol) -> SExpr:
     if node is None:
         raise BuildError(f"{symbol.path} contains no symbol")
     return node
+
+
+def sanitise_library(name: str) -> str:
+    """KiCad lowercases the library name and replaces awkward characters."""
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)
+    return cleaned.lower()
+
+
+def remote_library_name(library: str, prefix: str = DEFAULT_REMOTE_PREFIX) -> str:
+    return f"{prefix}_{sanitise_library(library)}"
 
 
 def _replace_property(target: SExpr, prop: SExpr) -> None:
@@ -176,6 +191,7 @@ def build_symbol(
     catalog: Catalog,
     parts_index: PartsIndex,
     public_url: str,
+    remote_prefix: str = DEFAULT_REMOTE_PREFIX,
 ) -> SymbolPayload:
     """Render the placeable symbol for `part`.
 
@@ -222,7 +238,12 @@ def build_symbol(
     for key, value in part.fields.items():
         set_property(placed, key, value)
 
-    if part.footprint:
+    # Rewritten to where KiCad will actually file it, not where we keep it.
+    if part.footprint and ":" in part.footprint:
+        fp_library, fp_name = part.footprint.split(":", 1)
+        set_property(placed, "Footprint",
+                     f"{remote_library_name(fp_library, remote_prefix)}:{fp_name}")
+    elif part.footprint:
         set_property(placed, "Footprint", part.footprint)
 
     preferred = part.preferred_mpn
