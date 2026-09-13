@@ -27,13 +27,19 @@
     </header>
 
     <main>
-      <p class="lead">No parts indexed yet.</p>
-      <p class="meta">Connect a library repository to populate the catalog.</p>
+      <div class="search">
+        <input type="search" id="search" placeholder="Search by IPN, description, value or MPN…"
+               autocomplete="off" />
+        <span class="meta" id="count"></span>
+      </div>
+      <div id="parts" class="parts">
+        <p class="meta" id="parts-status">Loading…</p>
+      </div>
     </main>
 
     <section class="log">
       <h2>Session log</h2>
-      <pre id="log">Waiting for KiCad…</pre>
+      <pre id="log">Waiting for KiCadâ€¦</pre>
     </section>
 
     <script>
@@ -47,7 +53,7 @@
 
         function log(msg) {
           var stamp = new Date().toLocaleTimeString();
-          var prev = logEl.textContent === "Waiting for KiCad…" ? "" : "\n" + logEl.textContent;
+          var prev = logEl.textContent === "Waiting for KiCadâ€¦" ? "" : "\n" + logEl.textContent;
           logEl.textContent = "[" + stamp + "] " + msg + prev;
         }
 
@@ -73,8 +79,63 @@
             .catch(function (err) { log("Could not read session: " + err.message); });
         }
 
+        var partsEl = document.getElementById("parts");
+        var statusEl = document.getElementById("parts-status");
+        var countEl = document.getElementById("count");
+        var searchEl = document.getElementById("search");
+
+        function renderParts(data) {
+          if (data.state === "syncing") {
+            partsEl.innerHTML = '<p class="meta">Indexing the library…</p>';
+            setTimeout(loadParts, 2000);
+            return;
+          }
+          if (data.state === "empty") {
+            partsEl.innerHTML = '<p class="meta">No library sources configured.</p>';
+            return;
+          }
+          if (!data.parts.length) {
+            partsEl.innerHTML = '<p class="meta">No matching parts.</p>';
+            countEl.textContent = data.total ? data.total + " in catalog" : "";
+            return;
+          }
+          countEl.textContent = data.parts.length + " of " + data.total;
+
+          var rows = data.parts.map(function (p) {
+            var mpn = p.preferred_mpn
+              ? p.preferred_mpn + (p.mpn_count > 1 ? " +" + (p.mpn_count - 1) : "")
+              : "no source";
+            return '<li class="part">'
+              + '<a class="ipn" href="' + BASE + '/ipn/' + encodeURIComponent(p.ipn) + '">'
+              + p.ipn + '</a>'
+              + '<span class="desc">' + (p.description || "") + '</span>'
+              + '<span class="meta mpn">' + mpn + '</span>'
+              + '</li>';
+          });
+          partsEl.innerHTML = '<ul class="part-list">' + rows.join("") + '</ul>';
+        }
+
+        function loadParts() {
+          var q = searchEl ? searchEl.value : "";
+          fetch(BASE + "/api/v1/parts?q=" + encodeURIComponent(q), { credentials: "same-origin" })
+            .then(function (r) { return r.json(); })
+            .then(renderParts)
+            .catch(function (err) {
+              partsEl.innerHTML = '<p class="meta">Could not load parts: ' + err.message + '</p>';
+            });
+        }
+
+        var searchTimer = null;
+        if (searchEl) {
+          searchEl.addEventListener("input", function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(loadParts, 150);
+          });
+        }
+        loadParts();
+
         if (!window.KicadBridge.isEmbedded()) {
-          log("Not running inside KiCad — RPC calls are unavailable.");
+          log("Not running inside KiCad â€” RPC calls are unavailable.");
         }
 
         window.KicadBridge.onMessage(function (env) {
@@ -87,7 +148,7 @@
             var done = function () { action.disabled = false; };
 
             if (signedIn) {
-              log("Signing out…");
+              log("Signing outâ€¦");
               fetch(BASE + "/api/v1/session/logout", { method: "POST", credentials: "same-origin" })
                 .then(refreshSession)
                 .then(function () {
@@ -96,7 +157,7 @@
                 })
                 .then(done, done);
             } else {
-              log("Requesting sign-in…");
+              log("Requesting sign-inâ€¦");
               window.KicadBridge.login()
                 .then(function () { return refreshSession(); })
                 .then(function () {

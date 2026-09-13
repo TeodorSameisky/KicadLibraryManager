@@ -56,6 +56,9 @@ class Settings:
     hsts_include_subdomains: bool
     hsts_preload: bool
 
+    library_sources: str
+    library_workdir: str
+
     allow_insecure_localhost: bool
     max_download_bytes: int
     supported_asset_types: tuple[str, ...]
@@ -117,6 +120,8 @@ def get_settings() -> Settings:
         session_ttl_seconds=_int("SESSION_TTL_SECONDS", 8 * 60 * 60),
         cookie_name=os.environ.get("SESSION_COOKIE_NAME", "klm_session"),
         cookie_secure=_bool("COOKIE_SECURE", public_url.startswith("https://")),
+        library_sources=os.environ.get("LIBRARY_SOURCES", ""),
+        library_workdir=os.environ.get("LIBRARY_WORKDIR", "/data/sources"),
         hsts_enabled=_bool("HSTS_ENABLED", True),
         hsts_max_age=_int("HSTS_MAX_AGE", 31536000),
         hsts_include_subdomains=_bool("HSTS_INCLUDE_SUBDOMAINS", False),

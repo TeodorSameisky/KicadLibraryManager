@@ -20,7 +20,28 @@ is not — the catalog is currently empty.
 | `/session/consume?n=` | Redeems a nonce, sets the session cookie |
 | `/api/v1/session/me` | Current session |
 | `/api/v1/session/logout` | Clears the session |
+| `/api/v1/status` | Index state, per source |
+| `/api/v1/parts` | Part search |
+| `/api/v1/parts/{ipn}` | One part with its approved sources |
+| `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols |
 | `/healthz` | Liveness probe |
+
+## The library
+
+Parts come from one or more git repositories, configured as JSON in
+`LIBRARY_SOURCES`. Several are supported because a company library, the
+official KiCad libraries and a vendor library are separate repositories.
+
+Clones live under `LIBRARY_WORKDIR`, which **must be a persistent volume** --
+re-cloning a library with 3D models on every deploy is slow and pointless.
+
+Indexing runs in the background at startup. Cloning takes long enough that
+doing it inline would fail the container health check, so the app serves a
+documented `syncing` state until the first index lands.
+
+Only **IPNs** are placed in KiCad. An IPN names a symbol and a footprint,
+carries field values, and lists the approved manufacturer parts; MPNs are
+separate documents because one can satisfy several IPNs.
 
 ## Run locally
 

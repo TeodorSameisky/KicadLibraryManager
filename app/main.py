@@ -8,14 +8,30 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import provider
+import asyncio
+import logging
+
+from app import catalog_routes, provider
 from app.auth import routes as auth_routes
 from app.auth.oidc import OidcVerifier
 from app.auth.session import Session, SessionStore
 from app.config import Settings, get_settings
+from app.library_service import State, build_service
 from app.middleware import SecurityHeadersMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
+
+log = logging.getLogger(__name__)
+
+
+async def _initial_index(service) -> None:
+    try:
+        await service.refresh()
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # a bad source must not take the whole app down
+        log.exception("initial library index failed")
+
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -25,7 +41,19 @@ async def lifespan(application: FastAPI):
         session_ttl_seconds=settings.session_ttl_seconds,
     )
     application.state.oidc_verifier = OidcVerifier(settings)
+    application.state.templates = templates
+
+    service = build_service(settings.library_sources, Path(settings.library_workdir))
+    application.state.library = service
+
+    # Cloning a library with 3D models takes long enough that doing it here
+    # would fail the container health check, so the first index runs in the
+    # background and the panel reports progress until it lands.
+    task = asyncio.create_task(_initial_index(service))
+
     yield
+
+    task.cancel()
 
 
 app = FastAPI(
@@ -42,6 +70,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 app.include_router(provider.router)
+app.include_router(catalog_routes.router)
 app.include_router(auth_routes.router)
 
 
@@ -73,6 +102,7 @@ async def panel(
             "provider_name": settings.provider_name,
             "session": session,
             "root_path": settings.root_path,
+            "indexing": request.app.state.library.state is State.SYNCING,
         },
     )
 

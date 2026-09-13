@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ part.ipn }} &middot; {{ provider_name }}</title>
+    <link rel="stylesheet" href="{{ root_path }}/static/style.css" />
+  </head>
+  <body class="panel">
+    <header>
+      <h1>{{ part.ipn }}</h1>
+      <span class="badge {{ 'ok' if part.status == 'approved' else 'warn' }}">{{ part.status }}</span>
+    </header>
+
+    <main>
+      <p class="lead">{{ part.description or "No description" }}</p>
+
+      <h2 class="section">Library</h2>
+      <table class="grid">
+        <tr><th>Symbol</th><td>{{ part.symbol or "&mdash;" }}</td></tr>
+        <tr><th>Footprint</th><td>{{ part.footprint or "&mdash;" }}</td></tr>
+      </table>
+
+      {% if part.fields %}
+        <h2 class="section">Fields</h2>
+        <table class="grid">
+          {% for key, value in part.fields.items() %}
+            <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+          {% endfor %}
+        </table>
+      {% endif %}
+
+      <h2 class="section">Approved sources</h2>
+      {% if mpns %}
+        <table class="grid wide">
+          <thead>
+            <tr><th>MPN</th><th>Manufacturer</th><th>Lifecycle</th><th>Datasheet</th></tr>
+          </thead>
+          <tbody>
+            {% for row in mpns %}
+              <tr>
+                <td>
+                  {{ row.ref.mpn }}
+                  {% if row.ref.preferred %}<span class="badge ok">preferred</span>{% endif %}
+                </td>
+                <td>{{ row.detail.manufacturer if row.detail else "&mdash;" }}</td>
+                <td>
+                  {% if row.detail %}
+                    <span class="badge {{ 'warn' if row.detail.lifecycle != 'active' else '' }}">
+                      {{ row.detail.lifecycle }}</span>
+                  {% else %}
+                    <span class="badge warn">unknown to the library</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.detail and row.detail.datasheet %}
+                    <a href="{{ row.detail.datasheet }}" rel="noopener noreferrer" target="_blank">datasheet</a>
+                  {% else %}&mdash;{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="meta">No manufacturer parts listed.</p>
+      {% endif %}
+
+      <p class="meta back"><a href="{{ root_path }}/panel">&larr; Back to the catalog</a></p>
+    </main>
+  </body>
+</html>

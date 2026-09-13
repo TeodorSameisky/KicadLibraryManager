@@ -125,6 +125,9 @@ def sync(source: Source, workdir: Path) -> SyncResult:
 
     try:
         before = _git("rev-parse", "HEAD", cwd=target)
+        # The configured URL may have changed since this clone was made; without
+        # this the fetch silently keeps pulling from the old repository.
+        _git("remote", "set-url", "origin", source.url, cwd=target)
         _git("fetch", "--depth", "1", "origin", source.ref, cwd=target)
         _git("reset", "--hard", "FETCH_HEAD", cwd=target)
         # Files deleted upstream survive a reset if they are untracked here.
