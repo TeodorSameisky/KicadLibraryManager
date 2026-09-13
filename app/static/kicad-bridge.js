@@ -58,6 +58,7 @@
           parameters: { server_name: "KiCad Library Manager", server_version: "0.1.0" },
         })
       );
+      resolveSessionWaiters();
       listeners.forEach((fn) => fn(env));
       return;
     }
@@ -111,6 +112,32 @@
     });
   }
 
+  const sessionWaiters = [];
+
+  function resolveSessionWaiters() {
+    while (sessionWaiters.length) {
+      const w = sessionWaiters.shift();
+      clearTimeout(w.timer);
+      w.resolve(sessionId);
+    }
+  }
+
+  /* Resolves once KiCad has opened a session, or rejects after timeoutMs.
+     KiCad sends NEW_SESSION when it loads the page, so a caller that runs
+     first would otherwise fail for no reason. */
+  function whenReady(timeoutMs) {
+    if (sessionId) return Promise.resolve(sessionId);
+    return new Promise(function (resolve, reject) {
+      const w = { resolve: resolve };
+      w.timer = setTimeout(function () {
+        const i = sessionWaiters.indexOf(w);
+        if (i >= 0) sessionWaiters.splice(i, 1);
+        reject(new Error("KiCad did not open a session"));
+      }, timeoutMs || 5000);
+      sessionWaiters.push(w);
+    });
+  }
+
   const existing = window.kiclient || {};
   const previous = typeof existing.postMessage === "function" ? existing.postMessage.bind(existing) : null;
   existing.postMessage = function (incoming) {
@@ -121,8 +148,15 @@
 
   window.KicadBridge = {
     send: send,
-    login: function () { return send("REMOTE_LOGIN", { interactive: true }); },
-    logout: function () { return send("LOGOUT", {}); },
+    whenReady: whenReady,
+    login: function () {
+      return whenReady(8000).then(function () {
+        return send("REMOTE_LOGIN", { interactive: true });
+      });
+    },
+    logout: function () {
+      return whenReady(8000).then(function () { return send("LOGOUT", {}); });
+    },
     onMessage: function (fn) { listeners.add(fn); return function () { listeners.delete(fn); }; },
     sessionId: function () { return sessionId; },
     isEmbedded: function () { return postToKiCad === null ? false : !!(

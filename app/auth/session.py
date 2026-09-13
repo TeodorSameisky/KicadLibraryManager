@@ -18,6 +18,20 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def friendly_name(subject: str, claims: dict) -> str:
+    """A human-usable label for a principal.
+
+    The profile scope is deliberately not requested (it inflates the token past
+    KiCad's credential-store limit), so name claims are often absent and the
+    subject is an opaque hash. Showing all 64 characters of it helps nobody.
+    """
+    for key in ("name", "preferred_username", "email"):
+        value = claims.get(key)
+        if value:
+            return str(value)
+    return f"user {subject[:8]}" if len(subject) > 12 else subject
+
+
 @dataclass(frozen=True)
 class Session:
     subject: str
@@ -26,11 +40,7 @@ class Session:
 
     @property
     def display_name(self) -> str:
-        for key in ("name", "preferred_username", "email"):
-            value = self.claims.get(key)
-            if value:
-                return str(value)
-        return self.subject
+        return friendly_name(self.subject, self.claims)
 
 
 @dataclass(frozen=True)

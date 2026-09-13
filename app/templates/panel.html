@@ -5,19 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ provider_name }}</title>
     <link rel="stylesheet" href="{{ root_path }}/static/style.css" />
+    <!-- Loaded in head, and not deferred: KiCad injects NEW_SESSION as soon as
+         the page loads, and a bridge installed later would miss it. -->
+    <script src="{{ root_path }}/static/kicad-bridge.js"></script>
   </head>
   <body class="panel">
     <header>
       <h1>{{ provider_name }}</h1>
-      <div class="session">
+      <div class="session" id="session">
         {% if session %}
-          <span class="badge ok">Signed in as {{ session.display_name }}</span>
-          <button type="button" id="logout">Sign out</button>
+          <span class="badge ok" id="session-badge">Signed in as {{ session.display_name }}</span>
         {% elif auth_configured %}
-          <span class="badge">Not signed in</span>
-          <button type="button" id="login">Sign in</button>
+          <span class="badge" id="session-badge">Not signed in</span>
         {% else %}
-          <span class="badge warn">Authentication disabled</span>
+          <span class="badge warn" id="session-badge">Authentication disabled</span>
+        {% endif %}
+        {% if auth_configured %}
+          <button type="button" id="session-action">{{ "Sign out" if session else "Sign in" }}</button>
         {% endif %}
       </div>
     </header>
@@ -32,14 +36,41 @@
       <pre id="log">Waiting for KiCad…</pre>
     </section>
 
-    <script src="{{ root_path }}/static/kicad-bridge.js"></script>
     <script>
       (function () {
         var BASE = "{{ root_path }}";
+        var AUTH = {{ "true" if auth_configured else "false" }};
         var logEl = document.getElementById("log");
+        var badge = document.getElementById("session-badge");
+        var action = document.getElementById("session-action");
+        var signedIn = {{ "true" if session else "false" }};
+
         function log(msg) {
           var stamp = new Date().toLocaleTimeString();
-          logEl.textContent = "[" + stamp + "] " + msg + "\n" + (logEl.textContent === "Waiting for KiCad…" ? "" : logEl.textContent);
+          var prev = logEl.textContent === "Waiting for KiCad…" ? "" : "\n" + logEl.textContent;
+          logEl.textContent = "[" + stamp + "] " + msg + prev;
+        }
+
+        /* Re-render session state from the server instead of reloading: a
+           reload drops the KiCad RPC session, because KiCad only sends
+           NEW_SESSION for navigations it initiates itself. */
+        function refreshSession() {
+          return fetch(BASE + "/api/v1/session/me", { credentials: "same-origin" })
+            .then(function (r) { return r.json(); })
+            .then(function (me) {
+              signedIn = !!me.authenticated;
+              if (!AUTH) return;
+              if (signedIn) {
+                badge.textContent = "Signed in as " + me.display_name;
+                badge.className = "badge ok";
+                if (action) action.textContent = "Sign out";
+              } else {
+                badge.textContent = "Not signed in";
+                badge.className = "badge";
+                if (action) action.textContent = "Sign in";
+              }
+            })
+            .catch(function (err) { log("Could not read session: " + err.message); });
         }
 
         if (!window.KicadBridge.isEmbedded()) {
@@ -50,24 +81,30 @@
           if (env.command === "NEW_SESSION") log("Session established with KiCad.");
         });
 
-        var loginBtn = document.getElementById("login");
-        if (loginBtn) {
-          loginBtn.addEventListener("click", function () {
-            log("Requesting sign-in…");
-            window.KicadBridge.login().then(
-              function () { log("Sign-in accepted; reloading."); window.location.reload(); },
-              function (err) { log("Sign-in failed: " + err.message); }
-            );
-          });
-        }
+        if (action) {
+          action.addEventListener("click", function () {
+            action.disabled = true;
+            var done = function () { action.disabled = false; };
 
-        var logoutBtn = document.getElementById("logout");
-        if (logoutBtn) {
-          logoutBtn.addEventListener("click", function () {
-            fetch(BASE + "/api/v1/session/logout", { method: "POST" }).then(function () {
-              window.KicadBridge.logout().catch(function () {});
-              window.location.reload();
-            });
+            if (signedIn) {
+              log("Signing out…");
+              fetch(BASE + "/api/v1/session/logout", { method: "POST", credentials: "same-origin" })
+                .then(refreshSession)
+                .then(function () {
+                  log("Signed out.");
+                  return window.KicadBridge.logout().catch(function () {});
+                })
+                .then(done, done);
+            } else {
+              log("Requesting sign-in…");
+              window.KicadBridge.login()
+                .then(function () { return refreshSession(); })
+                .then(function () {
+                  log(signedIn ? "Signed in." : "Sign-in completed but no session was created.");
+                })
+                .catch(function (err) { log("Sign-in failed: " + err.message); })
+                .then(done, done);
+            }
           });
         }
       })();

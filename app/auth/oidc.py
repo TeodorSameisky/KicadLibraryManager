@@ -23,6 +23,7 @@ import httpx
 import jwt
 from jwt import PyJWKClient
 
+from app.auth.session import friendly_name
 from app.config import Settings
 
 _METADATA_TTL_SECONDS = 3600
@@ -41,11 +42,7 @@ class Principal:
 
     @property
     def display_name(self) -> str:
-        for key in ("name", "preferred_username", "email"):
-            value = self.claims.get(key)
-            if value:
-                return str(value)
-        return self.subject
+        return friendly_name(self.subject, self.claims)
 
 
 class OidcVerifier:
