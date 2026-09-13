@@ -15,6 +15,17 @@ from dataclasses import dataclass, field
 
 from app.kicad.sexpr import SExpr
 
+# An SVG loaded through <img> renders in its own document and inherits nothing
+# from the page, so the palette travels inside the file. prefers-color-scheme
+# still reaches it, which is what keeps the drawing readable on both themes.
+STYLE = (
+    "<style>"
+    ":root{--symbol-line:#14171c;--symbol-fill:#fffbe6;--symbol-pin:#8a94a6}"
+    "@media(prefers-color-scheme:dark){"
+    ":root{--symbol-line:#e8eaed;--symbol-fill:#2a2410;--symbol-pin:#6b7480}}"
+    "</style>"
+)
+
 PX_PER_MM = 12.0
 MARGIN_MM = 1.5
 DEFAULT_STROKE_MM = 0.1524   # KiCad's default symbol line width
@@ -227,7 +238,7 @@ def render_symbol(symbol: SExpr, title: str = "") -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{min_x:.4f} {min_y:.4f} '
         f'{width:.4f} {height:.4f}" width="{px_w:.0f}" height="{px_h:.0f}" '
         f'role="img" aria-label="{_escape(title or "symbol")}">'
-        f"<title>{_escape(title)}</title>"
+        f"<title>{_escape(title)}</title>{STYLE}"
         f'<g transform="translate(0 {2 * flip_axis:.4f}) scale(1 -1)">'
         + "".join(scene.parts)
         + "</g></svg>"
@@ -238,7 +249,7 @@ def _empty_svg(title: str) -> str:
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="120" height="60" '
         f'role="img" aria-label="{_escape(title)} has no graphics">'
-        f"<title>{_escape(title)}</title>"
+        f"<title>{_escape(title)}</title>{STYLE}"
         '<text x="20" y="11" text-anchor="middle" font-size="4" '
         'fill="var(--symbol-pin)">no graphics</text></svg>'
     )

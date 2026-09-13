@@ -69,12 +69,13 @@ def test_fill_types(fill, expected):
     assert f'fill="{expected}"' in svg
 
 
-def test_colours_come_from_css_variables():
-    """So the drawing follows the page theme instead of being baked light."""
+def test_shapes_reference_variables_not_literal_colours():
+    """The palette is defined once in the style block, not per shape."""
     svg = draw('(symbol "X_1_1" (rectangle (start 0 0) (end 1 1)))')
 
-    assert "var(--symbol-line)" in svg
-    assert "#" not in svg, "no hardcoded colours"
+    body = svg.split("</style>", 1)[1]
+    assert "var(--symbol-line)" in body
+    assert "#" not in body, "no colour baked into a shape"
 
 
 def test_units_are_walked():
@@ -95,3 +96,21 @@ def test_the_title_is_escaped():
 
     assert "&amp;" in svg and "&lt;script&gt;" in svg
     assert "<script>" not in svg
+
+
+def test_the_palette_travels_inside_the_svg():
+    """An <img>-embedded SVG inherits nothing from the page.
+
+    Without its own style block every stroke resolves to an undefined variable
+    and the drawing is invisible -- which is exactly what happened.
+    """
+    svg = draw('(symbol "X_1_1" (rectangle (start 0 0) (end 1 1)))')
+
+    assert "<style>" in svg
+    assert "--symbol-line:#" in svg
+    assert "prefers-color-scheme:dark" in svg
+
+
+def test_even_an_empty_symbol_carries_the_palette():
+    svg = render_symbol(loads('(symbol "X")'), "X")
+    assert "<style>" in svg
