@@ -51,7 +51,14 @@ LAYER_STYLE = {
     "B.SilkS": ("var(--fp-silk)", 1.0),
 }
 
-# Back to front, copper last: the pads are what a footprint is for.
+# The default for a layer this renderer has no opinion about -- user drawings,
+# Edge.Cuts on a footprint, adhesive. Drawn faintly rather than dropped: they
+# are part of the outline a reader is trying to recognise, and geometry that
+# sets the drawing's extent but is never painted leaves unexplained margins.
+DEFAULT_LAYER_STYLE = ("var(--fp-fab)", 0.5)
+
+# Back to front, copper last: the pads are what a footprint is for. Layers not
+# named here are drawn first, behind everything this renderer knows about.
 LAYER_ORDER = ["F.CrtYd", "B.CrtYd", "F.Fab", "B.Fab", "F.SilkS", "B.SilkS"]
 
 # Mask and paste track the copper and would only thicken the picture.
@@ -102,7 +109,7 @@ def _is_filled(node: SExpr) -> bool:
 
 
 def _attrs(layer: str, node: SExpr) -> str:
-    colour, opacity = LAYER_STYLE.get(layer, ("var(--fp-fab)", 0.5))
+    colour, opacity = LAYER_STYLE.get(layer, DEFAULT_LAYER_STYLE)
     fill = colour if _is_filled(node) else "none"
     return (
         f'fill="{fill}" stroke="{colour}" stroke-width="{_stroke(node):.4f}" '
@@ -280,7 +287,12 @@ def render_footprint(footprint: SExpr, title: str = "") -> str:
     if scene.bounds.empty:
         return placeholder(CSS_CLASS, title, STYLE, "no graphics")
 
-    body = "".join("".join(scene.layers.get(layer, [])) for layer in LAYER_ORDER)
+    # Anything on a layer with no declared order goes behind the rest, in the
+    # order it was read. Dropping it instead would leave its contribution to
+    # the bounding box as blank space nothing accounts for.
+    unordered = [layer for layer in scene.layers if layer not in LAYER_ORDER]
+    body = "".join("".join(scene.layers[layer]) for layer in unordered)
+    body += "".join("".join(scene.layers.get(layer, [])) for layer in LAYER_ORDER)
     body += "".join(scene.pads)
 
     return document(

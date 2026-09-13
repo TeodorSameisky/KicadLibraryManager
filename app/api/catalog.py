@@ -7,16 +7,22 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies import get_service, part_sources, part_summary, require_part
+from app.auth.guard import require_access
 from app.config import Settings, get_settings
 from app.kicad.assets import build_assets
 from app.kicad.build import BuildError
+from app.kicad.parts import PART_STATUSES
 from app.library_service import LibraryService
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["catalog"])
+# Every route below reads the library, so the guard is applied to the router
+# rather than repeated -- an endpoint added later is closed by default.
+router = APIRouter(prefix="/api/v1", tags=["catalog"], dependencies=[Depends(require_access)])
 
 MAX_PAGE = 500
+
+_STATUS_PATTERN = f"^({'|'.join(PART_STATUSES)})$"
 
 
 @router.get("/status")
@@ -32,6 +38,9 @@ async def status(service: LibraryService = Depends(get_service)) -> dict:
         "warnings": len(snap.warnings),
         "indexed_at": snap.finished_at,
         "duration_seconds": round(snap.duration, 1),
+        # What the catalog can be filtered by, so the panel can offer filters
+        # that reflect the library in front of it rather than a fixed list.
+        "facets": snap.facets(),
         "sources": [
             {
                 "id": s.id,
@@ -57,11 +66,15 @@ async def issues(
     Paths are relative to their repository, which is what a maintainer needs
     and says nothing about where the container keeps its clones.
     """
-    found = service.snapshot.issues
+    snap = service.snapshot
+    found = snap.issues
     if severity:
         found = [i for i in found if i.severity.value == severity]
     return {
         "total": len(found),
+        "errors": len(snap.errors),
+        "warnings": len(snap.warnings),
+        "returned": min(len(found), limit),
         "issues": [i.as_dict() for i in found[:limit]],
     }
 
@@ -69,19 +82,32 @@ async def issues(
 @router.get("/parts")
 async def list_parts(
     q: str = Query("", max_length=200),
+    status: str | None = Query(None, pattern=_STATUS_PATTERN),
+    category: str | None = Query(None, max_length=64),
     limit: int = Query(100, ge=1, le=MAX_PAGE),
     service: LibraryService = Depends(get_service),
 ) -> dict:
     snap = service.snapshot
     if snap.parts is None:
-        return {"state": service.state.value, "parts": [], "total": 0}
+        return {
+            "state": service.state.value,
+            "parts": [],
+            "total": 0,
+            "matched": 0,
+            "returned": 0,
+        }
 
-    found = service.search(q, limit=limit)
+    found = service.search(q, status=status, category=category)
+    page = found[:limit]
     return {
         "state": service.state.value,
+        # `total` is the catalog; `matched` is what the filters selected. The
+        # panel reports "12 of 40 matching" rather than "12 of 4000", which
+        # said nothing about the search that produced it.
         "total": len(snap.parts.parts),
-        "returned": len(found),
-        "parts": [part_summary(p, snap.parts) for p in found],
+        "matched": len(found),
+        "returned": len(page),
+        "parts": [part_summary(p, snap.parts) for p in page],
     }
 
 
@@ -92,10 +118,12 @@ async def get_part(ipn: str, service: LibraryService = Depends(get_service)) -> 
         "ipn": part.ipn,
         "description": part.description,
         "status": part.status,
+        "category": part.category,
         "symbol": part.symbol,
         "footprint": part.footprint,
         "fields": part.fields,
         "mpns": part_sources(part, service.snapshot.parts),
+        "related": [p.ipn for p in service.parts_sharing_mpn(part)],
     }
 
 

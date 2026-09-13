@@ -120,3 +120,39 @@ def test_the_palette_is_scoped_to_the_drawing():
     assert ".kfp{" in svg
     assert ":root{" not in svg
     assert 'class="kfp"' in svg
+
+
+def test_a_layer_with_no_declared_order_is_still_drawn():
+    """It was measured into the bounding box and then dropped, which left the
+    drawing with a margin nothing in it accounted for."""
+    svg = draw(
+        '(fp_line (start -5 -5) (end 5 -5) (layer "User.Drawings"))'
+        '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))'
+    )
+
+    assert 'y1="-5.0000"' in svg, "the User.Drawings line is drawn"
+
+
+def test_a_dropped_layer_would_have_stretched_the_viewbox():
+    """Guards the pairing: whatever sets the extent has to appear in it."""
+    with_line = draw(
+        '(fp_line (start -20 -20) (end 20 -20) (layer "Dwgs.User"))'
+        '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))'
+    )
+    without = draw('(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))')
+
+    assert with_line.count("viewBox") == without.count("viewBox") == 1
+    assert 'viewBox="-20' in with_line
+    assert "Dwgs" not in without
+    assert "<line" in with_line
+
+
+def test_mask_and_paste_are_still_skipped():
+    """They track the copper and would only thicken the picture."""
+    svg = draw(
+        '(fp_line (start -9 -9) (end 9 -9) (layer "F.Paste"))'
+        '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))'
+    )
+
+    assert "<line" not in svg
+    assert 'viewBox="-9' not in svg

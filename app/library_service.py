@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -19,7 +20,13 @@ from pathlib import Path
 from app.kicad.catalog import Catalog
 from app.kicad.issues import Issue, errors, warnings
 from app.kicad.library import index_repository
-from app.kicad.parts import PartsIndex, check_against_catalog, load_parts
+from app.kicad.parts import (
+    PART_STATUSES,
+    Part,
+    PartsIndex,
+    check_against_catalog,
+    load_parts,
+)
 from app.kicad.sources import Source, SourceError, SyncResult, load_sources, sync
 
 log = logging.getLogger(__name__)
@@ -73,6 +80,41 @@ class Snapshot:
 
     def part_count(self) -> int:
         return len(self.parts.parts) if self.parts else 0
+
+    def facets(self) -> dict[str, list[dict]]:
+        """What the catalog can be filtered by, with counts.
+
+        Sent alongside the index state so the panel can offer filters that
+        reflect the library in front of it. A category with no parts is
+        omitted: offering a filter that can only ever return nothing is worse
+        than not offering it.
+        """
+        if self.parts is None:
+            return {"statuses": [], "categories": []}
+
+        by_status: Counter[str] = Counter()
+        by_category: Counter[str] = Counter()
+        for part in self.parts.parts.values():
+            by_status[part.status] += 1
+            if part.category:
+                by_category[part.category] += 1
+
+        names = self.parts.categories
+        return {
+            "statuses": [
+                {"value": status, "label": status, "count": by_status[status]}
+                for status in PART_STATUSES
+                if by_status[status]
+            ],
+            "categories": [
+                {
+                    "value": code,
+                    "label": names[code].name if code in names else code,
+                    "count": count,
+                }
+                for code, count in sorted(by_category.items())
+            ],
+        }
 
 
 class LibraryService:
@@ -174,32 +216,64 @@ class LibraryService:
 
     # -- queries ----------------------------------------------------------
 
-    def search(self, query: str = "", limit: int = 100) -> list:
-        """Substring match over IPN, description, fields and MPNs.
+    def search(
+        self,
+        query: str = "",
+        status: str | None = None,
+        category: str | None = None,
+    ) -> list[Part]:
+        """Every part matching the filters, ordered by IPN.
 
+        The text match is a substring over IPN, description, fields and MPNs.
         The numbers carry no meaning, so searching only the IPN would be
         useless; description and fields are what people actually know.
+
+        Returns the whole match rather than a page of it, so the caller can
+        report how many there were before deciding how many to send.
         """
         parts = self._snapshot.parts
         if parts is None:
             return []
 
         results = sorted(parts.parts.values(), key=lambda p: p.ipn)
+
+        if status:
+            results = [p for p in results if p.status == status]
+        if category:
+            results = [p for p in results if p.category == category]
+
         needle = query.strip().lower()
         if not needle:
-            return results[:limit]
+            return results
 
-        def haystack(part) -> str:
+        def haystack(part: Part) -> str:
             bits = [part.ipn, part.description, *part.fields.values()]
             bits += [r.mpn for r in part.mpns]
             bits += [parts.mpns[r.mpn].manufacturer for r in part.mpns if r.mpn in parts.mpns]
             return " ".join(bits).lower()
 
-        return [p for p in results if needle in haystack(p)][:limit]
+        return [p for p in results if needle in haystack(p)]
 
-    def get_part(self, ipn: str):
+    def get_part(self, ipn: str) -> Part | None:
         parts = self._snapshot.parts
         return parts.parts.get(ipn) if parts else None
+
+    def parts_sharing_mpn(self, part: Part) -> list[Part]:
+        """Other IPNs that list any of this part's manufacturer parts.
+
+        The question asked when a manufacturer discontinues something, and the
+        reason MPNs are separate documents rather than embedded in each IPN.
+        """
+        parts = self._snapshot.parts
+        if parts is None:
+            return []
+
+        related: dict[str, Part] = {}
+        for ref in part.mpns:
+            for other in parts.parts_using(ref.mpn):
+                if other.ipn != part.ipn:
+                    related[other.ipn] = other
+        return sorted(related.values(), key=lambda p: p.ipn)
 
 
 def build_service(raw_sources: str | None, workdir: Path) -> LibraryService:

@@ -7,10 +7,13 @@
     <link rel="stylesheet" href="{{ root_path }}/static/css/app.css" />
     {% block head %}{% endblock %}
   </head>
-  <body {% block body_attrs %}{% endblock %}>
+  {# data-base-path is on every page: each script reads its configuration from
+     here so the files themselves stay static and cacheable. #}
+  <body data-base-path="{{ root_path }}" {% block body_attrs %}{% endblock %}>
     <div class="page {% block page_class %}{% endblock %}">
       {% block content %}{% endblock %}
     </div>
+    <script src="{{ root_path }}/static/js/core.js"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

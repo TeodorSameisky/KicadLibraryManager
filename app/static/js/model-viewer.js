@@ -37,7 +37,7 @@
   /* A small orbit control: drag to rotate, wheel to zoom. Written here rather
      than pulled in, because the alternative is another dependency for thirty
      lines of arithmetic. */
-  function orbit(camera, canvas, target, radius) {
+  function orbit(camera, canvas, target, radius, onChange) {
     var theta = Math.PI * 0.25;
     var phi = Math.PI * 0.3;
     var distance = radius * 3.2;
@@ -52,6 +52,7 @@
         target.z + distance * Math.sin(phi) * Math.cos(theta)
       );
       camera.lookAt(target);
+      if (onChange) onChange();
     }
 
     canvas.addEventListener("pointerdown", function (e) {
@@ -195,21 +196,32 @@
         renderer.setSize(width, height);
         mount.replaceChildren(renderer.domElement);
 
-        var apply = orbit(camera, renderer.domElement, built.centre, built.radius);
-
-        function frame() {
-          renderer.render(built.scene, camera);
-          requestAnimationFrame(frame);
+        /* The model does not move on its own, so it is drawn when something
+           changes rather than on every frame. An idle animation loop costs a
+           laptop battery the whole time a part page is left open. Draws are
+           coalesced into the next frame so a drag that fires several pointer
+           events still renders once. */
+        var pending = false;
+        function draw() {
+          if (pending) return;
+          pending = true;
+          requestAnimationFrame(function () {
+            pending = false;
+            renderer.render(built.scene, camera);
+          });
         }
-        frame();
 
-        window.addEventListener("resize", function () {
+        var apply = orbit(camera, renderer.domElement, built.centre, built.radius, draw);
+
+        var resize = function () {
           var w = mount.clientWidth || width;
-          camera.aspect = w / height;
+          var h = mount.clientHeight || height;
+          camera.aspect = w / h;
           camera.updateProjectionMatrix();
-          renderer.setSize(w, height);
+          renderer.setSize(w, h);
           apply();
-        });
+        };
+        window.addEventListener("resize", resize);
 
         setStatus("Drag to rotate, scroll to zoom");
       });

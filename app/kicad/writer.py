@@ -7,6 +7,8 @@ the library file.
 
 from __future__ import annotations
 
+import copy
+
 from app.kicad.sexpr import Atom, SExpr
 
 _ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r"}
@@ -125,6 +127,23 @@ def property_name(node: SExpr) -> str | None:
     return atoms[0] if atoms else None
 
 
+def insert_index(symbol: SExpr) -> int:
+    """After the last existing property, before the graphics sub-symbols."""
+    last = 1
+    for i, item in enumerate(symbol.items):
+        if isinstance(item, SExpr) and item.head == "property":
+            last = i + 1
+    return last
+
+
+def find_property(symbol: SExpr, name: str) -> tuple[int, SExpr] | None:
+    """A property by name, with its position among the symbol's items."""
+    for i, item in enumerate(symbol.items):
+        if isinstance(item, SExpr) and item.head == "property" and property_name(item) == name:
+            return i, item
+    return None
+
+
 def set_property(symbol: SExpr, name: str, value: str) -> None:
     """Overwrite a property's value, or append it if absent.
 
@@ -132,23 +151,37 @@ def set_property(symbol: SExpr, name: str, value: str) -> None:
     font survive; a replacement built from defaults would move the reference
     designator on every placed part.
     """
-    for prop in symbol.children("property"):
-        if property_name(prop) == name:
-            if len(prop.items) >= 3:
-                prop.items[2] = value
-            else:
-                prop.items.append(value)
-            return
+    found = find_property(symbol, name)
+    if found is not None:
+        _, prop = found
+        if len(prop.items) >= 3:
+            prop.items[2] = value
+        else:
+            prop.items.append(value)
+        return
 
     # Fields invented by the platform are hidden: they belong in the BOM, not
     # scattered across the schematic.
-    symbol.items.insert(_insert_index(symbol), make_property(name, value))
+    symbol.items.insert(insert_index(symbol), make_property(name, value))
 
 
-def _insert_index(symbol: SExpr) -> int:
-    """After the last existing property, before the graphics sub-symbols."""
-    last = 1
-    for i, item in enumerate(symbol.items):
-        if isinstance(item, SExpr) and item.head == "property":
-            last = i + 1
-    return last
+def replace_property(symbol: SExpr, prop: SExpr) -> None:
+    """Overwrite a property with a whole node, keeping that node's layout.
+
+    Unlike `set_property` this carries the replacement's position, visibility
+    and font across, which is what an inherited symbol needs: a derived
+    symbol's own property nodes should land complete, not have their values
+    transplanted into the ancestor's.
+    """
+    name = property_name(prop)
+    if name is None:
+        return
+
+    found = find_property(symbol, name)
+    index = found[0] if found is not None else insert_index(symbol)
+    replacement = copy.deepcopy(prop)
+
+    if found is not None:
+        symbol.items[index] = replacement
+    else:
+        symbol.items.insert(index, replacement)

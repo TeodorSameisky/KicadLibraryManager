@@ -144,6 +144,10 @@ a:hover { text-decoration-thickness: 2px; }
 .button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .button:disabled { opacity: 0.5; cursor: default; }
 
+/* Links styled as buttons: the button is the affordance, the underline is a
+   second one saying the same thing. */
+a.button { display: inline-block; text-decoration: none; }
+
 .button--primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -155,15 +159,23 @@ a:hover { text-decoration-thickness: 2px; }
   color: var(--accent-fg);
 }
 
-.search {
+/* Search and filters travel together: the filters describe the list the
+   search produces, so scrolling one away from the other leaves the reader
+   unable to tell why a result set looks the way it does. */
+.toolbar {
   position: sticky;
   top: 0;
   z-index: 2;
+  background: var(--bg);
+  padding: var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
+}
+
+.search {
   display: flex;
   gap: var(--space-3);
   align-items: center;
-  padding: var(--space-2) 0 var(--space-3);
-  background: var(--bg);
 }
 
 .search input {
@@ -179,6 +191,70 @@ a:hover { text-decoration-thickness: 2px; }
 
 .search input::placeholder { color: var(--fg-subtle); }
 .search input:focus { outline: none; border-color: var(--accent); }
+
+/* --------------------------------------------------------------- filters */
+
+.filters { display: flex; flex-direction: column; gap: var(--space-1); }
+
+.filters:not([hidden]) { margin-top: var(--space-3); }
+
+.filter {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.filter__label {
+  flex: none;
+  width: 4.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/* Wraps rather than scrolls: a library with thirty categories should get
+   taller, not hide two thirds of them off the right edge of a narrow panel. */
+.filter__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.chip {
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.chip:hover { border-color: var(--border-strong); color: var(--fg); }
+
+.chip--on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.chip__count {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
 
 /* --------------------------------------------------------------- badges */
 
@@ -201,13 +277,8 @@ a:hover { text-decoration-thickness: 2px; }
 .badge--danger { background: var(--danger-soft); color: var(--danger); }
 .badge--accent { background: var(--accent-soft); color: var(--accent); }
 
-.badge__dot {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: currentColor;
-  flex: none;
-}
+.badge--link { text-decoration: none; cursor: pointer; }
+.badge--link:hover { text-decoration: underline; }
 
 /* ----------------------------------------------------------- part list */
 
@@ -215,23 +286,49 @@ a:hover { text-decoration-thickness: 2px; }
 
 .part {
   display: grid;
-  grid-template-columns: 3rem minmax(6rem, 9rem) 1fr auto auto;
-  gap: var(--space-3);
+  grid-template-columns: 3rem minmax(6rem, 11rem) 1fr auto auto;
+  grid-template-areas: "thumb name desc source action" "note note note note note";
+  gap: var(--space-1) var(--space-3);
   align-items: center;
   padding: var(--space-3) var(--space-2);
   border-bottom: 1px solid var(--border);
+  outline: none;
 }
 
 .part:hover { background: var(--bg-sunken); }
 
+/* The keyboard selection. Marked with a bar rather than only a tint, so it
+   survives next to the hover state without the two being confusable. */
+.part--on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* A fixed box every drawing is fitted into. Symbols vary wildly in aspect --
+   a resistor is tall and narrow, an op-amp wide -- and sizing each to its own
+   extent left the column ragged and the tall ones as unreadable slivers. */
 .part__thumb {
+  grid-area: thumb;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 2.5rem;
+  width: 3rem;
+  height: 2.75rem;
 }
 
-.part__thumb img { max-height: 2.5rem; max-width: 3rem; width: auto; }
+.part__thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.part__name {
+  grid-area: name;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
 
 .part__ipn {
   font-family: var(--font-mono);
@@ -242,6 +339,7 @@ a:hover { text-decoration-thickness: 2px; }
 .part__ipn:hover { text-decoration: underline; }
 
 .part__desc {
+  grid-area: desc;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -249,27 +347,59 @@ a:hover { text-decoration-thickness: 2px; }
 }
 
 .part__source {
+  grid-area: source;
   font-size: 0.8125rem;
   color: var(--fg-muted);
   font-family: var(--font-mono);
   white-space: nowrap;
 }
 
+.part__action { grid-area: action; }
+
+/* Why a place failed, on the row that failed. Spans the grid because the
+   message is a sentence -- "the extends chain is broken at X" -- and squeezing
+   it into a cell would truncate the part that says what to do. */
+.part__note {
+  grid-area: note;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+}
+
+.part__note--error { background: var(--danger-soft); color: var(--danger); }
+.part__note--warn { background: var(--warn-soft); color: var(--warn); }
+
 @media (max-width: 40rem) {
   .part {
     grid-template-columns: 2.5rem 1fr auto;
     grid-template-areas:
-      "thumb ipn    action"
+      "thumb name   action"
       "thumb desc   action"
-      "thumb source action";
-    row-gap: var(--space-1);
+      "thumb source action"
+      "note  note   note";
   }
-  .part__thumb { grid-area: thumb; }
-  .part__ipn { grid-area: ipn; }
-  .part__desc { grid-area: desc; white-space: normal; }
-  .part__source { grid-area: source; }
-  .part__action { grid-area: action; }
-  .part__status { display: none; }
+  .part__desc { white-space: normal; }
+}
+
+.shortcuts { margin-top: var(--space-4); }
+
+/* Hidden where they are a lie: a touch device has no keyboard to press. */
+@media (hover: none) {
+  .shortcuts { display: none; }
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
 }
 
 /* ---------------------------------------------------------------- states */
@@ -422,12 +552,138 @@ a:hover { text-decoration-thickness: 2px; }
   color: var(--fg-muted);
 }
 
+/* --------------------------------------------------------------- metrics */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--space-3);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.metric:hover { border-color: var(--accent); }
+
+.metric__value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/* Coloured only when the number is not zero: a red "0 errors" trains the
+   reader to ignore the colour. */
+.metric--danger { border-color: var(--danger); }
+.metric--danger .metric__value { color: var(--danger); }
+.metric--warn { border-color: var(--warn); }
+.metric--warn .metric__value { color: var(--warn); }
+
+/* --------------------------------------------------------------- notices */
+
+.notice {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  font-size: 0.875rem;
+}
+
+.notice__title { font-weight: 600; margin-bottom: var(--space-1); }
+.notice ul { margin: 0; padding-left: var(--space-4); }
+.notice li + li { margin-top: var(--space-1); }
+
+.notice--danger {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------- issues */
+
+.issue-groups { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.issue-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.issue-group__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  list-style: none;
+}
+
+.issue-group__head::-webkit-details-marker { display: none; }
+.issue-group__head:hover { background: var(--bg-sunken); }
+
+.issue-group__kind {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.issue-group__count {
+  font-size: 0.8125rem;
+  color: var(--fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.table--issues { font-size: 0.875rem; }
+.table--issues td { padding: var(--space-2) var(--space-4); vertical-align: top; }
+.table--issues tr:last-child td { border-bottom: none; }
+
+.issue__message { width: 60%; }
+.issue__path { color: var(--fg-subtle); font-size: 0.8125rem; white-space: nowrap; }
+
+/* --------------------------------------------------------------- related */
+
+.related { list-style: none; margin: 0; padding: 0; }
+
+.related li {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.related .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+
 /* ----------------------------------------------------------------- misc */
 
 .muted { color: var(--fg-muted); }
 .small { font-size: 0.875rem; }
 .mono { font-family: var(--font-mono); }
-.back { display: inline-block; margin-top: var(--space-6); font-size: 0.875rem; }
+.block { display: block; }
 
 .visually-hidden {
   position: absolute;

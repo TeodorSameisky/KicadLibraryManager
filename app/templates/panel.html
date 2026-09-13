@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
 {% block body_attrs %}
-  data-base-path="{{ root_path }}"
   data-auth-configured="{{ 'true' if auth_configured else 'false' }}"
   data-signed-in="{{ 'true' if session else 'false' }}"
 {% endblock %}
@@ -16,7 +15,7 @@
   <header class="topbar">
     <div class="topbar__title">
       <h1>{{ provider_name }}</h1>
-      <span class="badge" id="index-status" hidden></span>
+      <a class="badge" id="index-status" hidden></a>
     </div>
 
     <div class="topbar__actions">
@@ -36,16 +35,27 @@
     </div>
   </header>
 
-  <div class="search">
-    <label class="visually-hidden" for="search">Search parts</label>
-    <input type="search" id="search" autocomplete="off" spellcheck="false"
-           placeholder="Search by part number, description, value or MPN" />
-    <span class="small muted" id="count"></span>
+  <div class="toolbar">
+    <div class="search">
+      <label class="visually-hidden" for="search">Search parts</label>
+      <input type="search" id="search" autocomplete="off" spellcheck="false"
+             placeholder="Search by part number, description, value or MPN" />
+      <span class="small muted" id="count"></span>
+    </div>
+
+    {# Populated from the index: the panel offers the filters this library
+       actually supports rather than a fixed list. #}
+    <div class="filters" id="filters" hidden></div>
   </div>
 
   <div id="results" aria-live="polite">
     <div class="state"><p class="state__title">Loading</p></div>
   </div>
+
+  <p class="small muted shortcuts">
+    <kbd>/</kbd> search &middot; <kbd>&uarr;</kbd><kbd>&darr;</kbd> move &middot;
+    <kbd>Enter</kbd> place
+  </p>
 
   <details class="log" id="log-wrap" hidden>
     <summary>Activity</summary>

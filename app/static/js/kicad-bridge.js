@@ -159,10 +159,12 @@
     },
     onMessage: function (fn) { listeners.add(fn); return function () { listeners.delete(fn); }; },
     sessionId: function () { return sessionId; },
-    isEmbedded: function () { return postToKiCad === null ? false : !!(
-      (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kicad) ||
-      (window.chrome && window.chrome.webview) ||
-      (window.external && typeof window.external.invoke === "function")
-    ); },
+    isEmbedded: function () {
+      return !!(
+        (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kicad) ||
+        (window.chrome && window.chrome.webview) ||
+        (window.external && typeof window.external.invoke === "function")
+      );
+    },
   };
 })();

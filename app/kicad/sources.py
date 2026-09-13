@@ -138,18 +138,3 @@ def sync(source: Source, workdir: Path) -> SyncResult:
         shutil.rmtree(target, ignore_errors=True)
         _git("clone", "--depth", "1", "--branch", source.ref, source.url, str(target))
         return SyncResult(source, target, _git("rev-parse", "HEAD", cwd=target), updated=True)
-
-
-def changed_files(path: Path, old_commit: str, new_commit: str) -> list[str] | None:
-    """Paths changed between two commits, or None if the range is unavailable.
-
-    Shallow clones frequently lack the older commit, in which case the caller
-    must fall back to a full reindex rather than assume nothing changed.
-    """
-    if old_commit == new_commit:
-        return []
-    try:
-        out = _git("diff", "--name-only", f"{old_commit}..{new_commit}", cwd=path)
-    except SourceError:
-        return None
-    return [line for line in out.splitlines() if line]

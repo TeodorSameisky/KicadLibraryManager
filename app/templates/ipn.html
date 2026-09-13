@@ -2,13 +2,21 @@
 
 {% block title %}{{ part.ipn }} &middot; {{ provider_name }}{% endblock %}
 {% block page_class %}page--narrow{% endblock %}
-{% block body_attrs %}data-base-path="{{ root_path }}"{% endblock %}
 
 {% block content %}
   <header class="topbar">
     <div class="topbar__title">
       <h1 class="mono">{{ part.ipn }}</h1>
       <span class="badge {{ 'badge--ok' if part.status == 'approved' else 'badge--warn' if part.status == 'draft' else 'badge--danger' }}">{{ part.status }}</span>
+      {% if part.category %}
+        {# Links back to the catalog filtered to this category: "what else is
+           in here" is the next question after "what is this". #}
+        <a class="badge badge--link"
+           href="{{ root_path }}/panel?category={{ part.category }}">{{ category_name }}</a>
+      {% endif %}
+    </div>
+    <div class="topbar__actions">
+      <a class="button" href="{{ root_path }}/panel">Catalog</a>
     </div>
   </header>
 
@@ -104,7 +112,19 @@
     <p class="small muted">No manufacturer parts are listed for this part.</p>
   {% endif %}
 
-  <a class="back" href="{{ root_path }}/panel">&larr; Back to the catalog</a>
+  {% if related %}
+    {# The reason MPNs are separate documents rather than embedded in each IPN:
+       when a manufacturer discontinues something, this is the blast radius. #}
+    <h2 class="section">Shares a manufacturer part with</h2>
+    <ul class="related">
+      {% for other in related %}
+        <li>
+          <a class="mono" href="{{ root_path }}/ipn/{{ other.ipn }}">{{ other.ipn }}</a>
+          <span class="muted">{{ other.description }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
 {% endblock %}
 
 {% block scripts %}

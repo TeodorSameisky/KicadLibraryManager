@@ -49,9 +49,9 @@ def library(tmp_path):
 
 
 @pytest.fixture()
-def ready(client, library):
-    client.app.state.library = library
-    return client
+def ready(signed_in_client, library):
+    signed_in_client.app.state.library = library
+    return signed_in_client
 
 
 def test_status_reports_a_ready_index(ready):
@@ -118,19 +118,19 @@ def test_ipn_page_renders(ready):
     assert "preferred" in html
 
 
-def test_endpoints_are_usable_before_the_first_index(client):
+def test_endpoints_are_usable_before_the_first_index(signed_in_client):
     """The app must answer while the initial clone is still running."""
     service = LibraryService(sources=[], workdir=None)
     service._state = State.SYNCING
-    client.app.state.library = service
+    signed_in_client.app.state.library = service
 
-    status = client.get("/api/v1/status").json()
-    parts = client.get("/api/v1/parts").json()
+    status = signed_in_client.get("/api/v1/status").json()
+    parts = signed_in_client.get("/api/v1/parts").json()
 
     assert status["state"] == "syncing"
     assert status["parts"] == 0
     assert parts["parts"] == []
-    assert client.get("/healthz").status_code == 200
+    assert signed_in_client.get("/healthz").status_code == 200
 
 
 def test_symbol_svg_is_served(ready):
@@ -198,3 +198,94 @@ def test_the_page_offers_no_viewer_without_a_model(ready):
 
     assert "model-viewer" not in html
     assert "model-viewer.js" not in html, "8MB of kernel is not loaded speculatively"
+
+
+def test_search_reports_matches_separately_from_the_catalog(ready):
+    """ "12 of 4000" said nothing about the search that produced the twelve."""
+    everything = ready.get("/api/v1/parts").json()
+    assert everything["matched"] == everything["total"]
+
+    nothing = ready.get("/api/v1/parts?q=zzzz").json()
+    assert nothing["matched"] == 0
+    assert nothing["total"] == 1, "total still reports the catalog size"
+
+
+def test_limit_shows_up_as_returned_below_matched(ready, library):
+    for n in range(2, 6):
+        clone = library.snapshot.parts.parts["1102-0001"]
+        library.snapshot.parts.parts[f"1102-000{n}"] = clone
+
+    body = ready.get("/api/v1/parts?limit=2").json()
+
+    assert body["returned"] == 2
+    assert body["matched"] == 5
+    assert len(body["parts"]) == 2
+
+
+def test_status_filter(ready, library):
+    library.snapshot.parts.parts["1102-0001"].status = "draft"
+
+    assert ready.get("/api/v1/parts?status=draft").json()["matched"] == 1
+    assert ready.get("/api/v1/parts?status=approved").json()["matched"] == 0
+
+
+def test_an_unknown_status_is_rejected_rather_than_matching_nothing(ready):
+    assert ready.get("/api/v1/parts?status=banana").status_code == 422
+
+
+def test_category_filter(ready):
+    assert ready.get("/api/v1/parts?category=1102").json()["matched"] == 1
+    assert ready.get("/api/v1/parts?category=9999").json()["matched"] == 0
+
+
+def test_status_offers_the_filters_the_catalog_supports(ready):
+    facets = ready.get("/api/v1/status").json()["facets"]
+
+    assert facets["statuses"] == [{"value": "approved", "label": "approved", "count": 1}]
+    # The label comes from categories.yaml; the code alone means nothing.
+    assert facets["categories"] == [{"value": "1102", "label": "Resistors, fixed", "count": 1}]
+
+
+def test_facets_omit_what_has_no_parts(ready):
+    """A filter that can only ever return nothing is worse than no filter."""
+    facets = ready.get("/api/v1/status").json()["facets"]
+    assert all(entry["count"] for entry in facets["statuses"] + facets["categories"])
+
+
+def test_a_part_lists_others_sharing_its_manufacturer_parts(ready, library):
+    """The question asked when a manufacturer discontinues something."""
+    from dataclasses import replace
+
+    original = library.snapshot.parts.parts["1102-0001"]
+    library.snapshot.parts.parts["1102-0002"] = replace(original, ipn="1102-0002")
+
+    body = ready.get("/api/v1/parts/1102-0001").json()
+    assert body["related"] == ["1102-0002"]
+    assert body["category"] == "1102"
+
+    assert "1102-0002" in ready.get("/ipn/1102-0001").text
+
+
+def test_a_part_sharing_nothing_lists_nothing(ready):
+    assert ready.get("/api/v1/parts/1102-0001").json()["related"] == []
+
+
+def test_the_issues_page_renders(ready):
+    assert ready.get("/issues").status_code == 200
+
+
+def test_issues_carries_the_severity_totals(ready, library):
+    from app.kicad.issues import Issue, Severity
+
+    library.snapshot.parts.issues.append(Issue(Severity.ERROR, "made-up", "boom", "a.yaml"))
+    library.snapshot.parts.issues.append(Issue(Severity.WARNING, "made-up", "hmm", "b.yaml"))
+
+    body = ready.get("/api/v1/issues").json()
+
+    assert body["errors"] == 1
+    assert body["warnings"] == 1
+    # Severity totals describe the library, not the filtered page, so a
+    # reader filtered to errors can still see there are warnings to look at.
+    filtered = ready.get("/api/v1/issues?severity=error").json()
+    assert filtered["total"] == 1
+    assert filtered["warnings"] == 1

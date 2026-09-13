@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Issues &middot; {{ provider_name }}{% endblock %}
+
+{% block content %}
+  <header class="topbar">
+    <div class="topbar__title">
+      <h1>Library issues</h1>
+      <span class="badge" id="issue-count"></span>
+    </div>
+    <div class="topbar__actions">
+      <a class="button" href="{{ root_path }}/panel">Catalog</a>
+    </div>
+  </header>
+
+  <p class="muted">
+    Everything the index could not resolve. Paths are relative to the
+    repository they came from, so they are what to open to fix them.
+  </p>
+
+  <div class="toolbar">
+    <div class="filter">
+      <span class="filter__label">Severity</span>
+      <div class="filter__chips" id="severity" role="group" aria-label="Severity"></div>
+    </div>
+  </div>
+
+  <div id="issues" aria-live="polite">
+    <div class="state"><p class="state__title">Loading</p></div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ root_path }}/static/js/issues.js"></script>
+{% endblock %}

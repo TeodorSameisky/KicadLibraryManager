@@ -77,3 +77,27 @@ def build_client(monkeypatch):
 @pytest.fixture()
 def client(build_client):
     return build_client()
+
+
+@pytest.fixture()
+def sign_in():
+    """Give a client a session cookie, as the bootstrap handshake would.
+
+    The nonce is minted directly rather than through a stubbed identity
+    provider: what the catalog routes care about is the cookie, and going via
+    the provider would make every catalog test depend on token verification
+    too. `tests/test_auth_routes.py` covers the handshake itself.
+    """
+
+    def _sign_in(client, subject="test-user", **claims):
+        store = client.app.state.session_store
+        nonce = store.mint_nonce(subject, {"sub": subject, "name": "Test User", **claims}, "/panel")
+        client.get(f"/session/consume?n={nonce}", follow_redirects=False)
+        return client
+
+    return _sign_in
+
+
+@pytest.fixture()
+def signed_in_client(client, sign_in):
+    return sign_in(client)

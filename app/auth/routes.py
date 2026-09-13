@@ -63,12 +63,6 @@ def current_session(
     return store.get(request.cookies.get(settings.cookie_name))
 
 
-def require_session(session: Session | None = Depends(current_session)) -> Session:
-    if session is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return session
-
-
 @router.post("/api/v1/session/bootstrap", response_model=BootstrapResponse)
 async def bootstrap(
     payload: BootstrapRequest,

@@ -3,7 +3,21 @@
 
 {% block content %}
   <header class="topbar">
-    <div class="topbar__title"><h1>{{ provider_name }}</h1></div>
+    <div class="topbar__title">
+      <h1>{{ provider_name }}</h1>
+      {% if state == "ready" %}
+        <span class="badge badge--ok">ready</span>
+      {% elif state == "syncing" %}
+        <span class="badge">indexing</span>
+      {% elif state == "empty" %}
+        <span class="badge badge--warn">no sources</span>
+      {% else %}
+        <span class="badge badge--danger">{{ state }}</span>
+      {% endif %}
+    </div>
+    <div class="topbar__actions">
+      <a class="button button--primary" href="{{ root_path }}/panel">Open the catalog</a>
+    </div>
   </header>
 
   <div class="stack">
@@ -11,13 +25,96 @@
       Serves KiCad symbols, footprints and 3D models to the Remote Symbols panel.
     </p>
 
+    {# The configuration checks the app logs at startup. Nobody reads container
+       logs to find out why a login silently does nothing, so they are shown
+       where the person who can fix them will be looking. #}
+    {% if problems %}
+      <div class="notice notice--danger">
+        <p class="notice__title">Configuration problems</p>
+        <ul>
+          {% for problem in problems %}<li>{{ problem }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if error %}
+      <div class="notice notice--danger">
+        <p class="notice__title">The last index failed</p>
+        <p>{{ error }}</p>
+      </div>
+    {% endif %}
+
+    <div class="metrics">
+      <div class="metric">
+        <span class="metric__value">{{ parts }}</span>
+        <span class="metric__label">parts</span>
+      </div>
+      <div class="metric">
+        <span class="metric__value">{{ symbols }}</span>
+        <span class="metric__label">symbols</span>
+      </div>
+      <a class="metric {{ 'metric--danger' if errors else '' }}" href="{{ root_path }}/issues">
+        <span class="metric__value">{{ errors }}</span>
+        <span class="metric__label">errors</span>
+      </a>
+      <a class="metric {{ 'metric--warn' if warnings else '' }}"
+         href="{{ root_path }}/issues?severity=warning">
+        <span class="metric__value">{{ warnings }}</span>
+        <span class="metric__label">warnings</span>
+      </a>
+    </div>
+
+    <h2 class="section">Sources</h2>
+    {% if sources %}
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Source</th>
+              <th scope="col">Commit</th>
+              <th scope="col">Symbols</th>
+              <th scope="col">Parts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for source in sources %}
+              <tr>
+                <td>
+                  {{ source.name }}
+                  {% if source.error %}
+                    <span class="badge badge--danger">failed</span>
+                    <span class="small muted block">{{ source.error }}</span>
+                  {% endif %}
+                </td>
+                <td class="mono small">{{ source.commit[:8] if source.commit else "&mdash;" }}</td>
+                <td>{{ source.symbols }}</td>
+                <td>{{ source.parts }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="small muted">
+        No sources are configured. Set <span class="mono">LIBRARY_SOURCES</span> to a JSON
+        array of git repositories holding the library.
+      </p>
+    {% endif %}
+
+    <h2 class="section">Deployment</h2>
     <dl class="fields">
       <dt>Version</dt><dd>{{ version }}</dd>
       <dt>Authentication</dt>
-      <dd>{{ "OAuth2" if auth_configured else "Disabled" }}</dd>
+      <dd>
+        {% if auth_configured %}
+          OAuth2
+        {% else %}
+          <span class="badge badge--warn">disabled</span>
+          <span class="small muted">anyone who can reach this URL can read the library</span>
+        {% endif %}
+      </dd>
       <dt>Provider metadata</dt>
       <dd><a href="{{ root_path }}/.well-known/kicad-remote-provider">/.well-known/kicad-remote-provider</a></dd>
-      <dt>Catalog</dt><dd><a href="{{ root_path }}/panel">/panel</a></dd>
       <dt>API</dt><dd><a href="{{ root_path }}/docs">/docs</a></dd>
     </dl>
 

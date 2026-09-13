@@ -30,10 +30,6 @@ class Issue:
         where = f" [{self.path}]" if self.path else ""
         return f"{self.severity.value}: {self.message}{where}"
 
-    @property
-    def is_error(self) -> bool:
-        return self.severity is Severity.ERROR
-
     def as_dict(self) -> dict[str, str | None]:
         return {
             "severity": self.severity.value,
@@ -41,14 +37,6 @@ class Issue:
             "message": self.message,
             "path": self.path,
         }
-
-
-def error(kind: str, message: str, path: str | None = None) -> Issue:
-    return Issue(Severity.ERROR, kind, message, path)
-
-
-def warning(kind: str, message: str, path: str | None = None) -> Issue:
-    return Issue(Severity.WARNING, kind, message, path)
 
 
 def errors(issues: list[Issue]) -> list[Issue]:

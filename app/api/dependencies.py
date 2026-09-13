@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 
 from app.kicad.library import normalise_model_ref
 from app.kicad.parts import Part, PartsIndex
+from app.kicad.ref import LibraryRef
 from app.library_service import LibraryService
 
 
@@ -60,23 +61,16 @@ def find_model(part: Part, snapshot) -> Path | None:
     Reached through the footprint: a symbol never names a model, and the
     reference lives in the .kicad_mod alongside its placement offsets.
     """
-    if not part.footprint or ":" not in part.footprint:
+    ref = LibraryRef.parse(part.footprint)
+    if ref is None:
         return None
 
-    library, name = part.footprint.split(":", 1)
-    located = snapshot.catalog.find_footprint(library, name)
+    located = snapshot.catalog.find_footprint(ref.library, ref.name)
     if not located:
         return None
 
-    for ref in located[0].asset.model_refs:
-        found = snapshot.catalog.find_model(normalise_model_ref(ref))
+    for model_ref in located[0].asset.model_refs:
+        found = snapshot.catalog.find_model(normalise_model_ref(model_ref))
         if found and not found[0].asset.is_lfs_pointer:
             return Path(found[0].asset.path)
     return None
-
-
-def read_asset_text(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return None

@@ -7,26 +7,46 @@ KiCad embeds a WebView, loads this app's `/panel` page inside it, and exchanges
 JSON-RPC messages with the page over `window.kiclient.postMessage`. Assets are
 pushed into KiCad from the page rather than fetched by it.
 
-## Status
+## Endpoints
 
-Authentication and the provider handshake are implemented. The library indexer
-is not — the catalog is currently empty.
+Everything that reads the library requires a session when `AUTH_ENABLED` is
+on; see [Authentication](#authentication). The pages marked *open* stay
+reachable either way, because a probe has no session and the panel is what
+offers the sign-in button.
 
-| Path | Purpose |
-| --- | --- |
-| `/.well-known/kicad-remote-provider` | Discovery document KiCad reads first |
-| `/panel` | The page KiCad renders in its WebView |
-| `/api/v1/session/bootstrap` | Exchanges an access token for a single-use nonce |
-| `/session/consume?n=` | Redeems a nonce, sets the session cookie |
-| `/api/v1/session/me` | Current session |
-| `/api/v1/session/logout` | Clears the session |
-| `/api/v1/status` | Index state, per source |
-| `/api/v1/parts` | Part search |
-| `/api/v1/parts/{ipn}` | One part with its approved sources |
-| `/api/v1/parts/{ipn}/assets` | The payload KiCad places |
-| `/api/v1/parts/{ipn}/symbol.svg` | Symbol preview |
-| `/api/v1/parts/{ipn}/footprint.svg` | Land pattern preview |
-| `/api/v1/parts/{ipn}/model.step` | The 3D model, as the library holds it |
+| Path | Purpose | |
+| --- | --- | --- |
+| `/.well-known/kicad-remote-provider` | Discovery document KiCad reads first | open |
+| `/panel` | The page KiCad renders in its WebView | open |
+| `/` | Deployment status: sources, counts, configuration problems | open |
+| `/healthz` | Liveness: the process is serving | open |
+| `/readyz` | Readiness: there is a catalog to serve | open |
+| `/api/v1/session/bootstrap` | Exchanges an access token for a single-use nonce | open |
+| `/session/consume?n=` | Redeems a nonce, sets the session cookie | open |
+| `/api/v1/session/me` | Current session | open |
+| `/api/v1/session/logout` | Clears the session | open |
+| `/api/v1/status` | Index state, per source, plus the filters the catalog offers | |
+| `/api/v1/parts` | Part search: `q`, `status`, `category`, `limit` | |
+| `/api/v1/parts/{ipn}` | One part with its approved sources | |
+| `/api/v1/parts/{ipn}/assets` | The payload KiCad places | |
+| `/api/v1/parts/{ipn}/symbol.svg` | Symbol preview | |
+| `/api/v1/parts/{ipn}/footprint.svg` | Land pattern preview | |
+| `/api/v1/parts/{ipn}/model.step` | The 3D model, as the library holds it | |
+| `/api/v1/issues` | Everything in the library that does not resolve | |
+| `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols | |
+| `/issues` | The issue list, grouped by kind | |
+
+`/api/v1/parts` reports both `total` (the catalog) and `matched` (what the
+filters selected), because "12 of 4000" says nothing about the search that
+produced the twelve.
+
+### Previews
+
+Previews are drawn from the parsed files rather than by shelling out to
+KiCad, which would mean installing the whole application in the container to
+draw a resistor. The part page inlines them so that hovering a pin highlights
+the pad it maps to, and the other way round; the standalone endpoints are
+used for the panel's thumbnails, where no interaction is needed.
 
 ### 3D models
 
@@ -42,15 +62,6 @@ so there is no lighter format to fall back on.
 Models carry no single colour -- each face has its own, which is what
 separates a resistor's black body from its terminations -- so faces become
 geometry groups with a material each.
-
-Previews are drawn from the parsed files rather than by shelling out to
-KiCad. The part page inlines them so that hovering a pin highlights the pad
-it maps to, and the other way round; the standalone endpoints are used for
-the panel's thumbnails, where no interaction is needed.
-| `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols |
-| `/api/v1/issues` | Everything in the library that does not resolve |
-| `/healthz` | Liveness: the process is serving |
-| `/readyz` | Readiness: there is a catalog to serve |
 
 ## The library
 
@@ -141,6 +152,18 @@ The provider must allow **PKCE on a public client** and a **dynamic 127.0.0.1
 loopback redirect URI**, since KiCad picks an ephemeral port. Keycloak,
 Authentik, Auth0, Zitadel, Google and GitLab all qualify. **GitHub OAuth Apps do
 not** — they publish no RFC 8414 metadata and do not support PKCE.
+
+### What a session is required for
+
+With `AUTH_ENABLED` on, every endpoint that reads the library refuses a request
+without a session cookie. The exceptions are deliberate: health probes have no
+session, the discovery document is what tells KiCad how to authenticate at all,
+and `/panel` is the page carrying the sign-in button, so refusing it would
+leave the user nowhere to sign in from.
+
+A refused request is answered in the shape its caller asked for — JSON for the
+API, and a page with a route back to the panel for a browser, since a part page
+is reached by following the `Datasheet` link out of a placed symbol.
 
 Setting `AUTH_ENABLED=false` advertises auth type `none`, which leaves the panel
 and every asset readable by anyone who can reach the URL.

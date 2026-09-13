@@ -14,8 +14,9 @@ from pathlib import Path
 from app.kicad.catalog import Catalog
 from app.kicad.library import Symbol
 from app.kicad.parts import Part, PartsIndex
+from app.kicad.ref import LibraryRef
 from app.kicad.sexpr import Atom, SExpr, loads
-from app.kicad.writer import dumps, set_property, sexpr
+from app.kicad.writer import dumps, replace_property, set_property, sexpr
 
 # Fields the platform owns. Anything else in a part's `fields` is passed
 # through untouched.
@@ -64,26 +65,6 @@ def sanitise_library(name: str) -> str:
 
 def remote_library_name(library: str, prefix: str = DEFAULT_REMOTE_PREFIX) -> str:
     return f"{prefix}_{sanitise_library(library)}"
-
-
-def _replace_property(target: SExpr, prop: SExpr) -> None:
-    """Overwrite a property on `target` with `prop`, keeping the child's layout."""
-    name = prop.atoms()[0] if prop.atoms() else None
-    if name is None:
-        return
-
-    for i, item in enumerate(target.items):
-        if isinstance(item, SExpr) and item.head == "property":
-            existing = item.atoms()
-            if existing and existing[0] == name:
-                target.items[i] = copy.deepcopy(prop)
-                return
-
-    last = 1
-    for i, item in enumerate(target.items):
-        if isinstance(item, SExpr) and item.head == "property":
-            last = i + 1
-    target.items.insert(last, copy.deepcopy(prop))
 
 
 def _split_unit_suffix(unit_name: str, symbol_name: str) -> tuple[int, int] | None:
@@ -150,7 +131,7 @@ def flatten(nodes: list[SExpr], name: str) -> SExpr:
 
     for descendant in nodes[1:]:
         for prop in descendant.children("property"):
-            _replace_property(base, prop)
+            replace_property(base, prop)
 
     base.items[1] = name
 
@@ -195,25 +176,24 @@ def build_symbol(
     KiCad resolves `extends` within the library it is given, so a derived
     symbol sent alone would place a part with no pins and no body.
     """
-    if not part.symbol or ":" not in part.symbol:
+    ref = LibraryRef.parse(part.symbol)
+    if ref is None:
         raise BuildError(f"{part.ipn} names no usable symbol ({part.symbol!r})")
 
-    library, name = part.symbol.split(":", 1)
-    located = catalog.find_symbol(library, name)
+    located = catalog.find_symbol(ref.library, ref.name)
     if not located:
         raise BuildError(f"{part.ipn} references symbol {part.symbol!r}, which no source provides")
 
     index = catalog.indexes[located[0].source_id]
     try:
-        chain = index.resolve_chain(library, name)
+        chain = index.resolve_chain(ref.library, ref.name)
     except ValueError as exc:  # extends cycle
         raise BuildError(str(exc)) from exc
 
     if not chain:
         raise BuildError(f"symbol {part.symbol!r} could not be resolved")
 
-    missing_parent = chain[-1].extends is not None
-    if missing_parent:
+    if chain[-1].extends is not None:
         raise BuildError(
             f"{part.ipn}: the extends chain for {part.symbol!r} is broken at "
             f"{chain[-1].name!r}, so the placed part would have no body"
@@ -221,7 +201,7 @@ def build_symbol(
 
     # Ancestor first, so each descendant's overrides land on top.
     nodes = [_load_symbol_node(s) for s in reversed(chain)]
-    placed = flatten(nodes, name)
+    placed = flatten(nodes, ref.name)
 
     set_property(placed, IPN_FIELD, part.ipn)
     if part.description:
@@ -235,11 +215,10 @@ def build_symbol(
         set_property(placed, key, value)
 
     # Rewritten to where KiCad will actually file it, not where we keep it.
-    if part.footprint and ":" in part.footprint:
-        fp_library, fp_name = part.footprint.split(":", 1)
-        set_property(
-            placed, "Footprint", f"{remote_library_name(fp_library, remote_prefix)}:{fp_name}"
-        )
+    footprint = LibraryRef.parse(part.footprint)
+    if footprint is not None:
+        remote = remote_library_name(footprint.library, remote_prefix)
+        set_property(placed, "Footprint", f"{remote}:{footprint.name}")
     elif part.footprint:
         set_property(placed, "Footprint", part.footprint)
 
@@ -251,4 +230,4 @@ def build_symbol(
             set_property(placed, "Manufacturer", mpn.manufacturer)
 
     tree = SExpr(items=[*_header(), placed])
-    return SymbolPayload(library=library, name=name, text=dumps(tree))
+    return SymbolPayload(library=ref.library, name=ref.name, text=dumps(tree))

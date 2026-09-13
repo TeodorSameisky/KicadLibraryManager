@@ -40,17 +40,6 @@ class Asset:
     parameters: dict
     size_bytes: int
 
-    def summary(self) -> dict:
-        """Everything except the payload, for listing and diagnostics."""
-        return {
-            "command": self.command,
-            "label": self.label,
-            "filename": self.filename,
-            "size_bytes": self.size_bytes,
-            "encoded_bytes": len(self.data),
-            "mode": self.parameters.get("mode"),
-        }
-
 
 @dataclass
 class AssetBundle:
