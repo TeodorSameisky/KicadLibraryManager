@@ -21,17 +21,21 @@ DEFAULT_STROKE_MM = 0.12
 # An <img>-embedded SVG inherits nothing from the page, so the palette travels
 # with the file. Layer colours echo KiCad's own so a footprint reads the way it
 # does in the editor.
+# Scoped to the root element's own class rather than :root, so that inlining
+# the drawing into a page does not redefine the page's variables.
 STYLE = (
     "<style>"
-    ":root{"
+    ".kfp{"
     "--fp-copper:#c8842a;--fp-silk:#111418;--fp-courtyard:#b06cc0;"
-    "--fp-fab:#9a8f7a;--fp-hole:#fdfdfd;--fp-text:#6b7480"
+    "--fp-fab:#9a8f7a;--fp-hole:#fdfdfd;--fp-text:#6b7480;--fp-hl:#2f6fd0"
     "}"
     "@media(prefers-color-scheme:dark){"
-    ":root{"
+    ".kfp{"
     "--fp-copper:#d8973c;--fp-silk:#e8eaed;--fp-courtyard:#c58ad4;"
-    "--fp-fab:#8a8170;--fp-hole:#14171c;--fp-text:#6b7480"
+    "--fp-fab:#8a8170;--fp-hole:#14171c;--fp-text:#6b7480;--fp-hl:#6fa4f0"
     "}}"
+    ".pad rect,.pad ellipse{transition:fill .1s}"
+    ".pad.hl rect,.pad.hl ellipse{fill:var(--fp-hl)}"
     "</style>"
 )
 
@@ -211,6 +215,10 @@ def _pad(node: SExpr, scene: _Scene) -> None:
     rotate = f' transform="rotate({angle:.4f} {x:.4f} {y:.4f})"' if angle else ""
     copper = 'fill="var(--fp-copper)" stroke="none"'
 
+    # Grouped and tagged so the matching symbol pin can highlight it.
+    tag = f' data-pad="{_escape(number)}"' if number else ""
+    scene.pads.append(f'<g class="pad"{tag}>')
+
     if shape in ("circle", "oval"):
         scene.pads.append(
             f'<ellipse cx="{x:.4f}" cy="{y:.4f}" rx="{w / 2:.4f}" ry="{h / 2:.4f}" '
@@ -240,6 +248,8 @@ def _pad(node: SExpr, scene: _Scene) -> None:
             f'font-size="{min(w, h) * 0.5:.4f}" fill="var(--fp-hole)" '
             f'font-family="system-ui, sans-serif">{_escape(number)}</text>'
         )
+
+    scene.pads.append("</g>")
 
 
 _DRAWERS = {
@@ -282,7 +292,7 @@ def render_footprint(footprint: SExpr, title: str = "") -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{min_x:.4f} {min_y:.4f} '
         f'{width:.4f} {height:.4f}" width="{width * PX_PER_MM:.0f}" '
-        f'height="{height * PX_PER_MM:.0f}" role="img" '
+        f'height="{height * PX_PER_MM:.0f}" class="kfp" role="img" '
         f'aria-label="{_escape(title or "footprint")}">'
         f"<title>{_escape(title)}</title>{STYLE}{body}</svg>"
     )
@@ -291,7 +301,7 @@ def render_footprint(footprint: SExpr, title: str = "") -> str:
 def _empty_svg(title: str) -> str:
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="160" height="80" '
-        f'role="img" aria-label="{_escape(title)} has no drawable items">'
+        f'class="kfp" role="img" aria-label="{_escape(title)} has no drawable items">'
         f"<title>{_escape(title)}</title>{STYLE}"
         '<text x="20" y="11" text-anchor="middle" font-size="4" '
         'fill="var(--fp-text)">no graphics</text></svg>'

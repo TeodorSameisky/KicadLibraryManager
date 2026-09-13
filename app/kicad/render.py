@@ -18,11 +18,18 @@ from app.kicad.sexpr import SExpr
 # An SVG loaded through <img> renders in its own document and inherits nothing
 # from the page, so the palette travels inside the file. prefers-color-scheme
 # still reaches it, which is what keeps the drawing readable on both themes.
+# Scoped to the root element's own class rather than :root, so that inlining
+# the drawing into a page does not redefine the page's variables.
 STYLE = (
     "<style>"
-    ":root{--symbol-line:#14171c;--symbol-fill:#fffbe6;--symbol-pin:#8a94a6}"
+    ".ksym{--symbol-line:#14171c;--symbol-fill:#fffbe6;--symbol-pin:#8a94a6;"
+    "--symbol-hl:#2f6fd0}"
     "@media(prefers-color-scheme:dark){"
-    ":root{--symbol-line:#e8eaed;--symbol-fill:#2a2410;--symbol-pin:#6b7480}}"
+    ".ksym{--symbol-line:#e8eaed;--symbol-fill:#2a2410;--symbol-pin:#6b7480;"
+    "--symbol-hl:#6fa4f0}}"
+    ".pin{transition:opacity .1s}"
+    ".pin.hl line{stroke:var(--symbol-hl);stroke-width:.28}"
+    ".pin.hl circle{stroke:var(--symbol-hl);fill:var(--symbol-hl)}"
     "</style>"
 )
 
@@ -167,6 +174,12 @@ def _arc(node: SExpr, scene: _Scene) -> None:
     )
 
 
+def _pin_number(node: SExpr) -> str:
+    number = node.child("number")
+    atoms = number.atoms() if number else []
+    return atoms[0] if atoms else ""
+
+
 def _pin(node: SExpr, scene: _Scene) -> None:
     at = _floats(node.child("at"))
     length = _floats(node.child("length"))
@@ -180,14 +193,18 @@ def _pin(node: SExpr, scene: _Scene) -> None:
 
     scene.bounds.add(x, y)
     scene.bounds.add(ex, ey)
+
+    # Grouped and tagged so the same pin can be picked out in the footprint.
+    number = _pin_number(node)
+    tag = f' data-pin="{_escape(number)}"' if number else ""
     scene.parts.append(
+        f'<g class="pin"{tag}>'
         f'<line x1="{x:.4f}" y1="{y:.4f}" x2="{ex:.4f}" y2="{ey:.4f}" '
         f'stroke="var(--symbol-line)" stroke-width="{DEFAULT_STROKE_MM:.4f}" '
         'stroke-linecap="round"/>'
-    )
-    scene.parts.append(
         f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{PIN_RADIUS_MM:.4f}" '
         'fill="none" stroke="var(--symbol-pin)" stroke-width="0.06"/>'
+        "</g>"
     )
 
 
@@ -237,7 +254,7 @@ def render_symbol(symbol: SExpr, title: str = "") -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{min_x:.4f} {min_y:.4f} '
         f'{width:.4f} {height:.4f}" width="{px_w:.0f}" height="{px_h:.0f}" '
-        f'role="img" aria-label="{_escape(title or "symbol")}">'
+        f'class="ksym" role="img" aria-label="{_escape(title or "symbol")}">'
         f"<title>{_escape(title)}</title>{STYLE}"
         f'<g transform="translate(0 {2 * flip_axis:.4f}) scale(1 -1)">'
         + "".join(scene.parts)
@@ -248,7 +265,7 @@ def render_symbol(symbol: SExpr, title: str = "") -> str:
 def _empty_svg(title: str) -> str:
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="120" height="60" '
-        f'role="img" aria-label="{_escape(title)} has no graphics">'
+        f'class="ksym" role="img" aria-label="{_escape(title)} has no graphics">'
         f"<title>{_escape(title)}</title>{STYLE}"
         '<text x="20" y="11" text-anchor="middle" font-size="4" '
         'fill="var(--symbol-pin)">no graphics</text></svg>'

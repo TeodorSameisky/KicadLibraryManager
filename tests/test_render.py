@@ -114,3 +114,20 @@ def test_the_palette_travels_inside_the_svg():
 def test_even_an_empty_symbol_carries_the_palette():
     svg = render_symbol(loads('(symbol "X")'), "X")
     assert "<style>" in svg
+
+
+def test_pins_are_grouped_and_numbered():
+    """So a pin can be picked out and matched against a footprint pad."""
+    svg = draw('(symbol "X_1_1" (pin passive line (at 0 3.81 270) (length 1.27)'
+               ' (number "2")))')
+
+    assert '<g class="pin" data-pin="2">' in svg
+
+
+def test_the_palette_is_scoped_to_the_drawing():
+    """Inlining must not redefine the host page's variables."""
+    svg = draw('(symbol "X_1_1" (rectangle (start 0 0) (end 1 1)))')
+
+    assert ".ksym{" in svg
+    assert ":root{" not in svg
+    assert 'class="ksym"' in svg

@@ -26,6 +26,11 @@ is not — the catalog is currently empty.
 | `/api/v1/parts/{ipn}/assets` | The payload KiCad places |
 | `/api/v1/parts/{ipn}/symbol.svg` | Symbol preview |
 | `/api/v1/parts/{ipn}/footprint.svg` | Land pattern preview |
+
+Previews are drawn from the parsed files rather than by shelling out to
+KiCad. The part page inlines them so that hovering a pin highlights the pad
+it maps to, and the other way round; the standalone endpoints are used for
+the panel's thumbnails, where no interaction is needed.
 | `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols |
 | `/healthz` | Liveness probe |
 

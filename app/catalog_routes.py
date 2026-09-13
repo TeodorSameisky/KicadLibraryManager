@@ -27,6 +27,30 @@ def get_service(request: Request) -> LibraryService:
     return request.app.state.library
 
 
+def _symbol_svg(part, snapshot, settings) -> str | None:
+    try:
+        payload = build_symbol(part, snapshot.catalog, snapshot.parts,
+                               settings.public_url, settings.remote_library_prefix)
+    except BuildError:
+        return None
+    node = loads(payload.text).child("symbol")
+    return render_symbol(node, f"{part.ipn} {part.description}".strip()) if node else None
+
+
+def _footprint_svg(part, snapshot) -> str | None:
+    if not part.footprint or ":" not in part.footprint:
+        return None
+    library, name = part.footprint.split(":", 1)
+    located = snapshot.catalog.find_footprint(library, name)
+    if not located:
+        return None
+    try:
+        text = Path(located[0].asset.path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return render_footprint(loads(text), part.footprint)
+
+
 def _part_summary(part, parts_index) -> dict:
     preferred = part.preferred_mpn
     manufacturer = ""
@@ -231,6 +255,9 @@ async def ipn_page(
         for ref in part.mpns
     ]
 
+    # Inlined rather than linked: an <img> SVG is a separate document, so its
+    # pins could not be linked to the footprint's pads.
+    snapshot = service.snapshot
     templates = request.app.state.templates
     return templates.TemplateResponse(
         request=request,
@@ -238,6 +265,8 @@ async def ipn_page(
         context={
             "part": part,
             "mpns": mpns,
+            "symbol_svg": _symbol_svg(part, snapshot, settings),
+            "footprint_svg": _footprint_svg(part, snapshot),
             "root_path": settings.root_path,
             "provider_name": settings.provider_name,
             "indexing": service.state is State.SYNCING,

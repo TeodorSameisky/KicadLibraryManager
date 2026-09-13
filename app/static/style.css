@@ -225,3 +225,9 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   font-size: 0.8125rem;
   color: var(--muted);
 }
+
+.previews [data-pin], .previews [data-pad] { cursor: pointer; outline: none; }
+
+.preview-large svg { max-height: 13rem; width: auto; }
+
+.hint { margin-top: -0.5rem; }

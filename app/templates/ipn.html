@@ -15,20 +15,23 @@
     <main>
       <p class="lead">{{ part.description or "No description" }}</p>
 
-      <div class="previews">
-        <figure class="preview-large">
-          <img src="{{ root_path }}/api/v1/parts/{{ part.ipn | urlencode }}/symbol.svg"
-               alt="Symbol for {{ part.ipn }}" />
-          <figcaption>Symbol</figcaption>
-        </figure>
-        {% if part.footprint %}
+      <div class="previews" id="previews">
+        {% if symbol_svg %}
           <figure class="preview-large">
-            <img src="{{ root_path }}/api/v1/parts/{{ part.ipn | urlencode }}/footprint.svg"
-                 alt="Footprint for {{ part.ipn }}" />
+            {{ symbol_svg | safe }}
+            <figcaption>Symbol</figcaption>
+          </figure>
+        {% endif %}
+        {% if footprint_svg %}
+          <figure class="preview-large">
+            {{ footprint_svg | safe }}
             <figcaption>Footprint</figcaption>
           </figure>
         {% endif %}
       </div>
+      {% if symbol_svg and footprint_svg %}
+        <p class="meta hint">Hover a pin or pad to see where it maps.</p>
+      {% endif %}
 
       <h2 class="section">Library</h2>
       <table class="grid">
@@ -82,5 +85,35 @@
 
       <p class="meta back"><a href="{{ root_path }}/panel">&larr; Back to the catalog</a></p>
     </main>
+
+    <script>
+      (function () {
+        var root = document.getElementById("previews");
+        if (!root) return;
+
+        function matching(number) {
+          return root.querySelectorAll(
+            '[data-pin="' + CSS.escape(number) + '"], [data-pad="' + CSS.escape(number) + '"]'
+          );
+        }
+
+        function setHighlight(number, on) {
+          Array.prototype.forEach.call(matching(number), function (el) {
+            el.classList.toggle("hl", on);
+          });
+        }
+
+        Array.prototype.forEach.call(root.querySelectorAll("[data-pin], [data-pad]"),
+          function (el) {
+            var number = el.getAttribute("data-pin") || el.getAttribute("data-pad");
+            if (!number) return;
+            el.addEventListener("mouseenter", function () { setHighlight(number, true); });
+            el.addEventListener("mouseleave", function () { setHighlight(number, false); });
+            el.setAttribute("tabindex", "0");
+            el.addEventListener("focus", function () { setHighlight(number, true); });
+            el.addEventListener("blur", function () { setHighlight(number, false); });
+          });
+      })();
+    </script>
   </body>
 </html>

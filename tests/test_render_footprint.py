@@ -96,3 +96,18 @@ def test_arc_and_circle_are_drawn():
 
     assert "<path" in svg and " A " in svg
     assert "<circle" in svg
+
+
+def test_pads_are_grouped_and_numbered():
+    svg = draw('(pad "3" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))')
+
+    assert '<g class="pad" data-pad="3">' in svg
+    assert svg.count("</g>") >= 1
+
+
+def test_the_palette_is_scoped_to_the_drawing():
+    svg = draw('(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))')
+
+    assert ".kfp{" in svg
+    assert ":root{" not in svg
+    assert 'class="kfp"' in svg

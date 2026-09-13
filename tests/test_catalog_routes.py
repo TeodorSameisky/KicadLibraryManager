@@ -147,10 +147,14 @@ def test_symbol_svg_for_an_unknown_part_is_404(ready):
     assert ready.get("/api/v1/parts/9999-9999/symbol.svg").status_code == 404
 
 
-def test_the_ipn_page_shows_the_preview(ready):
+def test_the_ipn_page_inlines_the_previews(ready):
+    """Inlined rather than linked: an <img> SVG is a separate document, so its
+    pins could not be linked to the footprint's pads."""
     html = ready.get("/ipn/1102-0001").text
 
-    assert "/api/v1/parts/1102-0001/symbol.svg" in html
+    assert "<svg" in html
+    assert 'class="ksym"' in html and 'class="kfp"' in html
+    assert "<img" not in html
 
 
 def test_footprint_svg_is_served(ready):
@@ -169,8 +173,16 @@ def test_footprint_svg_is_404_when_no_source_provides_it(ready, library):
     assert ready.get("/api/v1/parts/1102-0001/footprint.svg").status_code == 404
 
 
-def test_the_ipn_page_shows_both_previews(ready):
+def test_pins_and_pads_are_tagged_for_linking(ready):
     html = ready.get("/ipn/1102-0001").text
 
-    assert "/api/v1/parts/1102-0001/symbol.svg" in html
-    assert "/api/v1/parts/1102-0001/footprint.svg" in html
+    assert 'data-pin="1"' in html
+    assert 'data-pad="1"' in html
+    assert 'data-pin="2"' in html
+    assert 'data-pad="2"' in html
+
+
+def test_the_standalone_svg_endpoints_still_work(ready):
+    """The panel's thumbnails use them, where no interaction is needed."""
+    assert ready.get("/api/v1/parts/1102-0001/symbol.svg").status_code == 200
+    assert ready.get("/api/v1/parts/1102-0001/footprint.svg").status_code == 200
