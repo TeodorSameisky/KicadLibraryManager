@@ -13,7 +13,9 @@ import pytest
 jsonschema = pytest.importorskip("jsonschema")
 
 SCHEMA = json.loads(
-    (Path(__file__).parent / "fixtures" / "kicad-remote-provider-metadata-v1.schema.json").read_text()
+    (
+        Path(__file__).parent / "fixtures" / "kicad-remote-provider-metadata-v1.schema.json"
+    ).read_text()
 )
 
 

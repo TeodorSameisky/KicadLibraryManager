@@ -6,14 +6,14 @@ from app.kicad.catalog import Catalog
 from app.kicad.library import index_repository
 from app.kicad.parts import check_against_catalog, load_parts
 from app.library_service import LibraryService, Snapshot, SourceStatus, State
-
-from tests.test_parts import CATEGORIES, MPN_YAGEO, PART
 from tests.test_library_index import footprint, symbol
+from tests.test_parts import CATEGORIES, MPN_YAGEO, PART
 
 
 @pytest.fixture()
 def library(tmp_path):
     """A ready service backed by a directory, with no git involved."""
+
     def write(rel, text):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -23,10 +23,11 @@ def library(tmp_path):
     write("mpns/RC0603FR-0710KL.yaml", MPN_YAGEO)
     write("parts/1102/1102-0001.yaml", PART)
     write("symbols/Passives.kicad_symdir/R.kicad_sym", symbol("R", units=2))
-    write("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-          symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"))
-    write("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
-          footprint("R_0603_1608Metric"))
+    write(
+        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+        symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"),
+    )
+    write("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod", footprint("R_0603_1608Metric"))
 
     catalog = Catalog()
     catalog.add("company", index_repository(tmp_path))
@@ -37,8 +38,7 @@ def library(tmp_path):
     snapshot = Snapshot(
         catalog=catalog,
         parts=parts,
-        sources=[SourceStatus(id="company", name="Company", commit="abc123",
-                              symbols=2, parts=1)],
+        sources=[SourceStatus(id="company", name="Company", commit="abc123", symbols=2, parts=1)],
         finished_at=1.0,
         duration=0.2,
     )

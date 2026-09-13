@@ -55,9 +55,7 @@ class Catalog:
 
     def find_model(self, key: str) -> list[Located]:
         return [
-            Located(sid, idx.models[key])
-            for sid, idx in self.indexes.items()
-            if key in idx.models
+            Located(sid, idx.models[key]) for sid, idx in self.indexes.items() if key in idx.models
         ]
 
     # -- reporting --------------------------------------------------------
@@ -100,15 +98,25 @@ class Catalog:
 
                 if not found:
                     self.issues.append(
-                        Issue(Severity.ERROR, "missing-footprint",
-                              f"[{source_id}] {symbol.name!r} references footprint "
-                              f"{fp_ref!r}, which no source provides", rel))
+                        Issue(
+                            Severity.ERROR,
+                            "missing-footprint",
+                            f"[{source_id}] {symbol.name!r} references footprint "
+                            f"{fp_ref!r}, which no source provides",
+                            rel,
+                        )
+                    )
                 elif len(found) > 1:
                     where = ", ".join(sorted(f.source_id for f in found))
                     self.issues.append(
-                        Issue(Severity.WARNING, "ambiguous-footprint",
-                              f"[{source_id}] footprint {fp_ref!r} is provided by "
-                              f"several sources ({where}); the first wins", rel))
+                        Issue(
+                            Severity.WARNING,
+                            "ambiguous-footprint",
+                            f"[{source_id}] footprint {fp_ref!r} is provided by "
+                            f"several sources ({where}); the first wins",
+                            rel,
+                        )
+                    )
 
             for fp in index.footprints.values():
                 rel = fp.path.relative_to(index.root).as_posix()
@@ -116,9 +124,14 @@ class Catalog:
                     key = normalise_model_ref(ref)
                     if not self.find_model(key):
                         self.issues.append(
-                            Issue(Severity.ERROR, "missing-model",
-                                  f"[{source_id}] {fp.name!r} references 3D model "
-                                  f"{key!r}, which no source provides", rel))
+                            Issue(
+                                Severity.ERROR,
+                                "missing-model",
+                                f"[{source_id}] {fp.name!r} references 3D model "
+                                f"{key!r}, which no source provides",
+                                rel,
+                            )
+                        )
 
     def summary(self) -> str:
         lines = [

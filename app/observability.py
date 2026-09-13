@@ -62,7 +62,8 @@ def configure_logging(level: str | None = None, json_output: bool | None = None)
     handler = logging.StreamHandler(sys.stdout)
     handler.addFilter(_RequestIdFilter())
     handler.setFormatter(
-        _JsonFormatter() if json_output
+        _JsonFormatter()
+        if json_output
         else logging.Formatter("%(asctime)s %(levelname)-7s [%(request_id)s] %(name)s: %(message)s")
     )
 
@@ -96,9 +97,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
         except Exception:
             elapsed = (time.perf_counter() - started) * 1000
-            log.exception(
-                "%s %s failed after %.0fms", request.method, request.url.path, elapsed
-            )
+            log.exception("%s %s failed after %.0fms", request.method, request.url.path, elapsed)
             request_id.reset(token)
             raise
 
@@ -109,7 +108,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             log.log(
                 logging.WARNING if response.status_code >= 500 else logging.INFO,
                 "%s %s -> %d in %.0fms",
-                request.method, request.url.path, response.status_code, elapsed,
+                request.method,
+                request.url.path,
+                response.status_code,
+                elapsed,
             )
 
         request_id.reset(token)

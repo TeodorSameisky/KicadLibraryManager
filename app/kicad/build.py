@@ -15,7 +15,7 @@ from app.kicad.catalog import Catalog
 from app.kicad.library import Symbol
 from app.kicad.parts import Part, PartsIndex
 from app.kicad.sexpr import Atom, SExpr, loads
-from app.kicad.writer import dumps, sexpr, set_property
+from app.kicad.writer import dumps, set_property, sexpr
 
 # Fields the platform owns. Anything else in a part's `fields` is passed
 # through untouched.
@@ -90,7 +90,7 @@ def _split_unit_suffix(unit_name: str, symbol_name: str) -> tuple[int, int] | No
     """Read the trailing _<unit>_<style> from a unit sub-symbol's name."""
     if not unit_name.startswith(symbol_name + "_"):
         return None
-    parts = unit_name[len(symbol_name) + 1:].split("_")
+    parts = unit_name[len(symbol_name) + 1 :].split("_")
     if len(parts) != 2 or not all(p.isdigit() for p in parts):
         return None
     return int(parts[0]), int(parts[1])
@@ -124,7 +124,7 @@ def _merge_common_units(symbol: SExpr, name: str) -> None:
     for style in sorted(styles):
         common = units.get((0, style))
         for number in sorted(numbers):
-            body = [i for i in (common.items[2:] if common else [])]
+            body = list(common.items[2:]) if common else []
             own = units.get((number, style))
             if own is not None:
                 body.extend(own.items[2:])
@@ -159,16 +159,12 @@ def flatten(nodes: list[SExpr], name: str) -> SExpr:
     for sub in base.children("symbol"):
         sub_atoms = sub.atoms()
         if sub_atoms and sub_atoms[0].startswith(original + "_"):
-            sub.items[1] = name + sub_atoms[0][len(original):]
+            sub.items[1] = name + sub_atoms[0][len(original) :]
 
-    base.items = [
-        i for i in base.items
-        if not (isinstance(i, SExpr) and i.head == "extends")
-    ]
+    base.items = [i for i in base.items if not (isinstance(i, SExpr) and i.head == "extends")]
 
     # Keep embedded_fonts last, as KiCad writes it.
-    trailing = [i for i in base.items
-                if isinstance(i, SExpr) and i.head == "embedded_fonts"]
+    trailing = [i for i in base.items if isinstance(i, SExpr) and i.head == "embedded_fonts"]
     for item in trailing:
         base.items.remove(item)
 
@@ -241,8 +237,9 @@ def build_symbol(
     # Rewritten to where KiCad will actually file it, not where we keep it.
     if part.footprint and ":" in part.footprint:
         fp_library, fp_name = part.footprint.split(":", 1)
-        set_property(placed, "Footprint",
-                     f"{remote_library_name(fp_library, remote_prefix)}:{fp_name}")
+        set_property(
+            placed, "Footprint", f"{remote_library_name(fp_library, remote_prefix)}:{fp_name}"
+        )
     elif part.footprint:
         set_property(placed, "Footprint", part.footprint)
 

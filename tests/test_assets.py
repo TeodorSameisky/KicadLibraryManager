@@ -12,7 +12,6 @@ from app.kicad.catalog import Catalog
 from app.kicad.library import index_repository
 from app.kicad.parts import load_parts
 from app.kicad.sexpr import loads
-
 from tests.test_library_index import footprint, symbol
 
 PART = """\
@@ -56,20 +55,26 @@ class Lib:
 def lib(tmp_path):
     library = Lib(tmp_path)
     library.add("categories.yaml", '- code: "1102"\n  name: Resistors\n')
-    library.add("mpns/RC0603FR-0710KL.yaml",
-                "mpn: RC0603FR-0710KL\nmanufacturer: Yageo\nlifecycle: active\n")
+    library.add(
+        "mpns/RC0603FR-0710KL.yaml",
+        "mpn: RC0603FR-0710KL\nmanufacturer: Yageo\nlifecycle: active\n",
+    )
     library.add("parts/1102/1102-0001.yaml", PART)
     library.add("symbols/Passives.kicad_symdir/R.kicad_sym", symbol("R", units=2))
-    library.add("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-                symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"))
-    library.add("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
-                footprint("R_0603_1608Metric", model=MODEL_REF))
+    library.add(
+        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+        symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"),
+    )
+    library.add(
+        "footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
+        footprint("R_0603_1608Metric", model=MODEL_REF),
+    )
     library.add("3dmodels/Passives.3dshapes/R_0603_1608Metric.step", "ISO-10303-21;\n" * 20)
     return library
 
 
 def test_round_trip_through_zstd_and_base64():
-    raw = b"(footprint \"R_0603\")\n" * 50
+    raw = b'(footprint "R_0603")\n' * 50
     assert decode(encode(raw)) == raw
 
 
@@ -116,8 +121,9 @@ def test_rpc_parameters_match_the_protocol(lib):
 
 def test_a_missing_footprint_warns_but_still_places(lib):
     """A symbol with no land pattern is still more use than nothing."""
-    lib.add("parts/1102/1102-0001.yaml",
-            PART.replace("Passives:R_0603_1608Metric", "Passives:Gone"))
+    lib.add(
+        "parts/1102/1102-0001.yaml", PART.replace("Passives:R_0603_1608Metric", "Passives:Gone")
+    )
 
     bundle = lib.bundle()
 
@@ -127,8 +133,10 @@ def test_a_missing_footprint_warns_but_still_places(lib):
 
 def test_an_lfs_pointer_is_refused_rather_than_sent(lib):
     """Sending the stub gives an empty 3D view with no error anywhere."""
-    lib.add("3dmodels/Passives.3dshapes/R_0603_1608Metric.step",
-            "version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 41234\n")
+    lib.add(
+        "3dmodels/Passives.3dshapes/R_0603_1608Metric.step",
+        "version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 41234\n",
+    )
 
     bundle = lib.bundle()
 
@@ -146,8 +154,10 @@ def test_a_large_model_warns_about_the_timeout(lib):
 
 
 def test_a_broken_symbol_refuses_the_whole_bundle(lib):
-    lib.add("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-            symbol("R_0603", extends="Missing", footprint="Passives:R_0603_1608Metric"))
+    lib.add(
+        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+        symbol("R_0603", extends="Missing", footprint="Passives:R_0603_1608Metric"),
+    )
 
     with pytest.raises(BuildError):
         lib.bundle()

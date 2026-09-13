@@ -24,8 +24,10 @@ ASSET_TYPES = {"symbol", "footprint", "3dmodel", "spice"}
 
 def test_metadata_has_required_fields_and_no_extras(client):
     body = client.get("/.well-known/kicad-remote-provider").json()
-    assert REQUIRED <= set(body)
-    assert set(body) <= ALLOWED, f"schema sets additionalProperties:false; extras: {set(body) - ALLOWED}"
+    assert set(body) >= REQUIRED
+    assert (
+        set(body) <= ALLOWED
+    ), f"schema sets additionalProperties:false; extras: {set(body) - ALLOWED}"
 
 
 def test_oauth2_block_is_complete(client):

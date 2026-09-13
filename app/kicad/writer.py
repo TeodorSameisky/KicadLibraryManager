@@ -52,8 +52,11 @@ def _render(node, indent: int, out: list[str]) -> None:
         out.append(pad + (str(node) if isinstance(node, Atom) else quote(str(node))))
         return
 
-    parts = [str(i) if isinstance(i, Atom) else quote(str(i))
-             for i in node.items if not isinstance(i, SExpr)]
+    parts = [
+        str(i) if isinstance(i, Atom) else quote(str(i))
+        for i in node.items
+        if not isinstance(i, SExpr)
+    ]
     children = [i for i in node.items if isinstance(i, SExpr)]
 
     head = pad + "(" + " ".join(parts)
@@ -66,8 +69,7 @@ def _render(node, indent: int, out: list[str]) -> None:
 
     out.append(head)
     if node.head == "pts" and all(
-        isinstance(c, SExpr) and not any(isinstance(g, SExpr) for g in c.items)
-        for c in children
+        isinstance(c, SExpr) and not any(isinstance(g, SExpr) for g in c.items) for c in children
     ):
         _render_points(node, indent + 1, out)
     else:

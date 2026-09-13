@@ -9,8 +9,9 @@ one fails to load, while an unknown token here is just another node.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Union
+from typing import Union
 
 Node = Union["SExpr", str]
 
@@ -42,20 +43,20 @@ class SExpr:
         first = self.items[0] if self.items else None
         return first if isinstance(first, str) else None
 
-    def children(self, head: str) -> Iterator["SExpr"]:
+    def children(self, head: str) -> Iterator[SExpr]:
         """Direct child lists whose head matches."""
         for item in self.items:
             if isinstance(item, SExpr) and item.head == head:
                 yield item
 
-    def child(self, head: str) -> "SExpr | None":
+    def child(self, head: str) -> SExpr | None:
         return next(self.children(head), None)
 
     def atoms(self) -> list[str]:
         """Bare atoms of this list, excluding the head."""
         return [i for i in self.items[1:] if isinstance(i, str)]
 
-    def descendants(self, head: str) -> Iterator["SExpr"]:
+    def descendants(self, head: str) -> Iterator[SExpr]:
         for item in self.items:
             if isinstance(item, SExpr):
                 if item.head == head:

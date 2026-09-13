@@ -1,5 +1,7 @@
 """KiCad Library Manager -- application entrypoint."""
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,24 +10,21 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-import asyncio
-import logging
-
 from app import provider
 from app.api import catalog as catalog_api
 from app.api import previews as previews_api
-from app.views import pages
 from app.auth import routes as auth_routes
 from app.auth.oidc import OidcVerifier
-from app.auth.session import Session, SessionStore
+from app.auth.session import SessionStore
 from app.config import Settings, get_settings
+from app.library_service import State, build_service
+from app.middleware import SecurityHeadersMiddleware
 from app.observability import (
     RequestContextMiddleware,
     configure_logging,
     unhandled_exception_handler,
 )
-from app.library_service import State, build_service
-from app.middleware import SecurityHeadersMiddleware
+from app.views import pages
 
 BASE_DIR = Path(__file__).resolve().parent
 

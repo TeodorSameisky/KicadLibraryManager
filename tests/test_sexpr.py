@@ -6,11 +6,11 @@ from app.kicad.sexpr import ParseError, loads
 
 
 def test_parses_a_symbol_library():
-    src = '''(kicad_symbol_lib
+    src = """(kicad_symbol_lib
         (version 20251024)
         (symbol "R"
             (property "Value" "R")
-            (symbol "R_0_1")))'''
+            (symbol "R_0_1")))"""
     root = loads(src)
     assert root.head == "kicad_symbol_lib"
     assert root.child("version").atoms() == ["20251024"]
@@ -25,7 +25,7 @@ def test_quoted_strings_keep_spaces_and_escapes():
 def test_escaped_newline_is_decoded():
     root = loads(r'(a "line1\nline2")')
     assert root.head == "a"
-    assert root.atoms() == ["line1\nline2"]   # atoms() excludes the head
+    assert root.atoms() == ["line1\nline2"]  # atoms() excludes the head
 
 
 def test_parentheses_inside_strings_are_not_structure():

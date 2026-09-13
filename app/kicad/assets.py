@@ -68,8 +68,9 @@ def encode(raw: bytes) -> str:
     return base64.b64encode(zstandard.ZstdCompressor().compress(raw)).decode("ascii")
 
 
-def _asset(command: str, label: str, filename: str, raw: bytes,
-           mode: str, library: str, name: str) -> Asset:
+def _asset(
+    command: str, label: str, filename: str, raw: bytes, mode: str, library: str, name: str
+) -> Asset:
     return Asset(
         command=command,
         label=label,
@@ -116,10 +117,17 @@ def build_assets(
         except OSError as exc:
             raise BuildError(f"cannot read {footprint.path}: {exc}") from exc
 
-        bundle.assets.append(_asset(
-            "DL_FOOTPRINT", "Footprint", Path(footprint.path).name, raw,
-            mode="SAVE", library=footprint.library, name=footprint.name,
-        ))
+        bundle.assets.append(
+            _asset(
+                "DL_FOOTPRINT",
+                "Footprint",
+                Path(footprint.path).name,
+                raw,
+                mode="SAVE",
+                library=footprint.library,
+                name=footprint.name,
+            )
+        )
 
         for ref in footprint.model_refs:
             key = normalise_model_ref(ref)
@@ -141,14 +149,28 @@ def build_assets(
                     f"3D model {model.name} is {len(raw) // 1024} KB; large inline "
                     "payloads can exceed KiCad's response timeout"
                 )
-            bundle.assets.append(_asset(
-                "DL_3DMODEL", "3D Model", model.name, raw,
-                mode="SAVE", library=model.library, name=model.name,
-            ))
+            bundle.assets.append(
+                _asset(
+                    "DL_3DMODEL",
+                    "3D Model",
+                    model.name,
+                    raw,
+                    mode="SAVE",
+                    library=model.library,
+                    name=model.name,
+                )
+            )
 
     # Last, and the only one that places anything on the canvas.
-    bundle.assets.append(_asset(
-        "DL_SYMBOL", "Symbol", symbol.filename, symbol.text.encode("utf-8"),
-        mode="PLACE", library=symbol.library, name=symbol.name,
-    ))
+    bundle.assets.append(
+        _asset(
+            "DL_SYMBOL",
+            "Symbol",
+            symbol.filename,
+            symbol.text.encode("utf-8"),
+            mode="PLACE",
+            library=symbol.library,
+            name=symbol.name,
+        )
+    )
     return bundle

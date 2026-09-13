@@ -10,9 +10,7 @@ from app.kicad.library import index_repository
 from app.kicad.parts import load_parts
 from app.kicad.sexpr import Atom, SExpr, loads
 from app.kicad.writer import dumps, make_property, quote, set_property
-
 from tests.test_library_index import footprint, symbol
-
 
 # -- writer ---------------------------------------------------------------
 
@@ -131,14 +129,19 @@ class Lib:
 def lib(tmp_path):
     library = Lib(tmp_path)
     library.add("categories.yaml", '- code: "1102"\n  name: Resistors\n')
-    library.add("mpns/RC0603FR-0710KL.yaml",
-                "mpn: RC0603FR-0710KL\nmanufacturer: Yageo\nlifecycle: active\n")
+    library.add(
+        "mpns/RC0603FR-0710KL.yaml",
+        "mpn: RC0603FR-0710KL\nmanufacturer: Yageo\nlifecycle: active\n",
+    )
     library.add("parts/1102/1102-0001.yaml", PART)
     library.add("symbols/Passives.kicad_symdir/R.kicad_sym", symbol("R", units=2))
-    library.add("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-                symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"))
-    library.add("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
-                footprint("R_0603_1608Metric"))
+    library.add(
+        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+        symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"),
+    )
+    library.add(
+        "footprints/Passives.pretty/R_0603_1608Metric.kicad_mod", footprint("R_0603_1608Metric")
+    )
     return library
 
 
@@ -146,8 +149,10 @@ def parse(payload):
     tree = loads(payload.text)
     symbols = list(tree.children("symbol"))
     placed = symbols[-1]
-    props = {p.atoms()[0]: (p.atoms()[1] if len(p.atoms()) > 1 else "")
-             for p in placed.children("property")}
+    props = {
+        p.atoms()[0]: (p.atoms()[1] if len(p.atoms()) > 1 else "")
+        for p in placed.children("property")
+    }
     return tree, [s.atoms()[0] for s in symbols], props
 
 
@@ -157,7 +162,7 @@ def test_inheritance_is_flattened_into_one_symbol(lib):
     tree, names, _ = parse(lib.build())
 
     assert names == ["R_0603"], "the ancestor is merged in, not shipped beside it"
-    placed = list(tree.children("symbol"))[0]
+    placed = next(iter(tree.children("symbol")))
     assert placed.child("extends") is None
     assert list(placed.children("symbol")), "the parent's graphics came across"
 
@@ -170,7 +175,7 @@ def test_common_unit_is_merged_into_a_real_unit(lib):
     a working provider carries a single _1_1 unit.
     """
     tree, _, _ = parse(lib.build())
-    placed = list(tree.children("symbol"))[0]
+    placed = next(iter(tree.children("symbol")))
 
     units = [u.atoms()[0] for u in placed.children("symbol")]
     assert units == ["R_0603_1_1"]
@@ -217,9 +222,7 @@ def test_embedded_fonts_stays_last():
     from app.kicad.build import flatten
     from app.kicad.sexpr import loads as parse_sexpr
 
-    node = parse_sexpr(
-        '(symbol "X" (symbol "X_0_1" (rectangle (start 0 0))) (embedded_fonts no))'
-    )
+    node = parse_sexpr('(symbol "X" (symbol "X_0_1" (rectangle (start 0 0))) (embedded_fonts no))')
     flat = flatten([node], "X")
 
     assert flat.items[-1].head == "embedded_fonts"
@@ -266,8 +269,10 @@ def test_output_is_parseable_and_stable(lib):
 
 def test_a_broken_extends_chain_refuses_to_build(lib):
     """Better a clear error than a part that places with no body."""
-    lib.add("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-            symbol("R_0603", extends="Missing", footprint="Passives:R_0603_1608Metric"))
+    lib.add(
+        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+        symbol("R_0603", extends="Missing", footprint="Passives:R_0603_1608Metric"),
+    )
 
     with pytest.raises(BuildError, match="no body"):
         lib.build()
@@ -339,7 +344,7 @@ def test_the_remote_prefix_is_configurable(lib):
     parts = load(lib.root)
     payload = build(parts.parts["1102-0001"], cat, parts, "https://x", remote_prefix="corp")
 
-    placed = list(loads(payload.text).children("symbol"))[0]
+    placed = next(iter(loads(payload.text).children("symbol")))
     props = {p.atoms()[0]: p.atoms()[1] for p in placed.children("property")}
     assert props["Footprint"] == "corp_passives:R_0603_1608Metric"
 

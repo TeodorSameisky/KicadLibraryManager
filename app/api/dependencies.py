@@ -40,14 +40,16 @@ def part_sources(part: Part, parts_index: PartsIndex) -> list[dict]:
     out = []
     for ref in part.mpns:
         mpn = parts_index.mpns.get(ref.mpn)
-        out.append({
-            "mpn": ref.mpn,
-            "preferred": ref.preferred,
-            "manufacturer": mpn.manufacturer if mpn else None,
-            "datasheet": mpn.datasheet if mpn else None,
-            "lifecycle": mpn.lifecycle if mpn else "unknown",
-            "known": mpn is not None,
-        })
+        out.append(
+            {
+                "mpn": ref.mpn,
+                "preferred": ref.preferred,
+                "manufacturer": mpn.manufacturer if mpn else None,
+                "datasheet": mpn.datasheet if mpn else None,
+                "lifecycle": mpn.lifecycle if mpn else "unknown",
+                "known": mpn is not None,
+            }
+        )
     return out
 
 

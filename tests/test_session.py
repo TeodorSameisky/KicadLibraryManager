@@ -1,7 +1,5 @@
 """Nonce redemption and cookie-session behaviour."""
 
-import pytest
-
 from app.auth.session import SessionStore
 
 CLAIMS = {"sub": "user-1", "name": "Ada Lovelace"}

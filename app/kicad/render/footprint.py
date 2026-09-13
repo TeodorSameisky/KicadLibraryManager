@@ -104,8 +104,10 @@ def _is_filled(node: SExpr) -> bool:
 def _attrs(layer: str, node: SExpr) -> str:
     colour, opacity = LAYER_STYLE.get(layer, ("var(--fp-fab)", 0.5))
     fill = colour if _is_filled(node) else "none"
-    return (f'fill="{fill}" stroke="{colour}" stroke-width="{_stroke(node):.4f}" '
-            f'opacity="{opacity}" stroke-linecap="round" stroke-linejoin="round"')
+    return (
+        f'fill="{fill}" stroke="{colour}" stroke-width="{_stroke(node):.4f}" '
+        f'opacity="{opacity}" stroke-linecap="round" stroke-linejoin="round"'
+    )
 
 
 def _fp_line(node: SExpr, scene: _Scene) -> None:
@@ -115,8 +117,11 @@ def _fp_line(node: SExpr, scene: _Scene) -> None:
     scene.bounds.add_point(start)
     scene.bounds.add_point(end)
     layer = _layer_of(node)
-    scene.on_layer(layer, f'<line x1="{start[0]:.4f}" y1="{start[1]:.4f}" '
-                          f'x2="{end[0]:.4f}" y2="{end[1]:.4f}" {_attrs(layer, node)}/>')
+    scene.on_layer(
+        layer,
+        f'<line x1="{start[0]:.4f}" y1="{start[1]:.4f}" '
+        f'x2="{end[0]:.4f}" y2="{end[1]:.4f}" {_attrs(layer, node)}/>',
+    )
 
 
 def _fp_rect(node: SExpr, scene: _Scene) -> None:
@@ -128,8 +133,11 @@ def _fp_rect(node: SExpr, scene: _Scene) -> None:
     scene.bounds.add(x, y)
     scene.bounds.add(x + w, y + h)
     layer = _layer_of(node)
-    scene.on_layer(layer, f'<rect x="{x:.4f}" y="{y:.4f}" width="{w:.4f}" '
-                          f'height="{h:.4f}" {_attrs(layer, node)}/>')
+    scene.on_layer(
+        layer,
+        f'<rect x="{x:.4f}" y="{y:.4f}" width="{w:.4f}" '
+        f'height="{h:.4f}" {_attrs(layer, node)}/>',
+    )
 
 
 def _fp_circle(node: SExpr, scene: _Scene) -> None:
@@ -140,8 +148,11 @@ def _fp_circle(node: SExpr, scene: _Scene) -> None:
     scene.bounds.add(center[0] - r, center[1] - r)
     scene.bounds.add(center[0] + r, center[1] + r)
     layer = _layer_of(node)
-    scene.on_layer(layer, f'<circle cx="{center[0]:.4f}" cy="{center[1]:.4f}" '
-                          f'r="{r:.4f}" {_attrs(layer, node)}/>')
+    scene.on_layer(
+        layer,
+        f'<circle cx="{center[0]:.4f}" cy="{center[1]:.4f}" '
+        f'r="{r:.4f}" {_attrs(layer, node)}/>',
+    )
 
 
 def _fp_arc(node: SExpr, scene: _Scene) -> None:
@@ -154,14 +165,20 @@ def _fp_arc(node: SExpr, scene: _Scene) -> None:
     layer = _layer_of(node)
     circle = circle_through(start, mid, end)
     if circle is None:
-        scene.on_layer(layer, f'<line x1="{start[0]:.4f}" y1="{start[1]:.4f}" '
-                              f'x2="{end[0]:.4f}" y2="{end[1]:.4f}" {_attrs(layer, node)}/>')
+        scene.on_layer(
+            layer,
+            f'<line x1="{start[0]:.4f}" y1="{start[1]:.4f}" '
+            f'x2="{end[0]:.4f}" y2="{end[1]:.4f}" {_attrs(layer, node)}/>',
+        )
         return
 
     _, _, r = circle
     sweep = arc_sweep(start, mid, end)
-    scene.on_layer(layer, f'<path d="M {start[0]:.4f},{start[1]:.4f} A {r:.4f},{r:.4f} '
-                          f'0 0 {sweep} {end[0]:.4f},{end[1]:.4f}" {_attrs(layer, node)}/>')
+    scene.on_layer(
+        layer,
+        f'<path d="M {start[0]:.4f},{start[1]:.4f} A {r:.4f},{r:.4f} '
+        f'0 0 {sweep} {end[0]:.4f},{end[1]:.4f}" {_attrs(layer, node)}/>',
+    )
 
 
 def _fp_poly(node: SExpr, scene: _Scene) -> None:
@@ -204,22 +221,28 @@ def _pad(node: SExpr, scene: _Scene) -> None:
     scene.pads.append(f'<g class="pad"{tag}>')
 
     if shape in ("circle", "oval"):
-        scene.pads.append(f'<ellipse cx="{x:.4f}" cy="{y:.4f}" rx="{w / 2:.4f}" '
-                          f'ry="{h / 2:.4f}" {copper}{rotate}/>')
+        scene.pads.append(
+            f'<ellipse cx="{x:.4f}" cy="{y:.4f}" rx="{w / 2:.4f}" '
+            f'ry="{h / 2:.4f}" {copper}{rotate}/>'
+        )
     else:
         ratio = floats(node.child("roundrect_rratio"))
         radius = min(w, h) * (ratio[0] if ratio else 0.0)
-        scene.pads.append(f'<rect x="{x - w / 2:.4f}" y="{y - h / 2:.4f}" '
-                          f'width="{w:.4f}" height="{h:.4f}" rx="{radius:.4f}" '
-                          f"{copper}{rotate}/>")
+        scene.pads.append(
+            f'<rect x="{x - w / 2:.4f}" y="{y - h / 2:.4f}" '
+            f'width="{w:.4f}" height="{h:.4f}" rx="{radius:.4f}" '
+            f"{copper}{rotate}/>"
+        )
 
     # A through-hole pad reads as a ring, so punch the barrel out of it.
     drill = node.child("drill")
     if drill is not None:
         sizes = floats(drill)
         if sizes:
-            scene.pads.append(f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{sizes[0] / 2:.4f}" '
-                              'fill="var(--fp-hole)" stroke="none"/>')
+            scene.pads.append(
+                f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{sizes[0] / 2:.4f}" '
+                'fill="var(--fp-hole)" stroke="none"/>'
+            )
 
     if number:
         scene.pads.append(

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check app tests
+
+      - name: Check formatting
+        run: ruff format --check app tests
+
+      - name: Tests
+        run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image is what actually ships; a Dockerfile that no longer builds
+      # is only discovered on deploy otherwise.
+      - name: Build the image
+        run: docker build -t kicad-library-manager:ci .
+
+      - name: Start it and check it answers
+        run: |
+          docker run -d --name klm -p 8000:8000 \
+            -e PUBLIC_URL=http://localhost:8000 kicad-library-manager:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/healthz > /dev/null; then
+              echo "healthy after ${i}s"
+              curl -fsS http://localhost:8000/.well-known/kicad-remote-provider
+              docker rm -f klm
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "did not become healthy"
+          docker logs klm
+          exit 1

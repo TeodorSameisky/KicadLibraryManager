@@ -4,11 +4,7 @@ import pytest
 
 from app.kicad.library import Severity, index_repository, normalise_model_ref
 
-HEAD = (
-    "(kicad_symbol_lib\n"
-    '\t(version 20251024)\n'
-    '\t(generator "kicad_symbol_editor")\n'
-)
+HEAD = "(kicad_symbol_lib\n" "\t(version 20251024)\n" '\t(generator "kicad_symbol_editor")\n'
 
 
 def symbol(name, extends=None, footprint="", units=0):
@@ -103,11 +99,17 @@ def repo(tmp_path):
 
 def test_indexes_symbols_footprints_and_models(repo):
     repo.add("symbols/Passives.kicad_symdir/R.kicad_sym", symbol("R", units=2))
-    repo.add("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-             symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"))
-    repo.add("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
-             footprint("R_0603_1608Metric",
-                       model="${KICAD_LIBRARY_3DMODELS}/Passives.3dshapes/R_0603_1608Metric.step"))
+    repo.add(
+        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+        symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"),
+    )
+    repo.add(
+        "footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
+        footprint(
+            "R_0603_1608Metric",
+            model="${KICAD_LIBRARY_3DMODELS}/Passives.3dshapes/R_0603_1608Metric.step",
+        ),
+    )
     repo.add("3dmodels/Passives.3dshapes/R_0603_1608Metric.step", "ISO-10303-21;\n")
 
     idx = repo.index()
@@ -157,8 +159,9 @@ def test_footprint_and_model_refs_are_not_resolved_per_repository(repo):
     source. Deciding that requires seeing all of them.
     """
     repo.add("symbols/L.kicad_symdir/R.kicad_sym", symbol("R", footprint="Other:Nope"))
-    repo.add("footprints/L.pretty/F.kicad_mod",
-             footprint("F", model="${X}/Other.3dshapes/absent.step"))
+    repo.add(
+        "footprints/L.pretty/F.kicad_mod", footprint("F", model="${X}/Other.3dshapes/absent.step")
+    )
 
     idx = repo.index()
     kinds = {i.kind for i in idx.issues}
@@ -189,8 +192,7 @@ def test_lfs_pointer_is_an_error_not_a_model(repo):
     """Serving a pointer file gives an empty 3D view with no error anywhere."""
     repo.add(
         "3dmodels/L.3dshapes/R.step",
-        "version https://git-lfs.github.com/spec/v1\n"
-        "oid sha256:4d7a2...\nsize 41234\n",
+        "version https://git-lfs.github.com/spec/v1\n" "oid sha256:4d7a2...\nsize 41234\n",
     )
 
     idx = repo.index()

@@ -11,7 +11,7 @@ def draw(body: str) -> str:
 
 
 def test_rectangle_is_drawn_and_bounds_the_view():
-    svg = draw("(symbol \"X_1_1\" (rectangle (start -1 -2) (end 1 2)))")
+    svg = draw('(symbol "X_1_1" (rectangle (start -1 -2) (end 1 2)))')
 
     assert "<rect" in svg
     assert 'viewBox="-2.5000 -3.5000 5.0000 7.0000"' in svg, "includes a margin"
@@ -91,8 +91,9 @@ def test_a_symbol_with_no_graphics_says_so():
 
 
 def test_the_title_is_escaped():
-    svg = render_symbol(loads('(symbol "X" (symbol "X_1_1" (circle (center 0 0) (radius 1))))'),
-                        'R & <script>')
+    svg = render_symbol(
+        loads('(symbol "X" (symbol "X_1_1" (circle (center 0 0) (radius 1))))'), "R & <script>"
+    )
 
     assert "&amp;" in svg and "&lt;script&gt;" in svg
     assert "<script>" not in svg
@@ -118,8 +119,7 @@ def test_even_an_empty_symbol_carries_the_palette():
 
 def test_pins_are_grouped_and_numbered():
     """So a pin can be picked out and matched against a footprint pad."""
-    svg = draw('(symbol "X_1_1" (pin passive line (at 0 3.81 270) (length 1.27)'
-               ' (number "2")))')
+    svg = draw('(symbol "X_1_1" (pin passive line (at 0 3.81 270) (length 1.27)' ' (number "2")))')
 
     assert '<g class="pin" data-pin="2">' in svg
 

@@ -1,0 +1,42 @@
+[project]
+name = "kicad-library-manager"
+version = "0.1.0"
+description = "Serves KiCad symbols, footprints and 3D models to the Remote Symbols panel"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # import ordering
+    "B",         # bugbear: likely mistakes rather than style
+    "UP",        # outdated constructs
+    "C4",        # comprehensions
+    "SIM",       # needless complexity
+    "RUF",       # ruff's own
+]
+ignore = [
+    "B008",      # FastAPI states dependencies as argument defaults by design
+    "RUF012",    # ClassVar annotations add noise to plain settings objects
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixtures build library files from fragments; long literals read better whole.
+"tests/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:pytest_asyncio.*",
+    "ignore::DeprecationWarning:starlette.*",
+    "ignore::DeprecationWarning:anyio.*",
+]

@@ -34,8 +34,9 @@ def test_a_through_hole_pad_gets_its_barrel_punched_out():
 
 
 def test_roundrect_pads_are_rounded():
-    svg = draw('(pad "1" smd roundrect (at 0 0) (size 1 2) (roundrect_rratio 0.25) '
-               '(layers "F.Cu"))')
+    svg = draw(
+        '(pad "1" smd roundrect (at 0 0) (size 1 2) (roundrect_rratio 0.25) ' '(layers "F.Cu"))'
+    )
 
     assert 'rx="0.2500"' in svg
 
@@ -56,23 +57,29 @@ def test_polygons_respect_their_fill_setting(fill, filled):
 
 def test_mask_and_paste_layers_are_omitted():
     """They track the copper and only thicken the picture."""
-    svg = draw('(fp_line (start 0 0) (end 1 1) (layer "F.Paste"))'
-               '(fp_line (start 0 0) (end 2 2) (layer "F.SilkS"))')
+    svg = draw(
+        '(fp_line (start 0 0) (end 1 1) (layer "F.Paste"))'
+        '(fp_line (start 0 0) (end 2 2) (layer "F.SilkS"))'
+    )
 
     assert svg.count("<line") == 1
 
 
 def test_silkscreen_is_drawn_over_the_courtyard():
-    svg = draw('(fp_line (start 0 0) (end 1 0) (layer "F.SilkS"))'
-               '(fp_rect (start -1 -1) (end 2 1) (layer "F.CrtYd"))')
+    svg = draw(
+        '(fp_line (start 0 0) (end 1 0) (layer "F.SilkS"))'
+        '(fp_rect (start -1 -1) (end 2 1) (layer "F.CrtYd"))'
+    )
 
     assert svg.index("var(--fp-courtyard)") < svg.index("var(--fp-silk)")
 
 
 def test_copper_is_drawn_last():
     """The pads are what a footprint is for."""
-    svg = draw('(fp_line (start 0 0) (end 1 0) (layer "F.SilkS"))'
-               '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))')
+    svg = draw(
+        '(fp_line (start 0 0) (end 1 0) (layer "F.SilkS"))'
+        '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))'
+    )
 
     assert svg.index("var(--fp-silk)") < svg.index("var(--fp-copper)")
 
@@ -91,8 +98,10 @@ def test_a_footprint_with_nothing_drawable():
 
 
 def test_arc_and_circle_are_drawn():
-    svg = draw('(fp_arc (start -1 0) (mid 0 1) (end 1 0) (layer "F.SilkS"))'
-               '(fp_circle (center 0 0) (end 1 0) (layer "F.SilkS"))')
+    svg = draw(
+        '(fp_arc (start -1 0) (mid 0 1) (end 1 0) (layer "F.SilkS"))'
+        '(fp_circle (center 0 0) (end 1 0) (layer "F.SilkS"))'
+    )
 
     assert "<path" in svg and " A " in svg
     assert "<circle" in svg

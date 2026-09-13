@@ -12,17 +12,13 @@ import pytest
 
 from app.kicad.sources import Source, SourceError, load_sources, sync
 from app.library_service import LibraryService, State
-
 from tests.test_library_index import footprint, symbol
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("git") is None, reason="git is not installed"
-)
+pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
 
 def _git(*args, cwd):
-    subprocess.run(["git", *args], cwd=str(cwd), check=True,
-                   capture_output=True, text=True)
+    subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True)
 
 
 @pytest.fixture()
@@ -38,14 +34,19 @@ def origin(tmp_path):
         (repo / rel).write_text(textwrap.dedent(text), encoding="utf-8")
 
     write("symbols/Passives.kicad_symdir/R.kicad_sym", symbol("R", units=2))
-    write("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-          symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"))
-    write("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
-          footprint("R_0603_1608Metric"))
+    write(
+        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+        symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"),
+    )
+    write("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod", footprint("R_0603_1608Metric"))
     write("categories.yaml", '- code: "1102"\n  name: Resistors\n')
-    write("mpns/RC0603FR-0710KL.yaml",
-          "mpn: RC0603FR-0710KL\nmanufacturer: Yageo\nlifecycle: active\n")
-    write("parts/1102/1102-0001.yaml", """\
+    write(
+        "mpns/RC0603FR-0710KL.yaml",
+        "mpn: RC0603FR-0710KL\nmanufacturer: Yageo\nlifecycle: active\n",
+    )
+    write(
+        "parts/1102/1102-0001.yaml",
+        """\
         ipn: 1102-0001
         description: Resistor 10k 1% 0603
         status: approved
@@ -56,7 +57,8 @@ def origin(tmp_path):
         mpns:
           - mpn: RC0603FR-0710KL
             preferred: true
-        """)
+        """,
+    )
 
     _git("init", "-b", "main", cwd=repo)
     _git("config", "user.email", "test@example.com", cwd=repo)
@@ -101,8 +103,8 @@ async def test_refresh_picks_up_new_commits(service, origin):
     first = service.snapshot.sources[0].commit
 
     (origin / "parts" / "1102" / "1102-0002.yaml").write_text(
-        "ipn: 1102-0002\ndescription: Resistor 4k7\nsymbol: Passives:R_0603\n",
-        encoding="utf-8")
+        "ipn: 1102-0002\ndescription: Resistor 4k7\nsymbol: Passives:R_0603\n", encoding="utf-8"
+    )
     _git("add", "-A", cwd=origin)
     _git("commit", "-m", "add a part", cwd=origin)
 
@@ -117,8 +119,9 @@ async def test_a_failing_source_keeps_the_previous_index(service):
     await service.refresh()
     assert service.snapshot.part_count() == 1
 
-    service._sources = [Source(id="company", name="Company",
-                               url="/nonexistent/repo.git", ref="main")]
+    service._sources = [
+        Source(id="company", name="Company", url="/nonexistent/repo.git", ref="main")
+    ]
     await service.refresh()
 
     assert service.state is State.READY
@@ -186,7 +189,10 @@ def test_changing_the_url_repoints_an_existing_clone(origin, tmp_path):
     result = sync(relocated, workdir)
     remote = subprocess.run(
         ["git", "remote", "get-url", "origin"],
-        cwd=str(result.path), capture_output=True, text=True, check=True,
+        cwd=str(result.path),
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
     assert remote == str(moved)

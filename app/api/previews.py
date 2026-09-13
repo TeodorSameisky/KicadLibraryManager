@@ -32,8 +32,13 @@ SVG_HEADERS = {"Cache-Control": "public, max-age=300"}
 def symbol_svg(part: Part, snapshot: Snapshot, settings: Settings) -> str | None:
     """Drawn from the payload KiCad receives, so the preview is what lands."""
     try:
-        payload = build_symbol(part, snapshot.catalog, snapshot.parts,
-                               settings.public_url, settings.remote_library_prefix)
+        payload = build_symbol(
+            part,
+            snapshot.catalog,
+            snapshot.parts,
+            settings.public_url,
+            settings.remote_library_prefix,
+        )
     except BuildError as exc:
         log.info("no symbol preview for %s: %s", part.ipn, exc)
         return None

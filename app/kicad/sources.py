@@ -33,7 +33,7 @@ class Source:
     ref: str = "main"
 
     @staticmethod
-    def from_dict(raw: dict) -> "Source":
+    def from_dict(raw: dict) -> Source:
         missing = [k for k in ("id", "url") if not raw.get(k)]
         if missing:
             raise SourceError(f"source is missing {', '.join(missing)}: {raw!r}")

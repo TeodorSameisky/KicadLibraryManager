@@ -9,7 +9,6 @@ import pytest
 
 from app.kicad.catalog import Catalog
 from app.kicad.library import index_repository
-
 from tests.test_library_index import footprint, symbol
 
 
@@ -30,6 +29,7 @@ class Src:
 def make_source(tmp_path):
     def _make(name):
         return Src(tmp_path / name)
+
     return _make
 
 
@@ -43,12 +43,12 @@ def build(*pairs) -> Catalog:
 
 def test_footprint_resolves_from_another_source(make_source):
     syms = make_source("symbols-repo")
-    syms.add("Device.kicad_symdir/R.kicad_sym",
-             symbol("R", footprint="Resistor_SMD:R_0603_1608Metric"))
+    syms.add(
+        "Device.kicad_symdir/R.kicad_sym", symbol("R", footprint="Resistor_SMD:R_0603_1608Metric")
+    )
 
     fps = make_source("footprints-repo")
-    fps.add("Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
-            footprint("R_0603_1608Metric"))
+    fps.add("Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod", footprint("R_0603_1608Metric"))
 
     cat = build(("symbols", syms), ("footprints", fps))
 
@@ -68,9 +68,10 @@ def test_footprint_missing_from_every_source_is_an_error(make_source):
 
 def test_model_resolves_from_a_third_source(make_source):
     fps = make_source("footprints-repo")
-    fps.add("Resistor_SMD.pretty/R_0603.kicad_mod",
-            footprint("R_0603",
-                      model="${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"))
+    fps.add(
+        "Resistor_SMD.pretty/R_0603.kicad_mod",
+        footprint("R_0603", model="${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"),
+    )
 
     models = make_source("packages3d-repo")
     models.add("Resistor_SMD.3dshapes/R_0603.step", "ISO-10303-21;\n")

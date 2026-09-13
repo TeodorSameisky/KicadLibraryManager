@@ -1,7 +1,5 @@
 """End-to-end behaviour of the bootstrap -> nonce -> cookie handshake."""
 
-import pytest
-
 from app.auth.oidc import Principal, TokenError
 
 
@@ -68,9 +66,9 @@ def test_full_handshake_sets_a_session(client):
 
 def test_nonce_cannot_be_replayed(client):
     _use(client, StubVerifier(principal=PRINCIPAL))
-    nonce_url = client.post(
-        "/api/v1/session/bootstrap", json={"access_token": "valid"}
-    ).json()["nonce_url"]
+    nonce_url = client.post("/api/v1/session/bootstrap", json={"access_token": "valid"}).json()[
+        "nonce_url"
+    ]
     nonce = nonce_url.split("n=", 1)[1]
 
     assert client.get(f"/session/consume?n={nonce}", follow_redirects=False).status_code == 303
@@ -92,9 +90,11 @@ def test_offsite_next_url_falls_back_to_the_panel(client):
 
 def test_logout_clears_the_session(client):
     _use(client, StubVerifier(principal=PRINCIPAL))
-    nonce = client.post(
-        "/api/v1/session/bootstrap", json={"access_token": "valid"}
-    ).json()["nonce_url"].split("n=", 1)[1]
+    nonce = (
+        client.post("/api/v1/session/bootstrap", json={"access_token": "valid"})
+        .json()["nonce_url"]
+        .split("n=", 1)[1]
+    )
     client.get(f"/session/consume?n={nonce}", follow_redirects=False)
 
     assert client.get("/api/v1/session/me").json()["authenticated"] is True
@@ -107,9 +107,11 @@ def test_panel_renders_signed_out_and_signed_in(client):
 
     assert "Sign in" in client.get("/panel").text
 
-    nonce = client.post(
-        "/api/v1/session/bootstrap", json={"access_token": "valid"}
-    ).json()["nonce_url"].split("n=", 1)[1]
+    nonce = (
+        client.post("/api/v1/session/bootstrap", json={"access_token": "valid"})
+        .json()["nonce_url"]
+        .split("n=", 1)[1]
+    )
     client.get(f"/session/consume?n={nonce}", follow_redirects=False)
 
     assert "Ada Lovelace" in client.get("/panel").text

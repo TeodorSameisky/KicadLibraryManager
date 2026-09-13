@@ -7,7 +7,6 @@ import pytest
 from app.kicad.catalog import Catalog
 from app.kicad.library import index_repository
 from app.kicad.parts import check_against_catalog, load_parts
-
 from tests.test_library_index import footprint, symbol
 
 CATEGORIES = """\
@@ -56,10 +55,13 @@ class Lib:
         self.add("mpns/RC0603FR-0710KL.yaml", MPN_YAGEO)
         self.add("parts/1102/1102-0001.yaml", PART)
         self.add("symbols/Passives.kicad_symdir/R.kicad_sym", symbol("R", units=2))
-        self.add("symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-                 symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"))
-        self.add("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod",
-                 footprint("R_0603_1608Metric"))
+        self.add(
+            "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
+            symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"),
+        )
+        self.add(
+            "footprints/Passives.pretty/R_0603_1608Metric.kicad_mod", footprint("R_0603_1608Metric")
+        )
         return self
 
 
@@ -102,8 +104,10 @@ def test_where_used_reverse_index(lib):
 
 def test_unknown_mpn_reference_is_an_error(lib):
     lib.complete()
-    lib.add("parts/1102/1102-0003.yaml", PART.replace(
-        "1102-0001", "1102-0003").replace("RC0603FR-0710KL", "GHOST-PART"))
+    lib.add(
+        "parts/1102/1102-0003.yaml",
+        PART.replace("1102-0001", "1102-0003").replace("RC0603FR-0710KL", "GHOST-PART"),
+    )
 
     index = lib.load()
 
@@ -149,7 +153,9 @@ def test_part_filed_under_the_wrong_category_is_flagged(lib):
 def test_two_preferred_mpns_is_an_error(lib):
     lib.complete()
     lib.add("mpns/OTHER-MPN.yaml", MPN_YAGEO.replace("RC0603FR-0710KL", "OTHER-MPN"))
-    lib.add("parts/1102/1102-0005.yaml", """\
+    lib.add(
+        "parts/1102/1102-0005.yaml",
+        """\
         ipn: 1102-0005
         description: Resistor
         symbol: Passives:R_0603
@@ -158,7 +164,8 @@ def test_two_preferred_mpns_is_an_error(lib):
             preferred: true
           - mpn: OTHER-MPN
             preferred: true
-        """)
+        """,
+    )
 
     index = lib.load()
 
@@ -167,19 +174,25 @@ def test_two_preferred_mpns_is_an_error(lib):
 
 def test_approved_part_with_an_obsolete_source_is_flagged(lib):
     lib.complete()
-    lib.add("mpns/OLD-PART.yaml", """\
+    lib.add(
+        "mpns/OLD-PART.yaml",
+        """\
         mpn: OLD-PART
         manufacturer: Acme
         lifecycle: obsolete
-        """)
-    lib.add("parts/1102/1102-0006.yaml", """\
+        """,
+    )
+    lib.add(
+        "parts/1102/1102-0006.yaml",
+        """\
         ipn: 1102-0006
         description: Resistor
         status: approved
         symbol: Passives:R_0603
         mpns:
           - mpn: OLD-PART
-        """)
+        """,
+    )
 
     index = lib.load()
 
@@ -189,12 +202,15 @@ def test_approved_part_with_an_obsolete_source_is_flagged(lib):
 def test_missing_description_is_a_warning(lib):
     """An opaque number with no description cannot be found by anyone."""
     lib.complete()
-    lib.add("parts/1102/1102-0007.yaml", """\
+    lib.add(
+        "parts/1102/1102-0007.yaml",
+        """\
         ipn: 1102-0007
         symbol: Passives:R_0603
         mpns:
           - mpn: RC0603FR-0710KL
-        """)
+        """,
+    )
 
     index = lib.load()
 
@@ -203,12 +219,15 @@ def test_missing_description_is_a_warning(lib):
 
 def test_approved_part_without_any_source_is_flagged(lib):
     lib.complete()
-    lib.add("parts/1102/1102-0008.yaml", """\
+    lib.add(
+        "parts/1102/1102-0008.yaml",
+        """\
         ipn: 1102-0008
         description: Resistor
         status: approved
         symbol: Passives:R_0603
-        """)
+        """,
+    )
 
     index = lib.load()
 
@@ -217,12 +236,15 @@ def test_approved_part_without_any_source_is_flagged(lib):
 
 def test_symbol_and_footprint_are_resolved_through_the_catalog(lib):
     lib.complete()
-    lib.add("parts/1101/1101-0001.yaml", """\
+    lib.add(
+        "parts/1101/1101-0001.yaml",
+        """\
         ipn: 1101-0001
         description: Capacitor
         symbol: Passives:Missing
         footprint: Passives:AlsoMissing
-        """)
+        """,
+    )
 
     index = resolved(lib)
     kinds = {i.kind for i in index.errors}
@@ -253,13 +275,16 @@ def test_duplicate_ipn_is_reported(lib):
 def test_mpns_may_be_plain_strings(lib):
     """The shorthand form, for a part with a single source."""
     lib.complete()
-    lib.add("parts/1102/1102-0010.yaml", """\
+    lib.add(
+        "parts/1102/1102-0010.yaml",
+        """\
         ipn: 1102-0010
         description: Resistor
         symbol: Passives:R_0603
         mpns:
           - RC0603FR-0710KL
-        """)
+        """,
+    )
 
     index = lib.load()
 

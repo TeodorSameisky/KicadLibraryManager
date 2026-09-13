@@ -26,7 +26,7 @@ from app.kicad.svg import (
 
 PX_PER_MM = 12.0
 MARGIN_MM = 1.5
-DEFAULT_STROKE_MM = 0.1524   # KiCad's own default symbol line width
+DEFAULT_STROKE_MM = 0.1524  # KiCad's own default symbol line width
 PIN_RADIUS_MM = 0.3
 CSS_CLASS = "ksym"
 
@@ -65,9 +65,11 @@ def _fill(node: SExpr) -> str:
 
 
 def _attrs(node: SExpr) -> str:
-    return (f'fill="{_fill(node)}" stroke="var(--symbol-line)" '
-            f'stroke-width="{_stroke_width(node):.4f}" '
-            'stroke-linecap="round" stroke-linejoin="round"')
+    return (
+        f'fill="{_fill(node)}" stroke="var(--symbol-line)" '
+        f'stroke-width="{_stroke_width(node):.4f}" '
+        'stroke-linecap="round" stroke-linejoin="round"'
+    )
 
 
 def _rectangle(node: SExpr, canvas: Canvas) -> None:
@@ -78,8 +80,9 @@ def _rectangle(node: SExpr, canvas: Canvas) -> None:
     w, h = abs(end[0] - start[0]), abs(end[1] - start[1])
     canvas.bounds.add(x, y)
     canvas.bounds.add(x + w, y + h)
-    canvas.emit(f'<rect x="{x:.4f}" y="{y:.4f}" width="{w:.4f}" height="{h:.4f}" '
-                f"{_attrs(node)}/>")
+    canvas.emit(
+        f'<rect x="{x:.4f}" y="{y:.4f}" width="{w:.4f}" height="{h:.4f}" ' f"{_attrs(node)}/>"
+    )
 
 
 def _polyline(node: SExpr, canvas: Canvas) -> None:
@@ -115,14 +118,18 @@ def _arc(node: SExpr, canvas: Canvas) -> None:
 
     circle = circle_through(start, mid, end)
     if circle is None:  # collinear points describe a straight line
-        canvas.emit(f'<polyline points="{start[0]:.4f},{start[1]:.4f} '
-                    f'{end[0]:.4f},{end[1]:.4f}" {_attrs(node)}/>')
+        canvas.emit(
+            f'<polyline points="{start[0]:.4f},{start[1]:.4f} '
+            f'{end[0]:.4f},{end[1]:.4f}" {_attrs(node)}/>'
+        )
         return
 
     _, _, r = circle
     sweep = 1 - arc_sweep(start, mid, end)
-    canvas.emit(f'<path d="M {start[0]:.4f},{start[1]:.4f} A {r:.4f},{r:.4f} 0 0 '
-                f'{sweep} {end[0]:.4f},{end[1]:.4f}" {_attrs(node)}/>')
+    canvas.emit(
+        f'<path d="M {start[0]:.4f},{start[1]:.4f} A {r:.4f},{r:.4f} 0 0 '
+        f'{sweep} {end[0]:.4f},{end[1]:.4f}" {_attrs(node)}/>'
+    )
 
 
 def _pin_number(node: SExpr) -> str:
@@ -175,7 +182,7 @@ def _walk(node: SExpr, canvas: Canvas) -> None:
         drawer = _DRAWERS.get(item.head or "")
         if drawer:
             drawer(item, canvas)
-        elif item.head == "symbol":   # a unit
+        elif item.head == "symbol":  # a unit
             _walk(item, canvas)
 
 
@@ -198,6 +205,5 @@ def render_symbol(symbol: SExpr, title: str = "") -> str:
         px_per_mm=PX_PER_MM,
         title=title,
         style=STYLE,
-        body=f'<g transform="translate(0 {2 * flip:.4f}) scale(1 -1)">'
-             f"{canvas.markup()}</g>",
+        body=f'<g transform="translate(0 {2 * flip:.4f}) scale(1 -1)">' f"{canvas.markup()}</g>",
     )

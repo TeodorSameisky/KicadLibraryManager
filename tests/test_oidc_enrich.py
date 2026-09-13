@@ -4,7 +4,6 @@ KiCad only forwards the access token. authentik puts preferred_username in the
 id_token, so without this the panel can only ever show the raw subject.
 """
 
-import jwt
 import pytest
 
 from app.auth.oidc import OidcVerifier, Principal, TokenError

@@ -1,7 +1,5 @@
 """HSTS and hardening headers."""
 
-import pytest
-
 HSTS = "strict-transport-security"
 
 
@@ -13,15 +11,23 @@ def test_hsts_sent_on_https(client):
 
 def test_hsts_absent_over_plain_http(build_client):
     """RFC 6797: HSTS must not be emitted on an insecure request."""
-    http_client = build_client(PUBLIC_URL="http://localhost:8000", AUTH_ENABLED="false",
-                               OIDC_METADATA_URL=None, OIDC_CLIENT_ID=None)
+    http_client = build_client(
+        PUBLIC_URL="http://localhost:8000",
+        AUTH_ENABLED="false",
+        OIDC_METADATA_URL=None,
+        OIDC_CLIENT_ID=None,
+    )
     assert HSTS not in http_client.get("/healthz").headers
 
 
 def test_forwarded_proto_is_honoured(build_client):
     """Behind a TLS-terminating proxy the app itself sees plain http."""
-    http_client = build_client(PUBLIC_URL="http://localhost:8000", AUTH_ENABLED="false",
-                               OIDC_METADATA_URL=None, OIDC_CLIENT_ID=None)
+    http_client = build_client(
+        PUBLIC_URL="http://localhost:8000",
+        AUTH_ENABLED="false",
+        OIDC_METADATA_URL=None,
+        OIDC_CLIENT_ID=None,
+    )
 
     secure = http_client.get("/healthz", headers={"X-Forwarded-Proto": "https"})
     assert secure.headers[HSTS] == "max-age=31536000"

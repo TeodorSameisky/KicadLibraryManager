@@ -56,16 +56,16 @@ def circle_through(
     if abs(d) < 1e-9:
         return None
 
-    ux = ((x1**2 + y1**2) * (y2 - y3) + (x2**2 + y2**2) * (y3 - y1)
-          + (x3**2 + y3**2) * (y1 - y2)) / d
-    uy = ((x1**2 + y1**2) * (x3 - x2) + (x2**2 + y2**2) * (x1 - x3)
-          + (x3**2 + y3**2) * (x2 - x1)) / d
+    ux = (
+        (x1**2 + y1**2) * (y2 - y3) + (x2**2 + y2**2) * (y3 - y1) + (x3**2 + y3**2) * (y1 - y2)
+    ) / d
+    uy = (
+        (x1**2 + y1**2) * (x3 - x2) + (x2**2 + y2**2) * (x1 - x3) + (x3**2 + y3**2) * (x2 - x1)
+    ) / d
     return ux, uy, math.hypot(x1 - ux, y1 - uy)
 
 
-def arc_sweep(
-    a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
-) -> int:
+def arc_sweep(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> int:
     """SVG sweep flag for an arc running a -> b -> c."""
     cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
     return 1 if cross > 0 else 0

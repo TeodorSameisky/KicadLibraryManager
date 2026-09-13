@@ -143,8 +143,13 @@ def _index_symbols(root: Path, index: LibraryIndex) -> None:
 
             if tree.head != "kicad_symbol_lib":
                 index.issues.append(
-                    Issue(Severity.ERROR, "not-a-symbol-lib",
-                          f"root is {tree.head!r}, expected kicad_symbol_lib", rel))
+                    Issue(
+                        Severity.ERROR,
+                        "not-a-symbol-lib",
+                        f"root is {tree.head!r}, expected kicad_symbol_lib",
+                        rel,
+                    )
+                )
                 continue
 
             defs = list(tree.children("symbol"))
@@ -153,8 +158,13 @@ def _index_symbols(root: Path, index: LibraryIndex) -> None:
                 continue
             if len(defs) > 1:
                 index.issues.append(
-                    Issue(Severity.WARNING, "multiple-symbols",
-                          f"{len(defs)} symbols in one file; unpacked format expects one", rel))
+                    Issue(
+                        Severity.WARNING,
+                        "multiple-symbols",
+                        f"{len(defs)} symbols in one file; unpacked format expects one",
+                        rel,
+                    )
+                )
 
             node = defs[0]
             names = node.atoms()
@@ -165,8 +175,13 @@ def _index_symbols(root: Path, index: LibraryIndex) -> None:
 
             if name != path.stem:
                 index.issues.append(
-                    Issue(Severity.WARNING, "name-mismatch",
-                          f"symbol {name!r} in file {path.stem!r}", rel))
+                    Issue(
+                        Severity.WARNING,
+                        "name-mismatch",
+                        f"symbol {name!r} in file {path.stem!r}",
+                        rel,
+                    )
+                )
 
             extends_node = node.child("extends")
             extends = extends_node.atoms()[0] if extends_node and extends_node.atoms() else None
@@ -181,8 +196,10 @@ def _index_symbols(root: Path, index: LibraryIndex) -> None:
             )
             if symbol.key in index.symbols:
                 index.issues.append(
-                    Issue(Severity.ERROR, "duplicate-symbol",
-                          f"{library}:{name} already defined", rel))
+                    Issue(
+                        Severity.ERROR, "duplicate-symbol", f"{library}:{name} already defined", rel
+                    )
+                )
                 continue
             index.symbols[symbol.key] = symbol
 
@@ -201,23 +218,38 @@ def _index_footprints(root: Path, index: LibraryIndex) -> None:
 
             if tree.head != "footprint":
                 index.issues.append(
-                    Issue(Severity.ERROR, "not-a-footprint",
-                          f"root is {tree.head!r}, expected footprint", rel))
+                    Issue(
+                        Severity.ERROR,
+                        "not-a-footprint",
+                        f"root is {tree.head!r}, expected footprint",
+                        rel,
+                    )
+                )
                 continue
 
             names = tree.atoms()
             name = names[0] if names else path.stem
             if name != path.stem:
                 index.issues.append(
-                    Issue(Severity.WARNING, "name-mismatch",
-                          f"footprint {name!r} in file {path.stem!r}", rel))
+                    Issue(
+                        Severity.WARNING,
+                        "name-mismatch",
+                        f"footprint {name!r} in file {path.stem!r}",
+                        rel,
+                    )
+                )
 
             refs = [m.atoms()[0] for m in tree.children("model") if m.atoms()]
             fp = Footprint(library=library, name=name, path=path, model_refs=refs)
             if fp.key in index.footprints:
                 index.issues.append(
-                    Issue(Severity.ERROR, "duplicate-footprint",
-                          f"{library}:{name} already defined", rel))
+                    Issue(
+                        Severity.ERROR,
+                        "duplicate-footprint",
+                        f"{library}:{name} already defined",
+                        rel,
+                    )
+                )
                 continue
             index.footprints[fp.key] = fp
 
@@ -241,9 +273,13 @@ def _index_models(root: Path, index: LibraryIndex) -> None:
             model = Model(library=library, name=path.name, path=path, is_lfs_pointer=pointer)
             if pointer:
                 index.issues.append(
-                    Issue(Severity.ERROR, "lfs-pointer",
-                          "file is a Git LFS pointer; the clone needs git lfs pull",
-                          path.relative_to(root).as_posix()))
+                    Issue(
+                        Severity.ERROR,
+                        "lfs-pointer",
+                        "file is a Git LFS pointer; the clone needs git lfs pull",
+                        path.relative_to(root).as_posix(),
+                    )
+                )
             index.models[model.relative_key] = model
 
 
@@ -275,15 +311,25 @@ def _check_local_references(index: LibraryIndex) -> None:
         # extends always names a symbol in the same library, so it is local.
         if symbol.extends and (symbol.library, symbol.extends) not in index.symbols:
             index.issues.append(
-                Issue(Severity.ERROR, "missing-parent",
-                      f"{symbol.name!r} extends {symbol.extends!r}, "
-                      f"which is not in {symbol.library}", rel))
+                Issue(
+                    Severity.ERROR,
+                    "missing-parent",
+                    f"{symbol.name!r} extends {symbol.extends!r}, "
+                    f"which is not in {symbol.library}",
+                    rel,
+                )
+            )
 
         fp_ref = symbol.properties.get("Footprint", "")
         if fp_ref and ":" not in fp_ref:
             index.issues.append(
-                Issue(Severity.WARNING, "unqualified-footprint",
-                      f"footprint {fp_ref!r} has no library prefix", rel))
+                Issue(
+                    Severity.WARNING,
+                    "unqualified-footprint",
+                    f"footprint {fp_ref!r} has no library prefix",
+                    rel,
+                )
+            )
 
 
 def index_repository(root: Path) -> LibraryIndex:

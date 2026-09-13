@@ -33,8 +33,14 @@ async def status(service: LibraryService = Depends(get_service)) -> dict:
         "indexed_at": snap.finished_at,
         "duration_seconds": round(snap.duration, 1),
         "sources": [
-            {"id": s.id, "name": s.name, "commit": s.commit,
-             "symbols": s.symbols, "parts": s.parts, "error": s.error}
+            {
+                "id": s.id,
+                "name": s.name,
+                "commit": s.commit,
+                "symbols": s.symbols,
+                "parts": s.parts,
+                "error": s.error,
+            }
             for s in snap.sources
         ],
     }
@@ -104,8 +110,13 @@ async def part_assets(
     snapshot = service.snapshot
 
     try:
-        bundle = build_assets(part, snapshot.catalog, snapshot.parts,
-                              settings.public_url, settings.remote_library_prefix)
+        bundle = build_assets(
+            part,
+            snapshot.catalog,
+            snapshot.parts,
+            settings.public_url,
+            settings.remote_library_prefix,
+        )
     except BuildError as exc:
         # Refusing beats placing a part with no body or no land pattern. The
         # message names library assets rather than container paths, so it is

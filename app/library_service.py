@@ -26,10 +26,10 @@ log = logging.getLogger(__name__)
 
 
 class State(str, Enum):
-    EMPTY = "empty"          # nothing configured
-    SYNCING = "syncing"      # first index in progress
+    EMPTY = "empty"  # nothing configured
+    SYNCING = "syncing"  # first index in progress
     READY = "ready"
-    ERROR = "error"          # nothing usable was produced
+    ERROR = "error"  # nothing usable was produced
 
 
 @dataclass
@@ -115,8 +115,7 @@ class LibraryService:
             if snapshot.sources and all(s.error for s in snapshot.sources):
                 # Keep serving the previous index rather than going blank.
                 self._state = State.ERROR if self._snapshot.finished_at is None else State.READY
-                self._error = "; ".join(
-                    f"{s.id}: {s.error}" for s in snapshot.sources if s.error)
+                self._error = "; ".join(f"{s.id}: {s.error}" for s in snapshot.sources if s.error)
                 return self._snapshot
 
             self._snapshot = snapshot
@@ -165,8 +164,11 @@ class LibraryService:
         snapshot.finished_at = time.time()
         log.info(
             "indexed %d source(s): %d symbols, %d parts, %d errors in %.1fs",
-            len(snapshot.sources), snapshot.catalog.symbol_count(),
-            snapshot.part_count(), len(snapshot.errors), snapshot.duration,
+            len(snapshot.sources),
+            snapshot.catalog.symbol_count(),
+            snapshot.part_count(),
+            len(snapshot.errors),
+            snapshot.duration,
         )
         return snapshot
 
