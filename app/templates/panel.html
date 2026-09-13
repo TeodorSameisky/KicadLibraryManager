@@ -110,9 +110,52 @@
               + p.ipn + '</a>'
               + '<span class="desc">' + (p.description || "") + '</span>'
               + '<span class="meta mpn">' + mpn + '</span>'
+              + '<button type="button" class="place" data-ipn="' + p.ipn + '">Place</button>'
               + '</li>';
           });
           partsEl.innerHTML = '<ul class="part-list">' + rows.join("") + '</ul>';
+
+          Array.prototype.forEach.call(partsEl.querySelectorAll(".place"), function (btn) {
+            btn.addEventListener("click", function () { place(btn); });
+          });
+        }
+
+        /* Assets are sent in the order the server returns them: footprint and
+           3D model first with mode SAVE, the symbol last with mode PLACE, so
+           everything it references already exists when it lands. */
+        function place(btn) {
+          var ipn = btn.getAttribute("data-ipn");
+          btn.disabled = true;
+          btn.textContent = "Placing…";
+          log("Fetching assets for " + ipn + "…");
+
+          fetch(BASE + "/api/v1/parts/" + encodeURIComponent(ipn) + "/assets",
+                { credentials: "same-origin" })
+            .then(function (r) {
+              if (!r.ok) {
+                return r.json().then(function (e) {
+                  throw new Error(e.detail || ("HTTP " + r.status));
+                });
+              }
+              return r.json();
+            })
+            .then(function (bundle) {
+              (bundle.warnings || []).forEach(function (w) { log("Warning: " + w); });
+
+              return bundle.assets.reduce(function (chain, asset) {
+                return chain.then(function () {
+                  log("Sending " + asset.label + " (" + asset.filename + ")…");
+                  return window.KicadBridge.send(asset.command, asset.parameters, asset.data);
+                });
+              }, Promise.resolve()).then(function () {
+                log("Placed " + ipn + ".");
+              });
+            })
+            .catch(function (err) { log("Could not place " + ipn + ": " + err.message); })
+            .then(function () {
+              btn.disabled = false;
+              btn.textContent = "Place";
+            });
         }
 
         function loadParts() {

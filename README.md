@@ -23,6 +23,7 @@ is not — the catalog is currently empty.
 | `/api/v1/status` | Index state, per source |
 | `/api/v1/parts` | Part search |
 | `/api/v1/parts/{ipn}` | One part with its approved sources |
+| `/api/v1/parts/{ipn}/assets` | The payload KiCad places |
 | `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols |
 | `/healthz` | Liveness probe |
 
@@ -42,6 +43,26 @@ documented `syncing` state until the first index lands.
 Only **IPNs** are placed in KiCad. An IPN names a symbol and a footprint,
 carries field values, and lists the approved manufacturer parts; MPNs are
 separate documents because one can satisfy several IPNs.
+
+## Placing a part
+
+A library symbol is a template. What gets placed is an IPN, so the symbol is
+rewritten on the way out: it carries the internal part number, the part's
+field values, the preferred manufacturer part, and a `Datasheet` pointing at
+that part's page.
+
+The payload contains the symbol *and every ancestor it extends*. KiCad
+resolves `extends` within the library it is handed, so a derived symbol sent
+alone places a part with no pins and no body.
+
+Assets travel inline in the RPC envelope, zstd-compressed and base64-encoded,
+in a fixed order: footprint and 3D model first with mode `SAVE`, the symbol
+last with mode `PLACE`. A part whose symbol cannot be completed is refused
+rather than placed broken.
+
+Large 3D models are the weak point of this transport -- a multi-megabyte STEP
+file crossing a WebView string bridge can exceed KiCad's response timeout. The
+bundle warns when a model is big enough to be at risk.
 
 ## Run locally
 

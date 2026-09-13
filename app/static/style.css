@@ -160,3 +160,10 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 }
 
 .back { margin-top: 2rem; }
+
+.part .place {
+  font-size: 0.8125rem;
+  padding: 0.2rem 0.6rem;
+}
+
+.part .place:disabled { opacity: 0.5; cursor: default; }

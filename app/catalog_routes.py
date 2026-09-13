@@ -10,6 +10,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from app.kicad.assets import build_assets
+from app.kicad.build import BuildError
 from app.config import Settings, get_settings
 from app.library_service import LibraryService, State
 
@@ -100,6 +102,45 @@ async def get_part(ipn: str, service: LibraryService = Depends(get_service)) -> 
         "footprint": part.footprint,
         "fields": part.fields,
         "mpns": sources,
+    }
+
+
+@router.get("/api/v1/parts/{ipn}/assets")
+async def part_assets(
+    ipn: str,
+    settings: Settings = Depends(get_settings),
+    service: LibraryService = Depends(get_service),
+) -> dict:
+    """Everything KiCad needs to place this part, in the order to send it.
+
+    The panel relays these over the RPC bridge; the payloads are inline because
+    that is the transport the protocol fully specifies.
+    """
+    part = service.get_part(ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail=f"No part {ipn}")
+
+    snapshot = service.snapshot
+    try:
+        bundle = build_assets(part, snapshot.catalog, snapshot.parts, settings.public_url)
+    except BuildError as exc:
+        # Refusing beats placing a part with no body or no land pattern.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "ipn": bundle.ipn,
+        "warnings": bundle.warnings,
+        "assets": [
+            {
+                "command": a.command,
+                "label": a.label,
+                "filename": a.filename,
+                "parameters": a.parameters,
+                "size_bytes": a.size_bytes,
+                "data": a.data,
+            }
+            for a in bundle.assets
+        ],
     }
 
 
