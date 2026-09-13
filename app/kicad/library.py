@@ -278,10 +278,18 @@ def normalise_model_ref(ref: str) -> str:
     return cleaned.lstrip("/")
 
 
-def _check_references(index: LibraryIndex) -> None:
+def _check_local_references(index: LibraryIndex) -> None:
+    """Checks that depend only on this repository.
+
+    Footprint and 3D model resolution deliberately happens at catalog level
+    instead: KiCad's own libraries put symbols, footprints and models in three
+    separate repositories, so a reference that dangles here may well resolve
+    against another source.
+    """
     for symbol in index.symbols.values():
         rel = symbol.path.relative_to(index.root).as_posix()
 
+        # extends always names a symbol in the same library, so it is local.
         if symbol.extends and (symbol.library, symbol.extends) not in index.symbols:
             index.issues.append(
                 Issue(Severity.ERROR, "missing-parent",
@@ -289,30 +297,10 @@ def _check_references(index: LibraryIndex) -> None:
                       f"which is not in {symbol.library}", rel))
 
         fp_ref = symbol.properties.get("Footprint", "")
-        if not fp_ref:
-            continue
-        if ":" not in fp_ref:
+        if fp_ref and ":" not in fp_ref:
             index.issues.append(
                 Issue(Severity.WARNING, "unqualified-footprint",
                       f"footprint {fp_ref!r} has no library prefix", rel))
-            continue
-
-        fp_lib, fp_name = fp_ref.split(":", 1)
-        if (fp_lib, fp_name) not in index.footprints:
-            index.issues.append(
-                Issue(Severity.ERROR, "missing-footprint",
-                      f"{symbol.name!r} references footprint {fp_ref!r}, "
-                      "which does not exist", rel))
-
-    for fp in index.footprints.values():
-        rel = fp.path.relative_to(index.root).as_posix()
-        for ref in fp.model_refs:
-            key = normalise_model_ref(ref)
-            if key not in index.models:
-                index.issues.append(
-                    Issue(Severity.ERROR, "missing-model",
-                          f"{fp.name!r} references 3D model {key!r}, "
-                          "which does not exist", rel))
 
 
 def index_repository(root: Path) -> LibraryIndex:
@@ -321,5 +309,5 @@ def index_repository(root: Path) -> LibraryIndex:
     _index_symbols(root, index)
     _index_footprints(root, index)
     _index_models(root, index)
-    _check_references(index)
+    _check_local_references(index)
     return index

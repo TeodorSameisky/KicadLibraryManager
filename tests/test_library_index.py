@@ -98,16 +98,22 @@ def test_extends_cycle_is_detected(repo):
         idx.resolve_chain("L", "A")
 
 
-def test_missing_footprint_and_model_are_reported(repo):
-    repo.add("symbols/L.kicad_symdir/R.kicad_sym", symbol("R", footprint="L:Nope"))
+def test_footprint_and_model_refs_are_not_resolved_per_repository(repo):
+    """Cross-repository references are the catalog's job, not the indexer's.
+
+    KiCad's own libraries keep symbols, footprints and models in three separate
+    repositories, so a reference dangling here may resolve against another
+    source. Deciding that requires seeing all of them.
+    """
+    repo.add("symbols/L.kicad_symdir/R.kicad_sym", symbol("R", footprint="Other:Nope"))
     repo.add("footprints/L.pretty/F.kicad_mod",
-             footprint("F", model="${X}/L.3dshapes/absent.step"))
+             footprint("F", model="${X}/Other.3dshapes/absent.step"))
 
     idx = repo.index()
-    kinds = {i.kind for i in idx.errors}
+    kinds = {i.kind for i in idx.issues}
 
-    assert "missing-footprint" in kinds
-    assert "missing-model" in kinds
+    assert "missing-footprint" not in kinds
+    assert "missing-model" not in kinds
 
 
 def test_unqualified_footprint_is_a_warning_not_an_error(repo):
