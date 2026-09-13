@@ -390,6 +390,20 @@
       return;
     }
 
+    /* Outside KiCad there is no bridge to ask, so the browser signs in
+       against the provider itself. The panel is reachable this way whenever
+       someone opens the URL directly rather than through the WebView. */
+    if (!window.KicadBridge.isEmbedded()) {
+      if (cfg.webLogin !== "true") {
+        log("Browser sign-in is disabled; sign in from KiCad instead.");
+        done();
+        return;
+      }
+      window.location.href =
+        App.base + "/auth/login?next=" + encodeURIComponent(window.location.pathname);
+      return;
+    }
+
     log("Requesting sign-in");
     window.KicadBridge.login()
       .then(refreshSession)

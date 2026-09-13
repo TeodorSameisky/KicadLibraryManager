@@ -101,3 +101,23 @@ def sign_in():
 @pytest.fixture()
 def signed_in_client(client, sign_in):
     return sign_in(client)
+
+
+@pytest.fixture()
+def stub_provider():
+    """Install a stand-in identity provider on a client.
+
+    Without it a test that touches the browser sign-in flow makes a real DNS
+    lookup for the example.com metadata URL and waits for it to fail.
+    """
+
+    def _install(client, principal=None, error=None, metadata=None):
+        from app.config import get_settings
+        from tests.test_web_login import StubProvider
+
+        stub = StubProvider(principal=principal, error=error, metadata=metadata)
+        stub._settings = get_settings()
+        client.app.state.oidc_verifier = stub
+        return stub
+
+    return _install

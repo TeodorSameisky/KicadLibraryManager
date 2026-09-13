@@ -59,6 +59,7 @@ async def lifespan(application: FastAPI):
     application.state.session_store = SessionStore(
         nonce_ttl_seconds=settings.nonce_ttl_seconds,
         session_ttl_seconds=settings.session_ttl_seconds,
+        login_ttl_seconds=settings.login_ttl_seconds,
     )
     application.state.oidc_verifier = OidcVerifier(settings)
     application.state.templates = templates

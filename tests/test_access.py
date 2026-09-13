@@ -54,7 +54,22 @@ def test_a_browser_is_refused_with_a_page_not_json(client):
 
     assert response.status_code == 401
     assert response.headers["content-type"].startswith("text/html")
-    assert "not public" in response.text
+    assert "Sign in" in response.text
+
+
+def test_the_sign_in_link_returns_to_the_page_that_was_refused(client):
+    """The link is followed from a placed symbol, so the part is the
+    destination -- bouncing to the panel would lose which part was wanted."""
+    response = client.get("/ipn/1102-0001?x=1", headers={"Accept": "text/html"})
+
+    assert "/auth/login?next=%2Fipn%2F1102-0001%3Fx%3D1" in response.text
+
+
+def test_without_browser_sign_in_the_page_points_at_kicad(build_client):
+    no_web = build_client(WEB_LOGIN_ENABLED="false")
+    response = no_web.get("/ipn/1102-0001", headers={"Accept": "text/html"})
+
+    assert "/auth/login" not in response.text
     assert "/panel" in response.text
 
 
@@ -79,3 +94,11 @@ def test_logging_out_closes_the_catalog_again(signed_in_client):
     signed_in_client.post("/api/v1/session/logout")
 
     assert signed_in_client.get("/api/v1/parts").status_code == 401
+
+
+def test_the_way_in_does_not_itself_require_being_in(client, stub_provider):
+    """/auth/login is how a signed-out browser gets a session, so a guard on
+    it would be a locked door with the key behind it."""
+    stub_provider(client)
+
+    assert client.get("/auth/login", follow_redirects=False).status_code == 307

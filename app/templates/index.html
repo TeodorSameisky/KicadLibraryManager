@@ -113,6 +113,19 @@
           <span class="small muted">anyone who can reach this URL can read the library</span>
         {% endif %}
       </dd>
+      {% if web_login %}
+        {# The one value that has to be copied into the provider by hand. A
+           part page link followed from a browser dies on a redirect URI the
+           provider does not recognise, and the error appears there, not here. #}
+        <dt>Redirect URI</dt>
+        <dd>
+          <span class="mono small">{{ callback_url }}</span>
+          <span class="small muted block">
+            must be registered with the identity provider for client
+            <span class="mono">{{ client_id }}</span>
+          </span>
+        </dd>
+      {% endif %}
       <dt>Provider metadata</dt>
       <dd><a href="{{ root_path }}/.well-known/kicad-remote-provider">/.well-known/kicad-remote-provider</a></dd>
       <dt>API</dt><dd><a href="{{ root_path }}/docs">/docs</a></dd>

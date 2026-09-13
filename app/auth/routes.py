@@ -1,23 +1,36 @@
-"""Session endpoints backing the KiCad remote-provider auth handshake.
+"""Session endpoints. There are two ways in, because there are two clients.
 
-Flow, once KiCad has an access token:
+KiCad already holds an access token by the time it reaches us:
 
     KiCad  --POST {access_token, next_url}--> /api/v1/session/bootstrap
            <--------- {nonce_url} ----------
-    WebView --GET--> /session/consume?n=...  -> Set-Cookie, 302 to next_url
+    WebView --GET--> /session/consume?n=...  -> Set-Cookie, 303 to next_url
+
+A browser has nothing, and cannot borrow KiCad's: the WebView keeps its own
+cookie jar, and the part page link inside a placed symbol may be opened from a
+PDF export with no KiCad running at all. So the browser signs in against the
+same provider with this app as the client:
+
+    Browser --GET--> /auth/login?next=...    -> 307 to the provider
+            --GET--> /auth/callback?code=&state=
+                                             -> Set-Cookie, 303 to next
 """
 
 from __future__ import annotations
 
+import logging
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from app.auth.oidc import OidcVerifier, TokenError
+from app.auth.oidc import OidcVerifier, TokenError, code_challenge_for, make_code_verifier
 from app.auth.session import Session, SessionStore
 from app.config import Settings, get_settings
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -89,6 +102,23 @@ async def bootstrap(
     return BootstrapResponse(nonce_url=f"{settings.public_url}/session/consume?n={nonce}")
 
 
+def _redirect_with_session(session_id: str, next_url: str, settings: Settings) -> Response:
+    response = RedirectResponse(url=next_url, status_code=303)
+    response.set_cookie(
+        key=settings.cookie_name,
+        value=session_id,
+        max_age=settings.session_ttl_seconds,
+        httponly=True,
+        secure=settings.cookie_secure,
+        # Lax, not Strict: arriving from the provider's domain is a
+        # cross-site navigation, and Strict would drop the cookie on exactly
+        # the request that sets it.
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
 @router.get("/session/consume")
 async def consume(
     n: str,
@@ -100,17 +130,102 @@ async def consume(
         raise HTTPException(status_code=400, detail="Invalid or expired nonce")
 
     session_id, next_url = redeemed
-    response = RedirectResponse(url=next_url, status_code=303)
-    response.set_cookie(
-        key=settings.cookie_name,
-        value=session_id,
-        max_age=settings.session_ttl_seconds,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path="/",
+    return _redirect_with_session(session_id, next_url, settings)
+
+
+# -- the browser's own sign-in ---------------------------------------------
+
+
+def _safe_next(candidate: str | None, settings: Settings) -> str:
+    """Where to land after signing in, refusing anywhere but our own pages.
+
+    A `next` that leaves this deployment would hand the freshly minted session
+    to whoever named it.
+    """
+    if not candidate:
+        return settings.panel_url
+
+    # A bare path is the common case: the page that refused the request knows
+    # its own path, not the origin a proxy presents it under.
+    if candidate.startswith("/") and not candidate.startswith("//"):
+        prefix = settings.root_path
+        if prefix and not candidate.startswith(prefix + "/") and candidate != prefix:
+            candidate = prefix + candidate
+        return f"{settings.origin}{candidate}"
+
+    return candidate if _is_internal_url(candidate, settings.public_url) else settings.panel_url
+
+
+@router.get("/auth/login")
+async def login(
+    next: str | None = Query(None, max_length=2048),
+    settings: Settings = Depends(get_settings),
+    store: SessionStore = Depends(get_store),
+    verifier: OidcVerifier = Depends(get_verifier),
+) -> Response:
+    """Start Authorization Code + PKCE, with this app as the client."""
+    if not settings.web_login_configured:
+        raise HTTPException(status_code=404, detail="Browser sign-in is not enabled")
+
+    code_verifier = make_code_verifier()
+    state = store.begin_login(code_verifier, _safe_next(next, settings))
+
+    try:
+        url = await verifier.authorization_url(
+            redirect_uri=settings.web_callback_url,
+            state=state,
+            code_challenge=code_challenge_for(code_verifier),
+        )
+    except (TokenError, httpx.HTTPError) as exc:
+        log.warning("cannot start browser sign-in: %s", exc)
+        raise HTTPException(status_code=502, detail="The identity provider is unreachable") from exc
+
+    return RedirectResponse(url=url, status_code=307)
+
+
+@router.get("/auth/callback")
+async def callback(
+    request: Request,
+    state: str = Query(max_length=512),
+    code: str | None = Query(None, max_length=4096),
+    error: str | None = Query(None, max_length=256),
+    settings: Settings = Depends(get_settings),
+    store: SessionStore = Depends(get_store),
+    verifier: OidcVerifier = Depends(get_verifier),
+) -> Response:
+    """Finish the exchange and hand the browser a session."""
+    if not settings.web_login_configured:
+        raise HTTPException(status_code=404, detail="Browser sign-in is not enabled")
+
+    # Consumed whatever happens: a state that survived a failed attempt could
+    # be replayed against a later one.
+    pending = store.finish_login(state)
+    if pending is None:
+        raise HTTPException(status_code=400, detail="This sign-in expired; start again")
+
+    code_verifier, next_url = pending
+
+    if error:
+        # The user declining consent is not a server fault, and the provider's
+        # own code is what says which of the two it was.
+        log.info("browser sign-in refused by the provider: %s", error)
+        raise HTTPException(status_code=401, detail=f"Sign-in was refused ({error})")
+    if not code:
+        raise HTTPException(status_code=400, detail="The provider returned no authorization code")
+
+    try:
+        principal = await verifier.exchange_code(
+            code=code,
+            code_verifier=code_verifier,
+            redirect_uri=settings.web_callback_url,
+        )
+    except (TokenError, httpx.HTTPError) as exc:
+        log.warning("browser sign-in failed for %s: %s", request.client, exc)
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    return _redirect_with_session(
+        store.issue(principal.subject, principal.claims), next_url, settings
     )
-    return response
 
 
 @router.get("/api/v1/session/me")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
@@ -31,6 +33,12 @@ async def not_signed_in(request: Request, exc: Exception) -> Response:
     if "text/html" not in request.headers.get("accept", ""):
         return JSONResponse(status_code=401, content={"detail": detail})
 
+    # Come back to the page that was refused, not to the panel: this link is
+    # usually followed from a placed symbol and the part is the destination.
+    here = request.url.path
+    if request.url.query:
+        here = f"{here}?{request.url.query}"
+
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="signed_out.html",
@@ -38,6 +46,11 @@ async def not_signed_in(request: Request, exc: Exception) -> Response:
         context={
             "root_path": settings.root_path,
             "provider_name": settings.provider_name,
+            "login_url": (
+                f"{settings.root_path}/auth/login?next={quote(here, safe='')}"
+                if settings.web_login_configured
+                else None
+            ),
         },
     )
 
@@ -72,6 +85,9 @@ async def index(
         "index.html",
         version=APP_VERSION,
         auth_configured=settings.auth_configured,
+        web_login=settings.web_login_configured,
+        callback_url=settings.web_callback_url,
+        client_id=settings.oidc_client_id,
         state=service.state.value,
         error=service.error,
         sources=snapshot.sources,
@@ -101,6 +117,7 @@ async def panel(
         request,
         "panel.html",
         auth_configured=settings.auth_configured,
+        web_login=settings.web_login_configured,
         session=session,
         indexing=service.state is State.SYNCING,
     )

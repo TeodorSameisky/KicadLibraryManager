@@ -50,7 +50,14 @@ class Settings:
     oidc_scopes: tuple[str, ...]
     oidc_audience: str | None
 
+    # The browser sign-in flow runs here rather than in KiCad, so this app is
+    # the OAuth2 client for it. A public client with PKCE needs no secret; set
+    # one only if the provider registered a confidential client.
+    oidc_client_secret: str | None
+    web_login_enabled: bool
+
     nonce_ttl_seconds: int
+    login_ttl_seconds: int
     session_ttl_seconds: int
     cookie_name: str
     cookie_secure: bool
@@ -98,6 +105,19 @@ class Settings:
     @property
     def session_bootstrap_url(self) -> str:
         return f"{self.api_base_url}/session/bootstrap"
+
+    @property
+    def web_callback_url(self) -> str:
+        """Where the provider sends the browser back after a sign-in.
+
+        Fixed, unlike KiCad's ephemeral loopback port, so it has to be
+        registered with the provider as an allowed redirect URI.
+        """
+        return f"{self.public_url}/auth/callback"
+
+    @property
+    def web_login_configured(self) -> bool:
+        return bool(self.auth_configured and self.web_login_enabled)
 
     @property
     def auth_configured(self) -> bool:
@@ -170,7 +190,12 @@ def get_settings() -> Settings:
         # tokens securely" after an otherwise successful login.
         oidc_scopes=_csv("OIDC_SCOPES", ("openid", "email")),
         oidc_audience=os.environ.get("OIDC_AUDIENCE") or None,
+        oidc_client_secret=os.environ.get("OIDC_CLIENT_SECRET") or None,
+        web_login_enabled=_bool("WEB_LOGIN_ENABLED", True),
         nonce_ttl_seconds=_int("NONCE_TTL_SECONDS", 120),
+        # A sign-in round trip can include a password, consent and a second
+        # factor, none of which fit in the nonce's two minutes.
+        login_ttl_seconds=_int("LOGIN_TTL_SECONDS", 600),
         session_ttl_seconds=_int("SESSION_TTL_SECONDS", 8 * 60 * 60),
         cookie_name=os.environ.get("SESSION_COOKIE_NAME", "klm_session"),
         cookie_secure=_bool("COOKIE_SECURE", public_url.startswith("https://")),

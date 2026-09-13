@@ -9,11 +9,21 @@
   </header>
 
   <div class="state">
-    <p class="state__title">This library is not public</p>
-    <p class="state__hint">
-      Sign in from the Remote Symbols panel in KiCad. Opening a part page in a
-      browser uses the same session, so it will work once you have.
-    </p>
-    <a class="button" href="{{ root_path }}/panel">Open the catalog</a>
+    <p class="state__title">Sign in to see this part</p>
+    {% if login_url %}
+      <p class="state__hint">
+        This library is not public. Signing in returns you to the page you
+        asked for.
+      </p>
+      <a class="button button--primary" href="{{ login_url }}">Sign in</a>
+    {% else %}
+      {# Browser sign-in is switched off, so the WebView handshake is the only
+         way in and the panel is where it happens. #}
+      <p class="state__hint">
+        This library is not public, and browser sign-in is disabled on this
+        deployment. Open the catalog from the Remote Symbols panel in KiCad.
+      </p>
+      <a class="button" href="{{ root_path }}/panel">Open the catalog</a>
+    {% endif %}
   </div>
 {% endblock %}

@@ -51,11 +51,32 @@ class _Nonce:
     expires_at: float
 
 
+@dataclass(frozen=True)
+class _PendingLogin:
+    """A browser sign-in that has left for the provider and not come back.
+
+    The PKCE verifier is kept here rather than in a cookie so that it never
+    travels to the browser: the whole point of PKCE is that only the party
+    that started the exchange can finish it.
+    """
+
+    code_verifier: str
+    next_url: str
+    expires_at: float
+
+
 class SessionStore:
-    def __init__(self, nonce_ttl_seconds: int, session_ttl_seconds: int) -> None:
+    def __init__(
+        self,
+        nonce_ttl_seconds: int,
+        session_ttl_seconds: int,
+        login_ttl_seconds: int = 600,
+    ) -> None:
         self._nonce_ttl = nonce_ttl_seconds
         self._session_ttl = session_ttl_seconds
+        self._login_ttl = login_ttl_seconds
         self._nonces: dict[str, _Nonce] = {}
+        self._logins: dict[str, _PendingLogin] = {}
         self._sessions: dict[str, Session] = {}
 
     def mint_nonce(self, subject: str, claims: dict[str, Any], next_url: str) -> str:
@@ -81,13 +102,45 @@ class SessionStore:
         if record is None or record.expires_at < time.time():
             return None
 
+        return self.issue(record.subject, record.claims), record.next_url
+
+    # -- browser sign-in --------------------------------------------------
+
+    def begin_login(self, code_verifier: str, next_url: str) -> str:
+        """Record a departing sign-in, returning its `state` parameter."""
+        self._purge()
+        state = secrets.token_urlsafe(32)
+        self._logins[state] = _PendingLogin(
+            code_verifier=code_verifier,
+            next_url=next_url,
+            expires_at=time.time() + self._login_ttl,
+        )
+        return state
+
+    def finish_login(self, state: str) -> tuple[str, str] | None:
+        """Consume a pending sign-in, returning (code_verifier, next_url).
+
+        Single-use, like a nonce: `state` is what ties the callback to the
+        request that started it, so a replayed one must fail even though the
+        caller cannot tell replay from expiry.
+        """
+        self._purge()
+        record = self._logins.pop(state, None)
+        if record is None or record.expires_at < time.time():
+            return None
+        return record.code_verifier, record.next_url
+
+    def issue(self, subject: str, claims: dict[str, Any]) -> str:
+        """Mint a session directly, for a flow that owns its own handshake."""
         session_id = secrets.token_urlsafe(32)
         self._sessions[session_id] = Session(
-            subject=record.subject,
-            claims=record.claims,
+            subject=subject,
+            claims=claims,
             expires_at=time.time() + self._session_ttl,
         )
-        return session_id, record.next_url
+        return session_id
+
+    # -- reading ----------------------------------------------------------
 
     def get(self, session_id: str | None) -> Session | None:
         if not session_id:
@@ -106,9 +159,7 @@ class SessionStore:
 
     def _purge(self) -> None:
         now = time.time()
-        for key, value in list(self._nonces.items()):
-            if value.expires_at < now:
-                self._nonces.pop(key, None)
-        for key, session in list(self._sessions.items()):
-            if session.expires_at < now:
-                self._sessions.pop(key, None)
+        for store in (self._nonces, self._logins, self._sessions):
+            for key, value in list(store.items()):
+                if value.expires_at < now:
+                    store.pop(key, None)

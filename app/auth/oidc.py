@@ -1,23 +1,32 @@
-"""Access-token verification against any OIDC-compliant identity provider.
+"""Talking to an OIDC-compliant identity provider.
 
-KiCad performs the OAuth2 Authorization Code + PKCE flow itself and hands us the
-resulting access token at the bootstrap endpoint. We never see the user's
-credentials and never run the authorization flow -- our only job is to decide
-whether a presented token is valid and who it belongs to.
+There are two ways a session starts here, because there are two clients.
 
-Two token shapes are supported, because providers differ:
+KiCad runs Authorization Code + PKCE itself and hands us the resulting access
+token at the bootstrap endpoint; for that flow we only decide whether a
+presented token is valid and who it belongs to. Two token shapes are supported,
+because providers differ:
 
 * JWT access tokens (Keycloak, Authentik, Auth0, Zitadel) are verified locally
   against the provider's JWKS.
 * Opaque access tokens (Google) cannot be verified locally, so we fall back to
   calling the provider's userinfo endpoint.
+
+A browser arriving at a part page has no KiCad to do that for it -- the link
+lives in a placed symbol and may be followed from a PDF export years later --
+so for that flow this app is the OAuth2 client and runs the exchange itself.
+Either way we never see the user's credentials.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 import jwt
@@ -28,6 +37,20 @@ from app.config import Settings
 
 _METADATA_TTL_SECONDS = 3600
 
+# RFC 7636 allows 43-128 characters from an unreserved set; token_urlsafe emits
+# exactly that alphabet.
+_VERIFIER_BYTES = 64
+
+
+def make_code_verifier() -> str:
+    return secrets.token_urlsafe(_VERIFIER_BYTES)[:128]
+
+
+def code_challenge_for(verifier: str) -> str:
+    """The S256 challenge. `plain` is allowed by the RFC and worth nothing."""
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
 
 def _has_display_claim(claims: dict[str, Any]) -> bool:
     return any(claims.get(key) for key in ("name", "preferred_username", "email"))
@@ -35,6 +58,20 @@ def _has_display_claim(claims: dict[str, Any]) -> bool:
 
 class TokenError(Exception):
     """Raised when a token is missing, malformed, expired or untrusted."""
+
+
+def _oauth_error(response: httpx.Response) -> str:
+    """The provider's own error code, or the status if it sent none."""
+    try:
+        body = response.json()
+    except ValueError:
+        return f"HTTP {response.status_code}"
+
+    code = body.get("error")
+    if not code:
+        return f"HTTP {response.status_code}"
+    description = body.get("error_description")
+    return f"{code}: {description}" if description else str(code)
 
 
 @dataclass(frozen=True)
@@ -74,6 +111,66 @@ class OidcVerifier:
         self._metadata_fetched_at = time.monotonic()
         self._jwk_client = None  # keys may have rotated with the metadata
         return self._metadata
+
+    # -- this app as the OAuth2 client ------------------------------------
+
+    async def authorization_url(self, *, redirect_uri: str, state: str, code_challenge: str) -> str:
+        """Where to send a browser to sign in."""
+        metadata = await self.metadata()
+        endpoint = metadata.get("authorization_endpoint")
+        if not endpoint:
+            raise TokenError("Provider metadata has no authorization_endpoint")
+
+        query = {
+            "response_type": "code",
+            "client_id": self._settings.oidc_client_id or "",
+            "redirect_uri": redirect_uri,
+            "scope": " ".join(self._settings.oidc_scopes),
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
+        separator = "&" if "?" in endpoint else "?"
+        return f"{endpoint}{separator}{urlencode(query)}"
+
+    async def exchange_code(self, *, code: str, code_verifier: str, redirect_uri: str) -> Principal:
+        """Redeem an authorization code, returning who it belongs to."""
+        metadata = await self.metadata()
+        endpoint = metadata.get("token_endpoint")
+        if not endpoint:
+            raise TokenError("Provider metadata has no token_endpoint")
+
+        form = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": self._settings.oidc_client_id or "",
+            "code_verifier": code_verifier,
+        }
+        # Absent for a public client, which is the default: PKCE is what
+        # proves the exchange belongs to the request that started it.
+        if self._settings.oidc_client_secret:
+            form["client_secret"] = self._settings.oidc_client_secret
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                endpoint, data=form, headers={"Accept": "application/json"}
+            )
+
+        if response.status_code >= 400:
+            # The body names the OAuth2 error ("invalid_grant"), which is the
+            # difference between a misconfigured redirect URI and a stale
+            # code. The code and verifier are not in it.
+            raise TokenError(f"Token exchange failed: {_oauth_error(response)}")
+
+        payload = response.json()
+        access_token = payload.get("access_token")
+        if not access_token:
+            raise TokenError("Token response carried no access_token")
+
+        return await self.verify(str(access_token))
+
+    # -- verifying a token someone else obtained --------------------------
 
     async def verify(self, token: str) -> Principal:
         if not token or not token.strip():

@@ -97,3 +97,49 @@ def test_root_mount_cookie_is_secure_on_https(root_mounted_client):
     from app.config import get_settings
 
     assert get_settings().cookie_secure is True
+
+
+# --- Browser sign-in behind the prefix ---------------------------------------
+
+
+def test_the_callback_url_carries_the_prefix(prefixed_client):
+    """The provider sends the browser back to a URL it was told; without the
+    prefix that lands on whatever else is mounted at the site root."""
+    from app.config import get_settings
+
+    assert get_settings().web_callback_url == "https://sameisky.tech/kicadLibrary/auth/callback"
+
+
+def test_a_bare_next_path_is_resolved_under_the_prefix(prefixed_client):
+    """The page that was refused knows its own path, not the origin a proxy
+    presents it under, so it sends "/ipn/X" and we put the prefix back."""
+    from app.auth.routes import _safe_next
+    from app.config import get_settings
+
+    settings = get_settings()
+
+    assert _safe_next("/ipn/1102-0001", settings) == (
+        "https://sameisky.tech/kicadLibrary/ipn/1102-0001"
+    )
+    # Already carrying it, as the signed-out page emits.
+    assert _safe_next("/kicadLibrary/ipn/1102-0001", settings) == (
+        "https://sameisky.tech/kicadLibrary/ipn/1102-0001"
+    )
+
+
+def test_a_bare_next_path_on_a_root_mount(root_mounted_client):
+    from app.auth.routes import _safe_next
+    from app.config import get_settings
+
+    assert _safe_next("/ipn/1102-0001", get_settings()) == (
+        "https://kicad.sameisky.tech/ipn/1102-0001"
+    )
+
+
+def test_a_next_escaping_the_prefix_falls_back_to_the_panel(prefixed_client):
+    """Another app on the same host shares the origin but not the prefix."""
+    from app.auth.routes import _safe_next
+    from app.config import get_settings
+
+    settings = get_settings()
+    assert _safe_next("https://sameisky.tech/other-app/steal", settings) == settings.panel_url

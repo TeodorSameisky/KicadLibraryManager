@@ -3,6 +3,7 @@
 {% block body_attrs %}
   data-auth-configured="{{ 'true' if auth_configured else 'false' }}"
   data-signed-in="{{ 'true' if session else 'false' }}"
+  data-web-login="{{ 'true' if web_login else 'false' }}"
 {% endblock %}
 
 {% block head %}

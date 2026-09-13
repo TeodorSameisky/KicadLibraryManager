@@ -21,8 +21,10 @@ offers the sign-in button.
 | `/` | Deployment status: sources, counts, configuration problems | open |
 | `/healthz` | Liveness: the process is serving | open |
 | `/readyz` | Readiness: there is a catalog to serve | open |
-| `/api/v1/session/bootstrap` | Exchanges an access token for a single-use nonce | open |
+| `/api/v1/session/bootstrap` | Exchanges KiCad's access token for a single-use nonce | open |
 | `/session/consume?n=` | Redeems a nonce, sets the session cookie | open |
+| `/auth/login?next=` | Starts a browser sign-in, with this app as the OAuth2 client | open |
+| `/auth/callback` | Redeems the authorization code, sets the session cookie | open |
 | `/api/v1/session/me` | Current session | open |
 | `/api/v1/session/logout` | Clears the session | open |
 | `/api/v1/status` | Index state, per source, plus the filters the catalog offers | |
@@ -117,11 +119,17 @@ pytest -q
 
 ## Authentication
 
-KiCad is the OAuth2 **client**, not this server. It runs Authorization Code +
+There are two clients, because there are two kinds of caller.
+
+For the panel, **KiCad** is the OAuth2 client. It runs Authorization Code +
 PKCE itself: it starts a loopback listener on `127.0.0.1/oauth/callback`,
 launches the user's system browser, and exchanges the code at the identity
 provider's token endpoint. This app never sees credentials — it only verifies
 the resulting access token and converts it into a browser session for the panel.
+
+For a part page opened in an ordinary browser, **this app** is the client and
+runs the exchange itself; see [Browser sign-in](#browser-sign-in). Either way
+the credentials stay between the user and their identity provider.
 
 ```
 KiCad ──discovery──▶ /.well-known/kicad-remote-provider
@@ -158,15 +166,54 @@ not** — they publish no RFC 8414 metadata and do not support PKCE.
 With `AUTH_ENABLED` on, every endpoint that reads the library refuses a request
 without a session cookie. The exceptions are deliberate: health probes have no
 session, the discovery document is what tells KiCad how to authenticate at all,
-and `/panel` is the page carrying the sign-in button, so refusing it would
-leave the user nowhere to sign in from.
+`/panel` carries the sign-in button, and `/auth/login` is the way in — a guard
+there would be a locked door with the key behind it.
 
-A refused request is answered in the shape its caller asked for — JSON for the
-API, and a page with a route back to the panel for a browser, since a part page
-is reached by following the `Datasheet` link out of a placed symbol.
+A refused request is answered in the shape its caller asked for: JSON for the
+API, and a page offering sign-in for a browser.
 
 Setting `AUTH_ENABLED=false` advertises auth type `none`, which leaves the panel
 and every asset readable by anyone who can reach the URL.
+
+### Browser sign-in
+
+A placed symbol's `Datasheet` field points at `/ipn/{ipn}` on this app, and
+that link is followed in an ordinary browser — from the schematic editor, or
+from a PDF export years later with no KiCad running at all. KiCad's WebView
+keeps its own cookie jar, so the session established there never reaches that
+browser, and the link cannot depend on KiCad being alive to work.
+
+So there is a second way in, where **this app is the OAuth2 client** rather
+than KiCad:
+
+```
+Browser ──GET──▶ /auth/login?next=/ipn/1102-0001
+        ◀── 307, to the provider (PKCE S256, state) ──
+Browser ──approves at the IdP──▶
+        ──GET──▶ /auth/callback?code=…&state=…
+        ◀── Set-Cookie, 303 to /ipn/1102-0001 ──
+```
+
+It lands back on the part that was asked for, not on the panel. The PKCE
+verifier is held server-side against the `state` and never travels to the
+browser; `state` is single-use and is spent even on a failed attempt.
+
+This needs one thing registered at the provider, alongside KiCad's loopback
+redirect:
+
+```
+<PUBLIC_URL>/auth/callback
+```
+
+The deployment's landing page prints the exact value. A public client needs no
+secret — PKCE is what proves the exchange — but `OIDC_CLIENT_SECRET` is
+honoured if you registered a confidential one.
+
+`WEB_LOGIN_ENABLED=false` turns this off, leaving the KiCad handshake as the
+only way in; part pages are then reachable only from inside the panel.
+
+The credential-store size limit described below constrains KiCad's token
+bundle, not this flow — the tokens here stay on the server.
 
 ### Security headers
 
