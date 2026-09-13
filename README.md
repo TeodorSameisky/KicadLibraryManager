@@ -32,7 +32,9 @@ KiCad. The part page inlines them so that hovering a pin highlights the pad
 it maps to, and the other way round; the standalone endpoints are used for
 the panel's thumbnails, where no interaction is needed.
 | `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols |
-| `/healthz` | Liveness probe |
+| `/api/v1/issues` | Everything in the library that does not resolve |
+| `/healthz` | Liveness: the process is serving |
+| `/readyz` | Readiness: there is a catalog to serve |
 
 ## The library
 
@@ -161,3 +163,25 @@ pytest -q
 The discovery document is validated against KiCad's own published JSON schema, a
 verbatim copy of which lives in `tests/fixtures/`. Refresh that fixture when
 targeting a newer KiCad release.
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+ruff check app tests
+ruff format app tests
+pytest -q
+```
+
+CI runs the same checks, and separately builds the image and calls it. The
+image is what ships, and a Dockerfile that has stopped building is otherwise
+only discovered on deploy.
+
+### Logging
+
+`LOG_LEVEL` sets verbosity and `LOG_FORMAT=json` switches to one JSON object
+per line. Every request carries an id, returned as `X-Request-ID` and included
+in each line it produced, so a report can be tied to the lines describing it.
+
+Health probes are not logged unless they fail; one every thirty seconds
+otherwise drowns out everything worth reading.

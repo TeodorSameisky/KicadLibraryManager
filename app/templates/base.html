@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}{{ provider_name }}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ root_path }}/static/css/app.css" />
+    {% block head %}{% endblock %}
+  </head>
+  <body {% block body_attrs %}{% endblock %}>
+    <div class="page {% block page_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </div>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

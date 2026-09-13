@@ -100,6 +100,7 @@ async def index(request: Request, settings: Settings = Depends(get_settings)) ->
         context={
             "version": app.version,
             "auth_configured": settings.auth_configured,
+            "provider_name": settings.provider_name,
             "root_path": settings.root_path,
         },
     )

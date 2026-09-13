@@ -40,8 +40,9 @@ def test_metadata_urls_include_the_prefix(prefixed_client):
 def test_panel_assets_are_prefixed(prefixed_client):
     """The live bug: bare /static/... resolves to the site root, not the app."""
     html = prefixed_client.get("/panel").text
-    assert '"/kicadLibrary/static/style.css"' in html
-    assert '"/kicadLibrary/static/kicad-bridge.js"' in html
+    assert '"/kicadLibrary/static/css/app.css"' in html
+    assert '"/kicadLibrary/static/js/kicad-bridge.js"' in html
+    assert '"/kicadLibrary/static/js/panel.js"' in html
     assert 'href="/static/' not in html
     assert 'src="/static/' not in html
 
@@ -87,8 +88,8 @@ def test_root_mount_has_empty_prefix(root_mounted_client):
 def test_root_mount_emits_bare_asset_paths(root_mounted_client):
     """With no prefix the templates must not emit a doubled or dangling slash."""
     html = root_mounted_client.get("/panel").text
-    assert 'href="/static/style.css"' in html
-    assert 'src="/static/kicad-bridge.js"' in html
+    assert 'href="/static/css/app.css"' in html
+    assert 'src="/static/js/kicad-bridge.js"' in html
     assert "//static/" not in html
 
 

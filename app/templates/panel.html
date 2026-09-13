@@ -1,220 +1,58 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ provider_name }}</title>
-    <link rel="stylesheet" href="{{ root_path }}/static/style.css" />
-    <!-- Loaded in head, and not deferred: KiCad injects NEW_SESSION as soon as
-         the page loads, and a bridge installed later would miss it. -->
-    <script src="{{ root_path }}/static/kicad-bridge.js"></script>
-  </head>
-  <body class="panel">
-    <header>
+{% extends "base.html" %}
+
+{% block body_attrs %}
+  data-base-path="{{ root_path }}"
+  data-auth-configured="{{ 'true' if auth_configured else 'false' }}"
+  data-signed-in="{{ 'true' if session else 'false' }}"
+{% endblock %}
+
+{% block head %}
+  <!-- Loaded early and undeferred: KiCad injects NEW_SESSION as the page
+       loads, and a bridge installed later would miss it. -->
+  <script src="{{ root_path }}/static/js/kicad-bridge.js"></script>
+{% endblock %}
+
+{% block content %}
+  <header class="topbar">
+    <div class="topbar__title">
       <h1>{{ provider_name }}</h1>
-      <div class="session" id="session">
-        {% if session %}
-          <span class="badge ok" id="session-badge">Signed in as {{ session.display_name }}</span>
-        {% elif auth_configured %}
-          <span class="badge" id="session-badge">Not signed in</span>
-        {% else %}
-          <span class="badge warn" id="session-badge">Authentication disabled</span>
-        {% endif %}
-        {% if auth_configured %}
-          <button type="button" id="session-action">{{ "Sign out" if session else "Sign in" }}</button>
-        {% endif %}
-      </div>
-    </header>
+      <span class="badge" id="index-status" hidden></span>
+    </div>
 
-    <main>
-      <div class="search">
-        <input type="search" id="search" placeholder="Search by IPN, description, value or MPN…"
-               autocomplete="off" />
-        <span class="meta" id="count"></span>
-      </div>
-      <div id="parts" class="parts">
-        <p class="meta" id="parts-status">Loading…</p>
-      </div>
-    </main>
+    <div class="topbar__actions">
+      {% if auth_configured %}
+        <span class="badge {{ 'badge--ok' if session else '' }}" id="session-badge">
+          {{ session.display_name if session else "Not signed in" }}
+        </span>
+        <button type="button" class="button" id="session-action">
+          {{ "Sign out" if session else "Sign in" }}
+        </button>
+      {% else %}
+        <span class="badge badge--warn"
+              title="Anyone who can reach this URL can read the library">
+          Authentication disabled
+        </span>
+      {% endif %}
+    </div>
+  </header>
 
-    <section class="log">
-      <h2>Session log</h2>
-      <pre id="log">Waiting for KiCadâ€¦</pre>
-    </section>
+  <div class="search">
+    <label class="visually-hidden" for="search">Search parts</label>
+    <input type="search" id="search" autocomplete="off" spellcheck="false"
+           placeholder="Search by part number, description, value or MPN" />
+    <span class="small muted" id="count"></span>
+  </div>
 
-    <script>
-      (function () {
-        var BASE = "{{ root_path }}";
-        var AUTH = {{ "true" if auth_configured else "false" }};
-        var logEl = document.getElementById("log");
-        var badge = document.getElementById("session-badge");
-        var action = document.getElementById("session-action");
-        var signedIn = {{ "true" if session else "false" }};
+  <div id="results" aria-live="polite">
+    <div class="state"><p class="state__title">Loading</p></div>
+  </div>
 
-        function log(msg) {
-          var stamp = new Date().toLocaleTimeString();
-          var prev = logEl.textContent === "Waiting for KiCadâ€¦" ? "" : "\n" + logEl.textContent;
-          logEl.textContent = "[" + stamp + "] " + msg + prev;
-        }
+  <details class="log" id="log-wrap" hidden>
+    <summary>Activity</summary>
+    <pre id="log"></pre>
+  </details>
+{% endblock %}
 
-        /* Re-render session state from the server instead of reloading: a
-           reload drops the KiCad RPC session, because KiCad only sends
-           NEW_SESSION for navigations it initiates itself. */
-        function refreshSession() {
-          return fetch(BASE + "/api/v1/session/me", { credentials: "same-origin" })
-            .then(function (r) { return r.json(); })
-            .then(function (me) {
-              signedIn = !!me.authenticated;
-              if (!AUTH) return;
-              if (signedIn) {
-                badge.textContent = "Signed in as " + me.display_name;
-                badge.className = "badge ok";
-                if (action) action.textContent = "Sign out";
-              } else {
-                badge.textContent = "Not signed in";
-                badge.className = "badge";
-                if (action) action.textContent = "Sign in";
-              }
-            })
-            .catch(function (err) { log("Could not read session: " + err.message); });
-        }
-
-        var partsEl = document.getElementById("parts");
-        var statusEl = document.getElementById("parts-status");
-        var countEl = document.getElementById("count");
-        var searchEl = document.getElementById("search");
-
-        function renderParts(data) {
-          if (data.state === "syncing") {
-            partsEl.innerHTML = '<p class="meta">Indexing the library…</p>';
-            setTimeout(loadParts, 2000);
-            return;
-          }
-          if (data.state === "empty") {
-            partsEl.innerHTML = '<p class="meta">No library sources configured.</p>';
-            return;
-          }
-          if (!data.parts.length) {
-            partsEl.innerHTML = '<p class="meta">No matching parts.</p>';
-            countEl.textContent = data.total ? data.total + " in catalog" : "";
-            return;
-          }
-          countEl.textContent = data.parts.length + " of " + data.total;
-
-          var rows = data.parts.map(function (p) {
-            var mpn = p.preferred_mpn
-              ? p.preferred_mpn + (p.mpn_count > 1 ? " +" + (p.mpn_count - 1) : "")
-              : "no source";
-            var href = BASE + "/ipn/" + encodeURIComponent(p.ipn);
-            return '<li class="part">'
-              + '<span class="preview"><img loading="lazy" alt="" src="'
-              + BASE + '/api/v1/parts/' + encodeURIComponent(p.ipn) + '/symbol.svg"></span>'
-              + '<a class="ipn" href="' + href + '">'
-              + p.ipn + '</a>'
-              + '<span class="desc">' + (p.description || "") + '</span>'
-              + '<span class="meta mpn">' + mpn + '</span>'
-              + '<button type="button" class="place" data-ipn="' + p.ipn + '">Place</button>'
-              + '</li>';
-          });
-          partsEl.innerHTML = '<ul class="part-list">' + rows.join("") + '</ul>';
-
-          Array.prototype.forEach.call(partsEl.querySelectorAll(".place"), function (btn) {
-            btn.addEventListener("click", function () { place(btn); });
-          });
-        }
-
-        /* Assets are sent in the order the server returns them: footprint and
-           3D model first with mode SAVE, the symbol last with mode PLACE, so
-           everything it references already exists when it lands. */
-        function place(btn) {
-          var ipn = btn.getAttribute("data-ipn");
-          btn.disabled = true;
-          btn.textContent = "Placing…";
-          log("Fetching assets for " + ipn + "…");
-
-          fetch(BASE + "/api/v1/parts/" + encodeURIComponent(ipn) + "/assets",
-                { credentials: "same-origin" })
-            .then(function (r) {
-              if (!r.ok) {
-                return r.json().then(function (e) {
-                  throw new Error(e.detail || ("HTTP " + r.status));
-                });
-              }
-              return r.json();
-            })
-            .then(function (bundle) {
-              (bundle.warnings || []).forEach(function (w) { log("Warning: " + w); });
-
-              return bundle.assets.reduce(function (chain, asset) {
-                return chain.then(function () {
-                  log("Sending " + asset.label + " (" + asset.filename + ")…");
-                  return window.KicadBridge.send(asset.command, asset.parameters, asset.data);
-                });
-              }, Promise.resolve()).then(function () {
-                log("Placed " + ipn + ".");
-              });
-            })
-            .catch(function (err) { log("Could not place " + ipn + ": " + err.message); })
-            .then(function () {
-              btn.disabled = false;
-              btn.textContent = "Place";
-            });
-        }
-
-        function loadParts() {
-          var q = searchEl ? searchEl.value : "";
-          fetch(BASE + "/api/v1/parts?q=" + encodeURIComponent(q), { credentials: "same-origin" })
-            .then(function (r) { return r.json(); })
-            .then(renderParts)
-            .catch(function (err) {
-              partsEl.innerHTML = '<p class="meta">Could not load parts: ' + err.message + '</p>';
-            });
-        }
-
-        var searchTimer = null;
-        if (searchEl) {
-          searchEl.addEventListener("input", function () {
-            clearTimeout(searchTimer);
-            searchTimer = setTimeout(loadParts, 150);
-          });
-        }
-        loadParts();
-
-        if (!window.KicadBridge.isEmbedded()) {
-          log("Not running inside KiCad â€” RPC calls are unavailable.");
-        }
-
-        window.KicadBridge.onMessage(function (env) {
-          if (env.command === "NEW_SESSION") log("Session established with KiCad.");
-        });
-
-        if (action) {
-          action.addEventListener("click", function () {
-            action.disabled = true;
-            var done = function () { action.disabled = false; };
-
-            if (signedIn) {
-              log("Signing outâ€¦");
-              fetch(BASE + "/api/v1/session/logout", { method: "POST", credentials: "same-origin" })
-                .then(refreshSession)
-                .then(function () {
-                  log("Signed out.");
-                  return window.KicadBridge.logout().catch(function () {});
-                })
-                .then(done, done);
-            } else {
-              log("Requesting sign-inâ€¦");
-              window.KicadBridge.login()
-                .then(function () { return refreshSession(); })
-                .then(function () {
-                  log(signedIn ? "Signed in." : "Sign-in completed but no session was created.");
-                })
-                .catch(function (err) { log("Sign-in failed: " + err.message); })
-                .then(done, done);
-            }
-          });
-        }
-      })();
-    </script>
-  </body>
-</html>
+{% block scripts %}
+  <script src="{{ root_path }}/static/js/panel.js"></script>
+{% endblock %}
