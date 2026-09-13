@@ -15,6 +15,18 @@ from typing import Iterator, Union
 Node = Union["SExpr", str]
 
 
+class Atom(str):
+    """A bare, unquoted token: a number, a keyword, yes/no.
+
+    Distinguished from a quoted string so a parsed file can be written back
+    out: `(at 0 0 90)` and `(property "Value" "10k")` are different, and
+    collapsing both to str would quote the numbers and produce a file KiCad
+    rejects.
+    """
+
+    __slots__ = ()
+
+
 class ParseError(Exception):
     """Raised when a file is not well-formed s-expression."""
 
@@ -90,7 +102,7 @@ def _tokenize(text: str) -> Iterator[tuple[str, str]]:
             i += 1
         if i == start:  # a lone quote in an odd position
             raise ParseError(f"unexpected character {text[i]!r} at offset {i}")
-        yield ("atom", text[start:i])
+        yield ("atom", Atom(text[start:i]))
 
 
 def loads(text: str) -> SExpr:
