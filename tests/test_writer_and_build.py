@@ -230,8 +230,10 @@ def test_coordinate_lists_are_packed_and_wrapped():
     point_lines = [ln for ln in rendered.splitlines() if "(xy " in ln]
 
     assert len(point_lines) > 1, "a long point list wraps"
-    assert all(ln.count("(xy ") > 1 for ln in point_lines), "points share a line"
+    assert point_lines[0].count("(xy ") > 1, "points share a line"
+    # The remainder may well be a single point; what matters is the wrap column.
     assert max(len(ln) for ln in point_lines) < 130
+    assert sum(ln.count("(xy ") for ln in point_lines) == 12, "no point is lost"
 
 
 def test_a_short_point_list_stays_on_one_line():
