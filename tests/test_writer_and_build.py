@@ -151,13 +151,31 @@ def parse(payload):
     return tree, [s.atoms()[0] for s in symbols], props
 
 
-def test_the_parent_travels_with_the_derived_symbol(lib):
-    """Sent alone, a derived symbol places a part with no pins and no body."""
+def test_inheritance_is_flattened_into_one_symbol(lib):
+    """KiCad saves one symbol per payload, and a saved (extends ...) would
+    point at a parent that is not in the destination library."""
     tree, names, _ = parse(lib.build())
 
-    assert names == ["R", "R_0603"], "ancestors first, placed symbol last"
-    parent = list(tree.children("symbol"))[0]
-    assert list(parent.children("symbol")), "the parent carries the graphics"
+    assert names == ["R_0603"], "the ancestor is merged in, not shipped beside it"
+    placed = list(tree.children("symbol"))[0]
+    assert placed.child("extends") is None
+    assert list(placed.children("symbol")), "the parent's graphics came across"
+
+
+def test_flattened_units_are_renamed(lib):
+    """A unit still named after the parent is drawn as a different symbol."""
+    tree, _, _ = parse(lib.build())
+    placed = list(tree.children("symbol"))[0]
+
+    units = [u.atoms()[0] for u in placed.children("symbol")]
+    assert units == ["R_0603_0_1", "R_0603_1_1"]
+
+
+def test_child_overrides_win_over_the_ancestor(lib):
+    _, _, props = parse(lib.build())
+
+    # R_0603 sets the footprint; R leaves it empty.
+    assert props["Footprint"] == "Passives:R_0603_1608Metric"
 
 
 def test_ipn_fields_are_injected(lib):

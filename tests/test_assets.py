@@ -93,7 +93,7 @@ def test_payloads_decode_back_to_the_original_files(lib):
     tree = loads(symbol_text)
     names = [s.atoms()[0] for s in tree.children("symbol")]
 
-    assert names == ["R", "R_0603"], "the parent travels with the derived symbol"
+    assert names == ["R_0603"], "inheritance is flattened into one symbol"
     assert "1102-0001" in symbol_text
     assert decode(by_command["DL_FOOTPRINT"].data).startswith(b'(footprint "R_0603_1608Metric"')
     assert decode(by_command["DL_3DMODEL"].data).startswith(b"ISO-10303-21;")

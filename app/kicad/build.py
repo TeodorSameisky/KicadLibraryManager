@@ -7,6 +7,7 @@ part page. So the symbol is rewritten rather than served as-is.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +49,60 @@ def _load_symbol_node(symbol: Symbol) -> SExpr:
     if node is None:
         raise BuildError(f"{symbol.path} contains no symbol")
     return node
+
+
+def _replace_property(target: SExpr, prop: SExpr) -> None:
+    """Overwrite a property on `target` with `prop`, keeping the child's layout."""
+    name = prop.atoms()[0] if prop.atoms() else None
+    if name is None:
+        return
+
+    for i, item in enumerate(target.items):
+        if isinstance(item, SExpr) and item.head == "property":
+            existing = item.atoms()
+            if existing and existing[0] == name:
+                target.items[i] = copy.deepcopy(prop)
+                return
+
+    last = 1
+    for i, item in enumerate(target.items):
+        if isinstance(item, SExpr) and item.head == "property":
+            last = i + 1
+    target.items.insert(last, copy.deepcopy(prop))
+
+
+def flatten(nodes: list[SExpr], name: str) -> SExpr:
+    """Collapse an inheritance chain into one self-contained symbol.
+
+    KiCad saves a single symbol per payload, and a saved symbol still carrying
+    `(extends ...)` would point at a parent that is not in the destination
+    library. So the graphics are inherited here instead: the ancestor's body is
+    taken as the base, each descendant's properties are layered on top, and the
+    unit sub-symbols are renamed to match.
+
+    `nodes` runs ancestor first; `name` is the symbol being placed.
+    """
+    base = copy.deepcopy(nodes[0])
+    original = base.atoms()[0] if base.atoms() else name
+
+    for descendant in nodes[1:]:
+        for prop in descendant.children("property"):
+            _replace_property(base, prop)
+
+    base.items[1] = name
+
+    # Units are named <symbol>_<unit>_<style>; they must follow the rename or
+    # KiCad treats them as belonging to a different symbol and draws nothing.
+    for sub in base.children("symbol"):
+        sub_atoms = sub.atoms()
+        if sub_atoms and sub_atoms[0].startswith(original + "_"):
+            sub.items[1] = name + sub_atoms[0][len(original):]
+
+    base.items = [
+        i for i in base.items
+        if not (isinstance(i, SExpr) and i.head == "extends")
+    ]
+    return base
 
 
 def _header(version: str = "20251024") -> list:
@@ -95,9 +150,9 @@ def build_symbol(
             f"{chain[-1].name!r}, so the placed part would have no body"
         )
 
-    # Ancestors first: a reader meets a parent before the symbol extending it.
+    # Ancestor first, so each descendant's overrides land on top.
     nodes = [_load_symbol_node(s) for s in reversed(chain)]
-    placed = nodes[-1]
+    placed = flatten(nodes, name)
 
     set_property(placed, IPN_FIELD, part.ipn)
     if part.description:
@@ -120,5 +175,5 @@ def build_symbol(
         if mpn and mpn.manufacturer:
             set_property(placed, "Manufacturer", mpn.manufacturer)
 
-    tree = SExpr(items=[*_header(), *nodes])
+    tree = SExpr(items=[*_header(), placed])
     return SymbolPayload(library=library, name=name, text=dumps(tree))
