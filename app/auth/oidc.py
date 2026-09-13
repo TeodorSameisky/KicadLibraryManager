@@ -29,6 +29,10 @@ from app.config import Settings
 _METADATA_TTL_SECONDS = 3600
 
 
+def _has_display_claim(claims: dict[str, Any]) -> bool:
+    return any(claims.get(key) for key in ("name", "preferred_username", "email"))
+
+
 class TokenError(Exception):
     """Raised when a token is missing, malformed, expired or untrusted."""
 
@@ -81,13 +85,36 @@ class OidcVerifier:
         # only be resolved by asking the provider.
         if token.count(".") == 2:
             try:
-                return self._verify_jwt(token, metadata)
+                principal = self._verify_jwt(token, metadata)
             except TokenError:
                 raise
             except Exception as exc:  # malformed despite looking like a JWT
                 raise TokenError(f"Token verification failed: {exc}") from exc
 
+            # Identity claims usually ride in the id_token, but KiCad only hands
+            # us the access token, so the subject is often all we have. userinfo
+            # returns whatever the granted scopes allow.
+            if not _has_display_claim(principal.claims):
+                principal = await self._enrich(token, principal, metadata)
+            return principal
+
         return await self._verify_via_userinfo(token, metadata)
+
+    async def _enrich(
+        self, token: str, principal: Principal, metadata: dict[str, Any]
+    ) -> Principal:
+        """Best-effort: a failure here must not cost the user their login."""
+        try:
+            enriched = await self._verify_via_userinfo(token, metadata)
+        except (TokenError, httpx.HTTPError):
+            return principal
+
+        if enriched.subject != principal.subject:
+            # Different subject means the response is not about this token.
+            return principal
+
+        merged = {**enriched.claims, **principal.claims}
+        return Principal(subject=principal.subject, claims=merged)
 
     def _verify_jwt(self, token: str, metadata: dict[str, Any]) -> Principal:
         jwks_uri = metadata.get("jwks_uri")
