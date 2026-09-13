@@ -211,3 +211,17 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .part {
   grid-template-columns: 3.5rem minmax(7rem, auto) 1fr auto auto;
 }
+
+.previews { display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: flex-start; }
+
+.preview-large {
+  margin: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.preview-large figcaption {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}

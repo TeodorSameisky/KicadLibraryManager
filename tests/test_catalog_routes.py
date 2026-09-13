@@ -151,3 +151,26 @@ def test_the_ipn_page_shows_the_preview(ready):
     html = ready.get("/ipn/1102-0001").text
 
     assert "/api/v1/parts/1102-0001/symbol.svg" in html
+
+
+def test_footprint_svg_is_served(ready):
+    response = ready.get("/api/v1/parts/1102-0001/footprint.svg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert "var(--fp-copper)" in response.text
+
+
+def test_footprint_svg_is_404_when_no_source_provides_it(ready, library):
+    """The part names a footprint; no source has it."""
+    part = library.snapshot.parts.parts["1102-0001"]
+    part.footprint = "Passives:DoesNotExist"
+
+    assert ready.get("/api/v1/parts/1102-0001/footprint.svg").status_code == 404
+
+
+def test_the_ipn_page_shows_both_previews(ready):
+    html = ready.get("/ipn/1102-0001").text
+
+    assert "/api/v1/parts/1102-0001/symbol.svg" in html
+    assert "/api/v1/parts/1102-0001/footprint.svg" in html

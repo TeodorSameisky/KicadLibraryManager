@@ -24,6 +24,8 @@ is not — the catalog is currently empty.
 | `/api/v1/parts` | Part search |
 | `/api/v1/parts/{ipn}` | One part with its approved sources |
 | `/api/v1/parts/{ipn}/assets` | The payload KiCad places |
+| `/api/v1/parts/{ipn}/symbol.svg` | Symbol preview |
+| `/api/v1/parts/{ipn}/footprint.svg` | Land pattern preview |
 | `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols |
 | `/healthz` | Liveness probe |
 

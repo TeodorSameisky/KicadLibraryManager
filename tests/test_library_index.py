@@ -48,10 +48,36 @@ def symbol(name, extends=None, footprint="", units=0):
 
 
 def footprint(name, model=None):
-    body = f'(footprint "{name}"\n\t(layer "F.Cu")\n'
+    """A footprint file with two pads, silkscreen and a courtyard."""
+    lines = [f'(footprint "{name}"', '\t(layer "F.Cu")']
+    for number, x in (("1", "-0.825"), ("2", "0.825")):
+        lines += [
+            f'\t(pad "{number}" smd roundrect',
+            f"\t\t(at {x} 0)",
+            "\t\t(size 0.8 0.95)",
+            '\t\t(layers "F.Cu" "F.Mask" "F.Paste")',
+            "\t\t(roundrect_rratio 0.25)",
+            "\t)",
+        ]
+    lines += [
+        "\t(fp_line",
+        "\t\t(start -0.2 -0.5)",
+        "\t\t(end 0.2 -0.5)",
+        "\t\t(stroke (width 0.12) (type solid))",
+        '\t\t(layer "F.SilkS")',
+        "\t)",
+        "\t(fp_rect",
+        "\t\t(start -1.5 -0.7)",
+        "\t\t(end 1.5 0.7)",
+        "\t\t(stroke (width 0.05) (type solid))",
+        "\t\t(fill no)",
+        '\t\t(layer "F.CrtYd")',
+        "\t)",
+    ]
     if model:
-        body += f'\t(model "{model}"\n\t\t(offset (xyz 0 0 0))\n\t)\n'
-    return body + ")\n"
+        lines += [f'\t(model "{model}"', "\t\t(offset (xyz 0 0 0))", "\t)"]
+    lines += [")", ""]
+    return "\n".join(lines)
 
 
 class Repo:

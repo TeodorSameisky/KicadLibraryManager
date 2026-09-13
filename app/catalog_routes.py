@@ -7,12 +7,15 @@ stable.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.kicad.assets import build_assets
 from app.kicad.build import BuildError, build_symbol
 from app.kicad.render import render_symbol
+from app.kicad.render_footprint import render_footprint
 from app.kicad.sexpr import loads
 from app.config import Settings, get_settings
 from app.library_service import LibraryService, State
@@ -176,6 +179,35 @@ async def part_symbol_svg(
         media_type="image/svg+xml",
         headers={"Cache-Control": "public, max-age=300"},
     )
+
+
+@router.get("/api/v1/parts/{ipn}/footprint.svg")
+async def part_footprint_svg(
+    ipn: str,
+    service: LibraryService = Depends(get_service),
+) -> Response:
+    """The land pattern drawn as SVG: pads, silkscreen and courtyard."""
+    part = service.get_part(ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail=f"No part {ipn}")
+    if not part.footprint or ":" not in part.footprint:
+        raise HTTPException(status_code=404, detail=f"{ipn} names no footprint")
+
+    library, name = part.footprint.split(":", 1)
+    located = service.snapshot.catalog.find_footprint(library, name)
+    if not located:
+        raise HTTPException(
+            status_code=404,
+            detail=f"footprint {part.footprint!r} is not provided by any source")
+
+    try:
+        text = Path(located[0].asset.path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    svg = render_footprint(loads(text), part.footprint)
+    return Response(content=svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.get("/ipn/{ipn}", response_class=HTMLResponse)
