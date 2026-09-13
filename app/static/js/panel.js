@@ -223,13 +223,14 @@
   }
 
   /* "12 of 40 matches" beats "12 of 4000": the size of the catalog says
-     nothing about the search that produced the list in front of you. */
+     nothing about the search that produced the list in front of you. With no
+     filters on, though, the catalog IS the result, so it stays "parts". */
   function describe(data) {
+    var noun = filtersActive() ? ["match", "matches"] : ["part", "parts"];
     if (data.returned < data.matched) {
-      return data.returned + " of " + App.plural(data.matched, "match", "matches");
+      return data.returned + " of " + App.plural(data.matched, noun[0], noun[1]);
     }
-    if (filtersActive()) return App.plural(data.matched, "match", "matches");
-    return App.plural(data.total, "part");
+    return App.plural(data.matched, noun[0], noun[1]);
   }
 
   function filtersActive() {
