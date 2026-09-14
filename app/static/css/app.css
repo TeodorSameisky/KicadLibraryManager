@@ -91,7 +91,7 @@ p { margin: 0; }
 a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
 a:hover { text-decoration-thickness: 2px; }
 
-:where(button, a, input, summary):focus-visible {
+:where(button, a, input, select, summary):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius);
@@ -215,8 +215,9 @@ a.button { display: inline-block; text-decoration: none; }
   color: var(--fg-subtle);
 }
 
-/* Wraps rather than scrolls: a library with thirty categories should get
-   taller, not hide two thirds of them off the right edge of a narrow panel. */
+/* Wraps rather than scrolls, so a narrow panel gets taller instead of hiding
+   half the statuses off its right edge. It only ever holds the three of them;
+   the open-ended facet is a dropdown. */
 .filter__chips {
   display: flex;
   flex-wrap: wrap;
@@ -255,6 +256,61 @@ a.button { display: inline-block; text-decoration: none; }
   font-variant-numeric: tabular-nums;
   opacity: 0.7;
 }
+
+/* The category chooser. A row of chips is the better control while there are
+   six categories and the worse one at thirty, and a library only ever grows,
+   so the height this costs is one line whichever it holds. */
+.select {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.select select {
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  appearance: none;
+  max-width: 100%;
+  padding: 0.15rem 1.5rem 0.15rem 0.55rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--fg);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.select select:hover { border-color: var(--fg-subtle); }
+
+/* Reads as set from across the room, the way an active chip does: a filter you
+   cannot see is on is a list you cannot explain. */
+.select--on select {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Drawn rather than a background image, so it follows the text through both
+   themes and through the accent the chosen state paints over it. */
+.select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0.55rem;
+  width: 0.35rem;
+  height: 0.35rem;
+  margin-top: -0.28rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  color: var(--fg-subtle);
+  pointer-events: none;
+}
+
+.select--on::after { color: var(--accent); }
 
 /* --------------------------------------------------------------- badges */
 

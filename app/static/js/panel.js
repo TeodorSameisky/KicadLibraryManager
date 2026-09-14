@@ -74,38 +74,55 @@
   // ------------------------------------------------------------- filters
 
   /* Filters are drawn from the index rather than hard-coded, so the panel
-     offers what this library actually contains. A chip that could only ever
-     return nothing is worse than no chip. */
+     offers what this library actually contains. An option that could only ever
+     return nothing is worse than no option.
+
+     The two facets are shaped differently, so they are offered differently.
+     Status is a closed vocabulary of three that the library cannot add to, and
+     it stays a row of chips: one click, and what is on is readable without
+     opening anything. Categories are declared by the library and keep being
+     added, so they collapse into a dropdown. Thirty chips wrap into a block
+     tall enough to push the parts they filter off the bottom of a panel that
+     is already sharing its height with an editor. */
   function renderFilters() {
     if (!els.filters) return;
     App.clear(els.filters);
 
     var groups = [
-      { key: "status", label: "Status", options: facets.statuses },
-      { key: "category", label: "Category", options: facets.categories },
+      { key: "status", label: "Status", options: facets.statuses, build: chipRow },
+      {
+        key: "category",
+        label: "Category",
+        all: "All categories",
+        options: facets.categories,
+        build: dropdown,
+      },
     ];
 
     var any = false;
     groups.forEach(function (group) {
       if (group.options.length < 2) return; // one option filters nothing
       any = true;
-
-      var row = App.el("div", "filter");
-      row.appendChild(App.el("span", "filter__label", group.label));
-
-      var list = App.el("div", "filter__chips");
-      list.setAttribute("role", "group");
-      list.setAttribute("aria-label", group.label);
-      list.appendChild(chip(group.key, null, "All", null));
-      group.options.forEach(function (option) {
-        list.appendChild(chip(group.key, option.value, option.label, option.count));
-      });
-
-      row.appendChild(list);
-      els.filters.appendChild(row);
+      els.filters.appendChild(group.build(group));
     });
 
     els.filters.hidden = !any;
+  }
+
+  function chipRow(group) {
+    var row = App.el("div", "filter");
+    row.appendChild(App.el("span", "filter__label", group.label));
+
+    var list = App.el("div", "filter__chips");
+    list.setAttribute("role", "group");
+    list.setAttribute("aria-label", group.label);
+    list.appendChild(chip(group.key, null, "All", null));
+    group.options.forEach(function (option) {
+      list.appendChild(chip(group.key, option.value, option.label, option.count));
+    });
+
+    row.appendChild(list);
+    return row;
   }
 
   function chip(key, value, label, count) {
@@ -120,6 +137,64 @@
       node.appendChild(App.el("span", "chip__count", count));
     }
     return node;
+  }
+
+  /* A native <select>, not a menu of our own. Its popup is drawn by the
+     platform, so it escapes the panel instead of being clipped by it, and it
+     already scrolls, takes the arrow keys and jumps on type-ahead. The counts
+     ride inside the option text because options cannot be styled; that is the
+     price of everything above. */
+  function dropdown(group) {
+    var row = App.el("div", "filter");
+    var id = "filter-" + group.key;
+    var chosen = filters[group.key];
+
+    var label = App.el("label", "filter__label", group.label);
+    label.htmlFor = id;
+    row.appendChild(label);
+
+    var select = App.el("select");
+    select.id = id;
+
+    var all = App.el("option", null, group.all);
+    all.value = "";
+    select.appendChild(all);
+
+    var matched = false;
+    group.options.forEach(function (option) {
+      var node = App.el("option", null, option.label + "  (" + option.count + ")");
+      node.value = option.value;
+      if (option.value === chosen) {
+        node.selected = true;
+        matched = true;
+      }
+      select.appendChild(node);
+    });
+
+    /* A category arriving in the URL that the catalog no longer has still
+       narrows the list, so the control admits to it rather than reading
+       "All categories" over an empty result. */
+    if (chosen && !matched) {
+      var orphan = App.el("option", null, chosen + "  (0)");
+      orphan.value = chosen;
+      orphan.selected = true;
+      select.appendChild(orphan);
+    }
+
+    var wrap = App.el("span", "select" + (chosen ? " select--on" : ""));
+    wrap.appendChild(select);
+    row.appendChild(wrap);
+
+    /* Re-rendering here would rebuild the element under the cursor and drop
+       the focus a keyboard user just spent three keys getting to, so the one
+       thing that changes is changed in place. */
+    select.addEventListener("change", function () {
+      filters[group.key] = select.value || null;
+      wrap.classList.toggle("select--on", !!filters[group.key]);
+      load();
+    });
+
+    return row;
   }
 
   // -------------------------------------------------------------- parts
@@ -316,7 +391,14 @@
 
   function onKeyDown(event) {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    var typing = document.activeElement === els.search;
+
+    /* An open dropdown owns the arrow keys, Enter and type-ahead, and the list
+       shortcuts would fight it for all three: arrows would scroll the parts
+       behind the popup, "/" would yank focus out of it mid-choice. */
+    var active = document.activeElement;
+    if (active && active.tagName === "SELECT") return;
+
+    var typing = active === els.search;
 
     if (event.key === "/" && !typing) {
       event.preventDefault();
