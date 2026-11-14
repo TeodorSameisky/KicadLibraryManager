@@ -114,6 +114,43 @@
     <p class="muted">No manufacturer parts are listed for this part.</p>
   {% endif %}
 
+  {# None means the list could not be read, which is not the same as empty
+     and must not be shown as "used nowhere". #}
+  {% if usages is not none %}
+    <h2 class="section">Where used</h2>
+    {% if usages %}
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Project</th>
+              <th scope="col">Revision</th>
+              <th scope="col" class="num">Qty</th>
+              <th scope="col">References</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for usage in usages %}
+              <tr>
+                <td><a href="{{ root_path }}/boms/{{ usage.bom.id }}"><strong>{{ usage.bom.project }}</strong></a></td>
+                <td>{{ usage.bom.revision or "—" }}</td>
+                <td class="num">{{ usage.quantity }}</td>
+                <td class="refs">
+                  {{ usage.references | references }}
+                  {% if usage.dnp %}<span class="tag">not fitted</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">
+        Not on any stored BOM. <a href="{{ root_path }}/boms">Upload a project's BOM</a> to have it listed here.
+      </p>
+    {% endif %}
+  {% endif %}
+
   {% if related %}
     {# Why manufacturer parts are documents of their own: when one is
        discontinued, this is how far it reaches. #}

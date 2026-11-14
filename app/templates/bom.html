@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}{{ bom.label }} &middot; {{ provider_name }}{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/boms">&larr; BOMs</a>
+
+  <header>
+    <div class="title">
+      <h1 class="title--plain">{{ bom.project }}</h1>
+      {% if bom.revision %}<span class="tag">revision {{ bom.revision }}</span>{% endif %}
+    </div>
+    <p class="byline">
+      Uploaded {{ bom.uploaded_at | day }}{% if bom.uploaded_by %} by {{ bom.uploaded_by }}{% endif %}
+      {%- if bom.filename %} &middot; <span class="mono">{{ bom.filename }}</span>{% endif %}
+    </p>
+    {% if bom.note %}<p class="subtitle">{{ bom.note }}</p>{% endif %}
+  </header>
+
+  <div class="figures">
+    <div class="figure">
+      <span class="figure__value">{{ bom.line_count }}</span>
+      <span class="figure__label">lines</span>
+    </div>
+    <div class="figure">
+      <span class="figure__value">{{ bom.component_count }}</span>
+      <span class="figure__label">components</span>
+    </div>
+    <div class="figure">
+      <span class="figure__value">{{ report.part_count }}</span>
+      <span class="figure__label">library parts</span>
+    </div>
+    {# Coloured only when there is something to look at. #}
+    <div class="figure {{ 'is-bad' if report.problems }}">
+      <span class="figure__value">{{ report.problems }}</span>
+      <span class="figure__label">to fix</span>
+    </div>
+    <div class="figure {{ 'is-warn' if report.cautions }}">
+      <span class="figure__value">{{ report.cautions }}</span>
+      <span class="figure__label">to check</span>
+    </div>
+  </div>
+
+  <div class="actions" id="bom-actions" data-bom-id="{{ bom.id }}">
+    <a class="button" href="{{ root_path }}/api/v1/boms/{{ bom.id }}/export.csv">Download with library data</a>
+    <a class="button" href="{{ root_path }}/api/v1/boms/{{ bom.id }}/source.csv">Download as uploaded</a>
+    <button type="button" class="button button--danger" id="bom-delete">Delete</button>
+  </div>
+  <div id="delete-result" aria-live="polite"></div>
+
+  {# Every line is looked up in the library as it stands now, not as it stood
+     when the BOM was uploaded: that is the point of keeping it here. #}
+  <div class="table-scroll">
+    <table class="table table--bom">
+      <thead>
+        <tr>
+          <th scope="col" class="num">#</th>
+          <th scope="col">References</th>
+          <th scope="col" class="num">Qty</th>
+          <th scope="col">Part</th>
+          <th scope="col">Description</th>
+          <th scope="col">Preferred source</th>
+          <th scope="col">Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report.lines %}
+          <tr>
+            <td class="num muted">{{ loop.index }}</td>
+            <td class="refs">{{ row.line.references | references }}</td>
+            <td class="num">{{ row.line.quantity }}</td>
+            <td>
+              {% if row.part %}
+                <a class="mono" href="{{ root_path }}/ipn/{{ row.line.ipn | urlencode }}"><strong>{{ row.line.ipn }}</strong></a>
+              {% elif row.line.ipn %}
+                <span class="mono">{{ row.line.ipn }}</span>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.part %}
+                {{ row.description }}
+              {% else %}
+                {# Not a library part: all there is to go by is what KiCad wrote. #}
+                <span class="muted">{{ row.line.value }}{% if row.line.value and row.line.footprint %} &middot; {% endif %}{{ row.line.footprint }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.preferred_mpn %}
+                <span class="mono">{{ row.preferred_mpn }}</span>
+                {% if row.source and row.source.manufacturer %}
+                  <span class="small muted block">{{ row.source.manufacturer }}
+                    {%- if row.alternates %} &middot; +{{ row.alternates | length }} more{% endif %}</span>
+                {% endif %}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.line.dnp %}<span class="tag">not fitted</span>{% endif %}
+              {% for remark in row.remarks %}
+                <span class="tag tag--{{ remark.level }}">{{ remark.text }}</span>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ root_path }}/static/js/boms.js"></script>
+{% endblock %}

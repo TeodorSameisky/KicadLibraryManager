@@ -11,6 +11,7 @@ from fastapi import Depends, HTTPException, Request
 
 from app.auth.oidc import OidcClient
 from app.auth.sessions import Session, SessionStore
+from app.boms.store import BomStore
 from app.config import Settings
 from app.library.parts import Part
 from app.library.service import LibraryService
@@ -32,6 +33,10 @@ def get_identity(request: Request) -> OidcClient:
 
 def get_library(request: Request) -> LibraryService:
     return request.app.state.library
+
+
+def get_boms(request: Request) -> BomStore:
+    return request.app.state.boms
 
 
 def get_snapshot(library: LibraryService = Depends(get_library)) -> Snapshot:

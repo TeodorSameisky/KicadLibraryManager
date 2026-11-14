@@ -18,6 +18,7 @@
   <header class="masthead">
     <div class="masthead__title">
       <h1>{{ provider_name }}</h1>
+      {% with here = "Catalog" %}{% include "_nav.html" %}{% endwith %}
       <a class="masthead__status" id="index-status" hidden></a>
     </div>
 

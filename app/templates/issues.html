@@ -6,10 +6,8 @@
   <header class="masthead">
     <div class="masthead__title">
       <h1>Library issues</h1>
+      {% with here = "Issues" %}{% include "_nav.html" %}{% endwith %}
       <span class="masthead__status" id="issue-count" hidden></span>
-    </div>
-    <div class="masthead__aside">
-      <a class="button" href="{{ root_path }}/panel">Catalog</a>
     </div>
   </header>
 

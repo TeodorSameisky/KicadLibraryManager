@@ -14,9 +14,7 @@
     <div class="masthead__title">
       <h1>{{ provider_name }}</h1>
       <span class="tag {{ state_tag[0] }}">{{ state_tag[1] }}</span>
-    </div>
-    <div class="masthead__aside">
-      <a class="button button--primary" href="{{ root_path }}/panel">Open the catalog</a>
+      {% with here = "" %}{% include "_nav.html" %}{% endwith %}
     </div>
   </header>
 
@@ -150,6 +148,19 @@
         <span class="small muted block">
           add this address in KiCad under Preferences &rarr; Remote Symbols
         </span>
+      </dd>
+    </div>
+    <div>
+      <dt>BOM storage</dt>
+      <dd>
+        {% if boms_available %}
+          available
+        {% else %}
+          {# The reason is in the server's log. This page is open to anyone,
+             and the reason is a path on the server. #}
+          <span class="tag tag--bad">unavailable</span>
+          <span class="muted">BOMs cannot be uploaded; the server's log says why</span>
+        {% endif %}
       </dd>
     </div>
     <div><dt>API reference</dt><dd><a href="{{ root_path }}/docs">{{ root_path }}/docs</a></dd></div>

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}BOMs &middot; {{ provider_name }}{% endblock %}
+
+{% block content %}
+  <header class="masthead">
+    <div class="masthead__title">
+      <h1>Bills of materials</h1>
+      {% with here = "BOMs" %}{% include "_nav.html" %}{% endwith %}
+    </div>
+  </header>
+
+  <p class="lede">
+    Upload the BOM of a project to see it against the library, and to have each
+    part's page say where it is used.
+  </p>
+
+  {% if problem %}
+    <div class="notice">
+      <p class="notice__title">BOMs cannot be stored or read right now</p>
+      <p>The server's log says why.</p>
+    </div>
+  {% endif %}
+
+  <h2 class="section">Upload</h2>
+  <form class="form" id="upload" novalidate>
+    <div class="field field--file">
+      <label for="bom-file">BOM file</label>
+      <input type="file" id="bom-file" accept=".csv,.tsv,.txt,text/csv" required />
+    </div>
+    <div class="field">
+      <label for="bom-project">Project</label>
+      <input type="text" id="bom-project" maxlength="200" autocomplete="off" required />
+    </div>
+    <div class="field field--short">
+      <label for="bom-revision">Revision</label>
+      <input type="text" id="bom-revision" maxlength="50" autocomplete="off" placeholder="A" />
+    </div>
+    <div class="field field--wide">
+      <label for="bom-note">Note <span class="muted">(optional)</span></label>
+      <input type="text" id="bom-note" maxlength="2000" autocomplete="off" />
+    </div>
+    <div class="field field--action">
+      <button type="submit" class="button button--primary" id="bom-submit">Upload</button>
+    </div>
+  </form>
+  <div id="upload-result" aria-live="polite"></div>
+  <p class="hint">
+    In KiCad's schematic editor: Tools &rarr; Generate Bill of Materials. Keep the
+    Datasheet column, or add IPN &mdash; that is how each part is recognised.
+  </p>
+
+  <h2 class="section">Stored</h2>
+  {% if boms %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Project</th>
+            <th scope="col">Revision</th>
+            <th scope="col" class="num">Lines</th>
+            <th scope="col" class="num">Components</th>
+            <th scope="col">Uploaded</th>
+            <th scope="col">Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for bom in boms %}
+            <tr>
+              <td><a href="{{ root_path }}/boms/{{ bom.id }}"><strong>{{ bom.project }}</strong></a></td>
+              <td>{{ bom.revision or "—" }}</td>
+              <td class="num">{{ bom.line_count }}</td>
+              <td class="num">{{ bom.component_count }}</td>
+              <td>
+                {{ bom.uploaded_at | day }}
+                {% if bom.uploaded_by %}<span class="muted">by {{ bom.uploaded_by }}</span>{% endif %}
+              </td>
+              <td class="muted">{{ bom.note }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">Nothing has been uploaded yet.</p>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ root_path }}/static/js/boms.js"></script>
+{% endblock %}

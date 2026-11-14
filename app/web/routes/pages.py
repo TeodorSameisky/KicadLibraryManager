@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Request
 from starlette.responses import Response
 
 from app.auth.sessions import Session
+from app.boms.store import BomStore, StoreUnavailable
 from app.config import Settings
 from app.library import previews
 from app.library.parts import Part
@@ -13,6 +16,7 @@ from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
 from app.web.deps import (
     current_session,
+    get_boms,
     get_library,
     get_settings,
     get_snapshot,
@@ -21,11 +25,13 @@ from app.web.deps import (
 )
 from app.web.templating import render
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(tags=["pages"], include_in_schema=False)
 
 
 @router.get("/")
-async def status_page(
+def status_page(
     request: Request,
     settings: Settings = Depends(get_settings),
     library: LibraryService = Depends(get_library),
@@ -47,6 +53,7 @@ async def status_page(
         web_login=settings.web_login_configured,
         callback_url=settings.web_callback_url,
         client_id=settings.oidc_client_id,
+        boms_available=request.app.state.boms.problem() is None,
         metadata_url=f"{settings.public_url}/.well-known/kicad-remote-provider",
     )
 
@@ -74,13 +81,21 @@ async def panel(
 
 
 @router.get("/ipn/{ipn}", dependencies=[Depends(require_access)])
-async def part_page(
+def part_page(
     request: Request,
     part: Part = Depends(require_part),
     snapshot: Snapshot = Depends(get_snapshot),
     settings: Settings = Depends(get_settings),
+    boms: BomStore = Depends(get_boms),
 ) -> Response:
     """A part's page: where the Datasheet field of every placed symbol leads."""
+    try:
+        usages = boms.where_used(part.ipn)
+    except StoreUnavailable as exc:
+        # The part is still worth showing without the list of where it is used.
+        log.warning("where-used is unavailable for %s: %s", part.ipn, exc)
+        usages = None
+
     return render(
         request,
         "part.html",
@@ -92,6 +107,7 @@ async def part_page(
         symbol_svg=previews.symbol_svg(part, snapshot, settings.placement),
         footprint_svg=previews.footprint_svg(part, snapshot),
         has_model=previews.model_path(part, snapshot) is not None,
+        usages=usages,
     )
 
 

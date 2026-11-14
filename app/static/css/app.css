@@ -142,6 +142,13 @@ kbd {
 .masthead__title h1 { font-size: 0.9375rem; }
 .masthead__aside { display: flex; align-items: center; gap: 0.625rem; font-size: var(--size-s); }
 
+/* The sections of the app, beside the title. The one being shown is ink;
+   the others are a shade back. */
+.nav { display: flex; gap: 0.875rem; font-size: var(--size-s); }
+.nav a { color: var(--ink-2); text-decoration: none; }
+.nav a:hover { color: var(--ink); text-decoration: underline; }
+.nav a[aria-current] { color: var(--ink); font-weight: 600; }
+
 /* How the index is doing, said in words next to the title. */
 .masthead__status { font-size: var(--size-s); color: var(--ink-2); text-decoration: none; }
 a.masthead__status { text-decoration: underline; }
@@ -190,6 +197,71 @@ a.masthead__status { text-decoration: underline; }
 .button--primary { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 .button--primary:hover:not(:disabled) { background: var(--ink-2); border-color: var(--ink-2); }
 .button--primary:disabled { border-color: var(--ink-3); background: var(--ink-3); color: var(--paper); }
+
+/* For the one action on a page that destroys something. */
+.button--danger { color: var(--bad); }
+.button--danger:hover:not(:disabled) { border-color: var(--bad); }
+
+/* -- form: labelled fields in a row, wrapping where they must */
+
+.form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem 1rem; }
+
+.field { flex: 1 1 12rem; min-width: 0; }
+.field--short { flex: 0 1 6rem; }
+.field--wide { flex: 2 1 16rem; }
+.field--file { flex: 1 1 16rem; }
+.field--action { flex: none; }
+
+.field label { display: block; margin-bottom: 0.2rem; color: var(--ink-2); font-size: var(--size-s); }
+
+.field input[type="text"] {
+  width: 100%;
+  height: 2rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.field input[type="text"]:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.field input::placeholder { color: var(--ink-3); }
+
+.field input[type="file"] { width: 100%; max-width: 100%; color: var(--ink-2); font: inherit; font-size: var(--size-s); }
+
+/* The browser's own button, dressed like the others. */
+.field input[type="file"]::file-selector-button {
+  height: 2rem;
+  margin-right: 0.625rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.field input[type="file"]::file-selector-button:hover { border-color: var(--ink); }
+
+/* -- what just happened, said next to what caused it */
+
+.inline-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+  padding-left: 0.625rem;
+  border-left: 2px solid var(--ink-3);
+  color: var(--ink-2);
+}
+
+.inline-note--bad { border-left-color: var(--bad); color: var(--bad); }
+.inline-note--warn { border-left-color: var(--warn); color: var(--ink); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0 0; }
 
 /* -- tag: one word about a thing, in a box. No fill; the colour is the point. */
 
@@ -344,6 +416,14 @@ a.masthead__status { text-decoration: underline; }
 
 .table :is(th, td):last-child { padding-right: 0; }
 .table .num { font-variant-numeric: tabular-nums; }
+.table :is(th, td).num { text-align: right; }
+.table .tag + .tag { margin-left: 0.2rem; }
+
+/* Reference designators: many, and best broken between rather than inside. */
+.table .refs { min-width: 7rem; max-width: 16rem; font-family: var(--font-mono); font-size: var(--size-xs); line-height: 1.6; }
+
+.table--bom { margin-top: 1.25rem; }
+.table--bom td:nth-child(5) { min-width: 12rem; }
 
 /* -- a list of names and their values */
 
@@ -496,6 +576,9 @@ a.masthead__status { text-decoration: underline; }
 
 .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
 .title h1 { font: 600 1.5rem / 1.2 var(--font-mono); letter-spacing: -0.01em; }
+/* A part's title is its number, in the face numbers are set in. A project's
+   is a name, in the face names are. */
+.title h1.title--plain { font-family: var(--font); }
 
 .subtitle { margin-top: 0.25rem; font-size: 1rem; }
 .byline { margin-top: 0.125rem; color: var(--ink-2); font-size: var(--size-s); }

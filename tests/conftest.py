@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.application import create_app
 from app.auth.identity import Principal
+from app.boms.store import BomStore
 from app.config import Settings
 from app.library.service import LibraryService
 from tests.support import FakeProvider, LibraryTree
@@ -26,6 +27,9 @@ ENVIRONMENT = {
     "AUTH_ENABLED": "true",
     "OIDC_METADATA_URL": FakeProvider.metadata_url,
     "OIDC_CLIENT_ID": FakeProvider.client_id,
+    # Nowhere: an app built without a store of its own must not write one to
+    # wherever the default happens to point on the machine running the tests.
+    "DATABASE_PATH": "/nonexistent-klm-tests/boms.db",
 }
 
 OPEN = {"AUTH_ENABLED": "false", "OIDC_METADATA_URL": None, "OIDC_CLIENT_ID": None}
@@ -88,7 +92,12 @@ def make_client(provider, tmp_path):
                 library = LibraryService(
                     [tree.source], tmp_path / "work", sync=lambda source, workdir: tree.checkout
                 )
-            app = create_app(settings, library=library, identity=provider.client())
+            app = create_app(
+                settings,
+                library=library,
+                identity=provider.client(),
+                boms=BomStore(tmp_path / "boms.db"),
+            )
             # https, or the Secure session cookie would never be sent back.
             client = stack.enter_context(TestClient(app, base_url=settings.origin))
             if tree is not None:

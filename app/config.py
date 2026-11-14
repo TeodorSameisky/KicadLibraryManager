@@ -110,6 +110,11 @@ class Settings:
     library_workdir: str = "/data/sources"
     remote_library_prefix: str = "remote"
 
+    # -- bills of materials
+    # One SQLite file. It is the only thing here that cannot be rebuilt from
+    # somewhere else, so it is the thing to back up.
+    database_path: str = "/data/library-manager.db"
+
     # -- what the discovery document advertises
     allow_insecure_localhost: bool = True
     max_download_bytes: int = 64 * 1024 * 1024
@@ -161,6 +166,7 @@ class Settings:
             library_sources=sources,
             library_workdir=env.text("LIBRARY_WORKDIR", "/data/sources"),
             remote_library_prefix=env.text("REMOTE_LIBRARY_PREFIX", "remote"),
+            database_path=env.text("DATABASE_PATH", "/data/library-manager.db"),
             allow_insecure_localhost=env.flag("ALLOW_INSECURE_LOCALHOST", True),
             max_download_bytes=env.integer("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
             supported_asset_types=env.words(

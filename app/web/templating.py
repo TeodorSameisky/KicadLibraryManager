@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +11,18 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from app import __version__
+from app.boms.parse import compact_references
 
 _APP_DIR = Path(__file__).resolve().parent.parent
 
 STATIC_DIR = _APP_DIR / "static"
 templates = Jinja2Templates(directory=_APP_DIR / "templates")
+
+# A date, from the epoch seconds things are stamped with. In UTC and without a
+# time: which day a BOM was uploaded is what gets asked, and a clock time
+# would need a zone to mean anything.
+templates.env.filters["day"] = lambda stamp: time.strftime("%Y-%m-%d", time.gmtime(stamp))
+templates.env.filters["references"] = compact_references
 
 
 def render(request: Request, template: str, *, status_code: int = 200, **context: Any) -> Response:

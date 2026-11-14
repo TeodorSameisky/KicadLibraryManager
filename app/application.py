@@ -19,11 +19,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import __version__
 from app.auth.oidc import OidcClient
 from app.auth.sessions import SessionStore
+from app.boms.store import BomStore
 from app.config import Settings
 from app.library.service import LibraryService
 from app.observability import RequestContextMiddleware
 from app.security import SecurityHeadersMiddleware
 from app.web.errors import http_error
+from app.web.routes import boms as bom_routes
 from app.web.routes import catalog, pages, provider, session, system
 from app.web.templating import STATIC_DIR
 
@@ -35,6 +37,7 @@ def create_app(
     *,
     library: LibraryService | None = None,
     identity: OidcClient | None = None,
+    boms: BomStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
 
@@ -47,10 +50,15 @@ def create_app(
         audience=settings.oidc_audience,
     )
 
+    boms = boms or BomStore(Path(settings.database_path))
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         for problem in settings.problems():
             log.error("configuration: %s", problem)
+        # Said now rather than at the first upload, which may be weeks away.
+        if (problem := boms.problem()) is not None:
+            log.error("storage: %s", problem)
         # In the background: cloning a library takes longer than a container
         # is given to become healthy.
         library.start()
@@ -68,6 +76,7 @@ def create_app(
     app.state.settings = settings
     app.state.library = library
     app.state.identity = identity
+    app.state.boms = boms
     app.state.sessions = SessionStore(
         nonce_ttl_seconds=settings.nonce_ttl_seconds,
         login_ttl_seconds=settings.login_ttl_seconds,
@@ -82,7 +91,7 @@ def create_app(
     app.add_exception_handler(StarletteHTTPException, http_error)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-    for module in (provider, system, session, catalog, pages):
+    for module in (provider, system, session, catalog, bom_routes, pages):
         app.include_router(module.router)
 
     return app
