@@ -7,8 +7,13 @@ The library lives in git. This app indexes it, shows it as a searchable catalog
 inside KiCad, and places parts on the schematic: symbol, footprint and 3D model
 together, with the internal part number and a link back to the part's page.
 
+It also keeps the BOMs of the projects built from that library, so that each
+BOM can be read against the library as it stands today, and each part can say
+where it is used.
+
 - [How it works](#how-it-works)
 - [The library](#the-library)
+- [BOMs and where used](#boms-and-where-used)
 - [Configuration](#configuration)
 - [Authentication](#authentication)
 - [Deployment](#deployment)
@@ -131,6 +136,51 @@ Everything that does not line up — a footprint no source has, a symbol whose
 parent is missing, an IPN in an undeclared category — is collected and listed
 at `/issues`, grouped by kind, with the repository-relative path to open.
 
+## BOMs and where used
+
+Export a project's BOM from KiCad's schematic editor (Tools → Generate Bill of
+Materials) and upload it at `/boms`, with the project's name and, if it has
+one, a revision.
+
+**How parts are recognised.** By an `IPN` column if the export has one, and
+otherwise by the `Datasheet` column: a symbol placed from this library has its
+part's page there, and that address ends in the IPN. KiCad's default BOM
+columns include Datasheet, so an export with nothing changed is enough. The
+layout is otherwise the user's: columns are found by their headings, the
+delimiter may be a comma, a semicolon or a tab, rows may be grouped or one per
+reference, and ranges like `R1-R4` are opened out. Rows that are not library
+parts — mounting holes, test points — are kept, without a part number.
+
+**What a stored BOM shows.** Every line with the part's description, its
+preferred manufacturer part and manufacturer, and a remark where something
+needs attention: a part that is obsolete or still a draft, a part the library
+does not have, a source that is obsolete or not for new designs. Lines are
+looked up when the BOM is read, not when it was uploaded, so a part made
+obsolete last week shows on a BOM from last year. The BOM can be downloaded
+with those columns added, for purchasing, or as it was uploaded.
+
+**Where used.** Each part's page lists the stored BOMs the part is on, with
+the quantity and the reference designators. That is what decides whether a
+part can be changed or retired.
+
+One BOM is kept per project and revision. Uploading the same revision again
+replaces it, after asking.
+
+### Where BOMs are kept
+
+The library is in git because it is authored and reviewed. BOMs are records of
+what was built and are looked up by part, so they are in a database: one
+SQLite file at `DATABASE_PATH`, by default `/data/library-manager.db`, next to
+the library's clones.
+
+**That file is the one thing here that cannot be rebuilt from somewhere else.**
+The clones can be cloned again; the BOMs cannot be uploaded again by anyone who
+no longer has them. Back up the data volume. The original upload is stored
+whole beside the lines read from it.
+
+The file is created on first use. The directory it is in is not: a path that
+points somewhere that does not exist is reported on the status page instead.
+
 ## Configuration
 
 Everything is set through environment variables; [.env.example](.env.example)
@@ -141,6 +191,7 @@ lists them all with their reasons. The ones a deployment needs:
 | `PUBLIC_URL` | The externally reachable address, including any path prefix. Every URL the app hands out is derived from it. |
 | `LIBRARY_SOURCES` | JSON array of `{id, name, url, ref}` git repositories. |
 | `LIBRARY_WORKDIR` | Where the clones are kept. A volume. |
+| `DATABASE_PATH` | The SQLite file that holds the BOMs. On the same volume, and the thing to back up. |
 | `AUTH_ENABLED`, `OIDC_METADATA_URL`, `OIDC_CLIENT_ID` | Sign-in; see below. |
 | `REMOTE_LIBRARY_PREFIX` | Must match the library prefix in KiCad's Remote Symbol Settings. Default `remote`. |
 
@@ -251,7 +302,9 @@ docker compose up --build
   unreachable git host never restarts the container. `/readyz` reports whether
   there is a catalog to serve.
 - Mount a volume at `/data`. A named volume inherits the image's ownership; a
-  bind mount keeps the host's and has to be writable by uid 1000.
+  bind mount keeps the host's and has to be writable by uid 1000. It holds the
+  library's clones, which can be rebuilt, and the BOM database, which cannot:
+  back it up.
 - `PUBLIC_URL` must be `https://` whenever sign-in is on. OAuth2 and `Secure`
   cookies do not work over plain http.
 - The app sets `Strict-Transport-Security` itself, on HTTPS requests only
@@ -291,7 +344,12 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/api/v1/parts/{ipn}/assets` | What KiCad is sent to place it | |
 | `/api/v1/parts/{ipn}/symbol.svg`, `/footprint.svg`, `/model.step` | Drawings and the 3D model | |
 | `/api/v1/issues?severity=&limit=` | Everything that does not line up | |
+| `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, replace}` | |
+| `/api/v1/boms/{id}` | `GET` a BOM against the library; `DELETE` it | |
+| `/api/v1/boms/{id}/export.csv`, `/source.csv` | The BOM with library columns added; the file as uploaded | |
+| `/api/v1/parts/{ipn}/where-used` | The stored BOMs a part is on | |
 | `/ipn/{ipn}` | The part's page; where `Datasheet` points | |
+| `/boms`, `/boms/{id}` | Uploading BOMs; one BOM against the library | |
 | `/issues` | The issue list | |
 | `/docs` | Interactive API reference | ✓ |
 
@@ -333,6 +391,7 @@ app/
   security.py        HSTS and hardening headers
   web/               HTTP: routes, pages, request-scoped dependencies
   auth/              the OIDC provider, sessions, safe redirects
+  boms/              reading KiCad BOMs, keeping them, setting them against the library
   library/           sources, assets, parts, snapshots, placement, previews
   kicad/             the file formats: reading, rewriting, drawing
   templates/  static/
@@ -340,8 +399,8 @@ tests/
   support.py         library files, a library on disk, a fake identity provider
 ```
 
-`kicad/` knows nothing about parts or HTTP; `library/` knows nothing about
-HTTP. The app is built by a factory from a `Settings` object, so a test builds
+`kicad/` knows nothing about parts or HTTP; `library/` and `boms/` know nothing
+about HTTP. The app is built by a factory from a `Settings` object, so a test builds
 the deployment it wants instead of patching the environment.
 
 The reader for KiCad's files is deliberately not a model of the format: a file
