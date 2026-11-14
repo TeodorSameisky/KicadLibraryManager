@@ -1,74 +1,69 @@
 {% extends "base.html" %}
 
-{% set status_badge = {"approved": "badge--ok", "draft": "badge--warn"}.get(part.status, "badge--danger") %}
+{# An approved part is the ordinary case and is tagged quietly; the other two
+   are what a reader needs to notice. #}
+{% set status_tag = {"approved": "tag--ok", "draft": "tag--warn"}.get(part.status, "tag--bad") %}
 
 {% block title %}{{ part.ipn }} &middot; {{ provider_name }}{% endblock %}
 {% block page_class %}page--narrow{% endblock %}
 
 {% block content %}
-  <header class="topbar">
-    <div class="topbar__title">
-      <h1 class="mono">{{ part.ipn }}</h1>
-      <span class="badge {{ status_badge }}">{{ part.status }}</span>
-      {% if part.category %}
-        {# To the catalog, narrowed to this category: "what else is in here"
-           is the question that follows "what is this". #}
-        <a class="badge badge--link"
-           href="{{ root_path }}/panel?category={{ part.category | urlencode }}">{{ category_name }}</a>
-      {% endif %}
+  <a class="back" href="{{ root_path }}/panel">&larr; Catalog</a>
+
+  <header>
+    <div class="title">
+      <h1>{{ part.ipn }}</h1>
+      <span class="tag {{ status_tag }}">{{ part.status }}</span>
     </div>
-    <div class="topbar__actions">
-      <a class="button" href="{{ root_path }}/panel">Catalog</a>
-    </div>
+    <p class="subtitle">{{ part.description or "No description" }}</p>
+    {% if part.category %}
+      {# To the catalog, narrowed to this category: "what else is in here" is
+         the question that follows "what is this". #}
+      <p class="byline">
+        <a href="{{ root_path }}/panel?category={{ part.category | urlencode }}">{{ category_name }}</a>
+      </p>
+    {% endif %}
   </header>
 
-  <p class="muted">{{ part.description or "No description" }}</p>
-
   {% if symbol_svg or footprint_svg or has_model %}
-    <div class="previews" id="previews">
+    <div class="sheet" id="previews">
       {% if symbol_svg %}
-        <figure class="preview">
-          {{ symbol_svg | safe }}
+        <figure class="sheet__cell">
           <figcaption>Symbol</figcaption>
+          <div class="sheet__drawing">{{ symbol_svg | safe }}</div>
         </figure>
       {% endif %}
       {% if footprint_svg %}
-        <figure class="preview">
-          {{ footprint_svg | safe }}
+        <figure class="sheet__cell">
           <figcaption>Footprint</figcaption>
+          <div class="sheet__drawing">{{ footprint_svg | safe }}</div>
         </figure>
       {% endif %}
       {% if has_model %}
-        <figure class="preview preview--model">
+        <figure class="sheet__cell">
+          <figcaption>
+            3D model
+            <span id="model-status" aria-live="polite"></span>
+          </figcaption>
           <div class="model" id="model-viewer" data-ipn="{{ part.ipn }}">
             <button type="button" class="button" id="model-load">Show 3D model</button>
           </div>
-          <figcaption>
-            3D model
-            <span class="model__status" id="model-status" aria-live="polite"></span>
-          </figcaption>
         </figure>
       {% endif %}
     </div>
     {% if symbol_svg and footprint_svg %}
-      <p class="small muted">Hover a pin or a pad to see where it maps.</p>
+      <p class="hint">Point at a pin or a pad to see where it maps.</p>
     {% endif %}
   {% endif %}
 
-  <h2 class="section">Library</h2>
-  <dl class="fields">
-    <dt>Symbol</dt><dd class="mono">{{ part.symbol or "—" }}</dd>
-    <dt>Footprint</dt><dd class="mono">{{ part.footprint or "—" }}</dd>
+  <h2 class="section">Properties</h2>
+  <dl class="spec">
+    <div><dt>Symbol</dt><dd class="mono">{{ part.symbol or "—" }}</dd></div>
+    <div><dt>Footprint</dt><dd class="mono">{{ part.footprint or "—" }}</dd></div>
+    {% for name, value in part.fields.items() %}
+      <div><dt>{{ name }}</dt><dd>{{ value }}</dd></div>
+    {% endfor %}
   </dl>
-
-  {% if part.fields %}
-    <h2 class="section">Fields</h2>
-    <dl class="fields">
-      {% for name, value in part.fields.items() %}
-        <dt>{{ name }}</dt><dd>{{ value }}</dd>
-      {% endfor %}
-    </dl>
-  {% endif %}
 
   <h2 class="section">Approved sources</h2>
   {% if sources %}
@@ -87,16 +82,18 @@
             <tr>
               <td>
                 <span class="mono">{{ ref.mpn }}</span>
-                {% if ref.preferred %}<span class="badge badge--accent">preferred</span>{% endif %}
+                {% if ref.preferred %}<span class="tag">preferred</span>{% endif %}
               </td>
               <td>{{ (mpn.manufacturer if mpn) or "—" }}</td>
               <td>
-                {% if mpn %}
-                  <span class="badge {{ 'badge--ok' if mpn.lifecycle == 'active' else 'badge--warn' }}">
+                {% if not mpn %}
+                  <span class="tag tag--bad">not in the library</span>
+                {% elif mpn.lifecycle == "active" %}
+                  active
+                {% else %}
+                  <span class="tag {{ 'tag--bad' if mpn.lifecycle == 'obsolete' else 'tag--warn' }}">
                     {{- mpn.lifecycle -}}
                   </span>
-                {% else %}
-                  <span class="badge badge--danger">not in the library</span>
                 {% endif %}
               </td>
               <td>
@@ -114,7 +111,7 @@
       </table>
     </div>
   {% else %}
-    <p class="small muted">No manufacturer parts are listed for this part.</p>
+    <p class="muted">No manufacturer parts are listed for this part.</p>
   {% endif %}
 
   {% if related %}

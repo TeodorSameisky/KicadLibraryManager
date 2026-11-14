@@ -1,8 +1,12 @@
 /* KiCad Library Manager
  *
+ * A parts catalogue, set like one: ink on paper, hairline rules, a table.
+ * Colour is kept for what means something -- an error, a draft -- and for the
+ * drawings, which bring their own.
+ *
  * The panel is drawn inside KiCad's WebView, which may be light or dark and is
- * often narrow. So everything is built from the tokens below, follows
- * prefers-color-scheme, and reflows instead of scrolling sideways.
+ * often narrow, so everything is built from the tokens below, follows
+ * prefers-color-scheme, and folds instead of scrolling sideways.
  *
  *   1. Tokens          5. Parts list
  *   2. Base            6. Part page
@@ -15,68 +19,41 @@
 :root {
   color-scheme: light dark;
 
-  --bg: #ffffff;
-  --bg-sunken: #f5f6f8;
-  --bg-raised: #ffffff;
-  --fg: #14171c;
-  --fg-muted: #5c6672;
-  --fg-subtle: #8a94a6;
-  --border: #e2e5ea;
-  --border-strong: #cbd1d9;
+  --paper: #ffffff;
+  --paper-2: #f3f3f1; /* a hovered row, a sunken field */
+  --ink: #1b1b1a;
+  --ink-2: #5b5b58; /* secondary text */
+  --ink-3: #8b8b86; /* labels, counts */
+  --rule: #e1e1dd;
+  --rule-2: #bdbdb7; /* the edge of something you can click */
 
-  --accent: #2f6fd0;
-  --accent-fg: #ffffff;
-  --accent-soft: #e8f0fc;
+  --good: #1d6b3c;
+  --warn: #8a5800;
+  --bad: #b3261e;
 
-  --ok: #1f7a45;
-  --ok-soft: #e3f5ea;
-  --warn: #9a6400;
-  --warn-soft: #fdf1dc;
-  --danger: #b3261e;
-  --danger-soft: #fbe9e8;
+  --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
 
-  --radius: 8px;
-  --radius-lg: 12px;
-  --radius-pill: 999px;
+  --size: 0.875rem; /* 14px: this is a tool, not an article */
+  --size-s: 0.8125rem;
+  --size-xs: 0.75rem;
 
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.5rem;
-  --space-6: 2rem;
-
-  --text-xs: 0.75rem;
-  --text-sm: 0.8125rem;
-  --text-md: 0.875rem;
-
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
-
-  --ease: 0.12s;
+  --gutter: 0.5rem; /* the inset of a row from the rule it sits on */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14171c;
-    --bg-sunken: #0f1216;
-    --bg-raised: #1b1f26;
-    --fg: #e8eaed;
-    --fg-muted: #99a2ad;
-    --fg-subtle: #6b7480;
-    --border: #2a2f38;
-    --border-strong: #3a414c;
+    --paper: #181818;
+    --paper-2: #222221;
+    --ink: #ebebe8;
+    --ink-2: #a4a4a0;
+    --ink-3: #777774;
+    --rule: #2f2f2e;
+    --rule-2: #4a4a48;
 
-    --accent: #6fa4f0;
-    --accent-fg: #0d1117;
-    --accent-soft: #1c2b41;
-
-    --ok: #5fcf8e;
-    --ok-soft: #17301f;
-    --warn: #e5a441;
-    --warn-soft: #332711;
-    --danger: #f2867d;
-    --danger-soft: #3a1b19;
+    --good: #72cc98;
+    --warn: #dfa64b;
+    --bad: #f08a80;
   }
 }
 
@@ -88,47 +65,44 @@
 
 body {
   margin: 0;
-  font: 15px/1.55 var(--font);
-  color: var(--fg);
-  background: var(--bg);
-  -webkit-font-smoothing: antialiased;
+  font: var(--size) / 1.45 var(--font);
+  color: var(--ink);
+  background: var(--paper);
 }
 
-h1, h2 { margin: 0; font-weight: 600; line-height: 1.25; }
+h1, h2 { margin: 0; font-size: inherit; font-weight: 600; line-height: 1.3; }
 p { margin: 0; }
 
-a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
-a:hover { text-decoration-thickness: 2px; }
+/* Links are ink, like the text around them, and say they are links by being
+   underlined -- not by turning blue. */
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule-2); text-underline-offset: 0.18em; }
+a:hover { text-decoration-color: currentColor; }
 
 /* The `hidden` attribute has to win over any display a class sets. */
 [hidden] { display: none !important; }
 
-:where(button, a, input, select, summary):focus-visible {
-  outline: 2px solid var(--accent);
+:where(a, button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
-  border-radius: var(--radius);
 }
 
 kbd {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  padding: 0.05rem 0.3rem;
-  border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  background: var(--bg-sunken);
-  color: var(--fg-muted);
+  padding: 0 0.3em;
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  font: var(--size-xs) var(--font-mono);
+  color: var(--ink-2);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
+  * { transition: none !important; }
 }
 
 /* -- utilities */
 
-.muted { color: var(--fg-muted); }
-.small { font-size: var(--text-md); }
-.mono { font-family: var(--font-mono); }
+.muted { color: var(--ink-2); }
+.small { font-size: var(--size-s); }
+.mono { font-family: var(--font-mono); font-size: var(--size-s); }
 .block { display: block; }
 
 .visually-hidden {
@@ -146,36 +120,33 @@ kbd {
 /* ============================================================== 3. Layout */
 
 .page {
-  max-width: 72rem;
+  max-width: 68rem;
   margin: 0 auto;
-  padding: var(--space-5) var(--space-4) var(--space-6);
+  padding: 1rem 1rem 3rem;
 }
 
-.page--narrow { max-width: 56rem; }
+.page--narrow { max-width: 50rem; }
 
-.topbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding-bottom: var(--space-3);
-  margin-bottom: var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
-
-.topbar__title {
+/* The line at the top of every page: what this is, and who you are. */
+.masthead {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2) var(--space-3);
-  min-width: 0;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--ink);
 }
 
-.topbar__title h1 { font-size: 1.0625rem; }
-.topbar__actions { display: flex; align-items: center; gap: var(--space-2); }
+.masthead__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; min-width: 0; }
+.masthead__title h1 { font-size: 0.9375rem; }
+.masthead__aside { display: flex; align-items: center; gap: 0.625rem; font-size: var(--size-s); }
 
-.stack { display: flex; flex-direction: column; gap: var(--space-4); }
+/* How the index is doing, said in words next to the title. */
+.masthead__status { font-size: var(--size-s); color: var(--ink-2); text-decoration: none; }
+a.masthead__status { text-decoration: underline; }
+.masthead__status.is-bad { color: var(--bad); }
+.masthead__status.is-warn { color: var(--warn); }
 
 /* The search and the filters travel together. The filters describe the list
    the search produces, and scrolling one away from the other leaves no way to
@@ -184,20 +155,13 @@ kbd {
   position: sticky;
   top: 0;
   z-index: 2;
-  padding: var(--space-2) 0 var(--space-3);
-  margin-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  padding: 0.75rem 0 0;
+  background: var(--paper);
 }
 
-.section {
-  margin: var(--space-5) 0 var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--fg-subtle);
-}
+.section { margin: 2rem 0 0.25rem; font-size: var(--size); }
+
+.lede { margin-top: 1rem; color: var(--ink-2); max-width: 44rem; }
 
 /* ========================================================== 4. Components */
 
@@ -205,146 +169,124 @@ kbd {
 
 .button {
   display: inline-block;
-  padding: 0.4rem 0.75rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--fg);
+  min-height: 1.75rem;
+  padding: 0.2rem 0.625rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
   font: inherit;
-  font-size: var(--text-md);
-  line-height: 1.2;
-  white-space: nowrap;
-  /* A link dressed as a button: the shape is the affordance, and an
-     underline would be a second one saying the same thing. */
+  font-size: var(--size-s);
+  line-height: 1.25rem;
+  text-align: center;
   text-decoration: none;
-  cursor: pointer;
-  transition: background var(--ease), border-color var(--ease), color var(--ease);
-}
-
-.button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.button:disabled { opacity: 0.5; cursor: default; }
-
-.button--primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-fg);
-}
-
-.button--primary:hover:not(:disabled) { color: var(--accent-fg); filter: brightness(1.08); }
-
-/* -- badge */
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.15rem 0.5rem;
-  border-radius: var(--radius-pill);
-  background: var(--bg-sunken);
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  line-height: 1.4;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.badge--ok { background: var(--ok-soft); color: var(--ok); }
-.badge--warn { background: var(--warn-soft); color: var(--warn); }
-.badge--danger { background: var(--danger-soft); color: var(--danger); }
-.badge--accent { background: var(--accent-soft); color: var(--accent); }
+.button:hover:not(:disabled) { border-color: var(--ink); }
+.button:disabled { color: var(--ink-3); cursor: default; }
 
-.badge--link { text-decoration: none; }
-.badge--link:hover { text-decoration: underline; }
+.button--primary { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.button--primary:hover:not(:disabled) { background: var(--ink-2); border-color: var(--ink-2); }
+.button--primary:disabled { border-color: var(--ink-3); background: var(--ink-3); color: var(--paper); }
+
+/* -- tag: one word about a thing, in a box. No fill; the colour is the point. */
+
+.tag {
+  display: inline-block;
+  padding: 0 0.3rem;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  color: var(--ink-2);
+  font-size: 0.6875rem;
+  line-height: 1.0625rem;
+  white-space: nowrap;
+  vertical-align: 0.08em;
+}
+
+.tag--ok { color: var(--good); }
+.tag--warn { color: var(--warn); }
+.tag--bad { color: var(--bad); }
 
 /* -- search */
 
-.search { display: flex; align-items: center; gap: var(--space-3); }
+.search { display: flex; align-items: center; gap: 0.75rem; }
 
 .search input {
   flex: 1;
   min-width: 0;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--fg);
+  height: 2rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
   font: inherit;
 }
 
-.search input::placeholder { color: var(--fg-subtle); }
-.search input:focus { outline: none; border-color: var(--accent); }
+.search input::placeholder { color: var(--ink-3); }
+.search input:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 
-/* -- filters */
+.search__count { flex: none; color: var(--ink-2); font-size: var(--size-s); font-variant-numeric: tabular-nums; }
 
-.filters { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3); }
+/* -- filters: tabs for a short closed set, a dropdown for a long open one */
 
-.filter { display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; }
-
-.filter__label {
-  flex: none;
-  width: 4.5rem;
-  font-size: var(--text-xs);
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--fg-subtle);
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin-top: 0.625rem;
+  border-bottom: 1px solid var(--rule);
 }
 
-/* Wraps, so a narrow panel grows taller rather than hiding half the choices
-   off its right edge. */
-.filter__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
+/* With no filters to offer, the rule the list hangs from is still wanted. */
+.filters[hidden] { display: block !important; height: 0; margin-top: 0.75rem; overflow: hidden; }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.15rem 0.55rem;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  background: var(--bg-sunken);
-  color: var(--fg-muted);
+.tabs { display: flex; flex-wrap: wrap; gap: 0 1rem; }
+
+.tab {
+  margin-bottom: -1px; /* sits on the rule, so the active one can replace it */
+  padding: 0.25rem 0 0.375rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-2);
   font: inherit;
-  font-size: var(--text-xs);
-  line-height: 1.4;
+  font-size: var(--size-s);
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--ease), border-color var(--ease), color var(--ease);
 }
 
-.chip:hover { border-color: var(--border-strong); color: var(--fg); }
+.tab:hover { color: var(--ink); }
+.tab--on { border-bottom-color: var(--ink); color: var(--ink); font-weight: 600; }
 
-.chip--on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 500;
-}
+.tab__count { margin-left: 0.3rem; color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; }
 
-.chip__count { font-size: 0.6875rem; font-variant-numeric: tabular-nums; opacity: 0.7; }
-
-/* A native select with its arrow redrawn. Chips are the better control at six
-   choices and the worse one at thirty, and a library only grows; this costs
-   one line of height whichever it holds. */
-.select { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
+/* A native select with its arrow redrawn. Its popup is the platform's, so it
+   escapes the panel instead of being clipped by it. */
+.select { position: relative; display: inline-flex; min-width: 0; max-width: 100%; margin-bottom: 0.3rem; }
 
 .select select {
   max-width: 100%;
-  padding: 0.15rem 1.5rem 0.15rem 0.55rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--fg);
+  height: 1.625rem;
+  padding: 0 1.5rem 0 0.5rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink-2);
   font: inherit;
-  font-size: var(--text-xs);
-  line-height: 1.4;
+  font-size: var(--size-s);
   text-overflow: ellipsis;
   appearance: none;
+  -webkit-appearance: none;
   cursor: pointer;
 }
 
-.select select:hover { border-color: var(--fg-subtle); }
+.select select:hover { border-color: var(--ink); }
 
-/* Drawn rather than a background image, so it follows the text colour
-   through both themes and through the tint a chosen value puts over it. */
 .select::after {
   content: "";
   position: absolute;
@@ -353,140 +295,127 @@ kbd {
   width: 0.35rem;
   height: 0.35rem;
   margin-top: -0.28rem;
-  border-right: 1.5px solid var(--fg-subtle);
-  border-bottom: 1.5px solid var(--fg-subtle);
+  border-right: 1.5px solid var(--ink-2);
+  border-bottom: 1.5px solid var(--ink-2);
   transform: rotate(45deg);
   pointer-events: none;
 }
 
-/* A filter that is on has to look it, the way a chip does. A list narrowed
-   by something invisible is a list nobody can explain. */
-.select--on select {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 500;
-}
+/* A filter that is on has to look it. A list narrowed by something that
+   cannot be seen is a list nobody can explain. */
+.select--on select { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.select--on::after { border-color: var(--ink); }
 
-.select--on::after { border-color: var(--accent); }
+/* -- state: a few words standing where content would be */
 
-/* -- state: a message standing where content would be */
+.state { max-width: 36rem; padding: 1.5rem var(--gutter); }
+.state__title { font-weight: 600; }
+.state__hint { margin-top: 0.125rem; color: var(--ink-2); }
+.state .button { margin-top: 0.75rem; }
 
-.state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-6) var(--space-4);
-  color: var(--fg-muted);
-  text-align: center;
-}
+/* -- notice: something is wrong, and here is what */
 
-.state__title { font-weight: 600; color: var(--fg); }
-.state__hint { max-width: 28rem; font-size: var(--text-md); }
-
-/* -- notice */
-
-.notice {
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-sunken);
-  font-size: var(--text-md);
-}
-
-.notice__title { margin-bottom: var(--space-1); font-weight: 600; }
-.notice ul { margin: 0; padding-left: var(--space-4); }
-.notice li + li { margin-top: var(--space-1); }
-
-.notice--danger { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+.notice { margin-top: 1rem; padding: 0.125rem 0 0.125rem 0.75rem; border-left: 3px solid var(--bad); }
+.notice__title { font-weight: 600; color: var(--bad); }
+.notice ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+.notice li + li { margin-top: 0.25rem; }
 
 /* -- table */
 
 .table-scroll { overflow-x: auto; }
 
-.table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+.table { width: 100%; border-collapse: collapse; }
 
 .table th {
-  padding: 0 var(--space-4) var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
-  color: var(--fg-subtle);
-  font-size: var(--text-sm);
-  font-weight: 500;
+  padding: 0.375rem 1rem 0.375rem 0;
+  border-bottom: 1px solid var(--rule-2);
+  color: var(--ink-2);
+  font-size: var(--size-s);
+  font-weight: 400;
   text-align: left;
   white-space: nowrap;
 }
 
 .table td {
-  padding: var(--space-3) var(--space-4) var(--space-3) 0;
-  border-bottom: 1px solid var(--border);
+  padding: 0.4375rem 1rem 0.4375rem 0;
+  border-bottom: 1px solid var(--rule);
   vertical-align: top;
 }
 
 .table :is(th, td):last-child { padding-right: 0; }
-.table .mono { font-size: var(--text-md); }
+.table .num { font-variant-numeric: tabular-nums; }
 
-/* -- definition list */
+/* -- a list of names and their values */
 
-.fields {
+.spec { margin: 0; border-top: 1px solid var(--rule-2); }
+
+.spec > div {
   display: grid;
-  grid-template-columns: minmax(6rem, max-content) 1fr;
-  gap: var(--space-2) var(--space-5);
-  align-items: baseline;
-  margin: 0;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: 0 1rem;
+  padding: 0.4375rem 0;
+  border-bottom: 1px solid var(--rule);
 }
 
-.fields dt { color: var(--fg-muted); font-size: var(--text-md); }
-.fields dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.fields dd.mono { font-size: var(--text-md); }
+.spec dt { color: var(--ink-2); }
+.spec dd { margin: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 30rem) {
+  .spec > div { grid-template-columns: 1fr; }
+}
 
 /* -- activity log */
 
-.log { margin-top: var(--space-5); }
-
-.log summary {
-  padding: var(--space-2) 0;
-  color: var(--fg-muted);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
+.log { margin-top: 1.5rem; font-size: var(--size-s); color: var(--ink-2); }
+.log summary { cursor: pointer; }
 
 .log pre {
   max-height: 12rem;
-  margin: var(--space-2) 0 0;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-sunken);
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: 1.6;
+  margin: 0.5rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--rule-2);
+  font: var(--size-xs) / 1.6 var(--font-mono);
   white-space: pre-wrap;
   overflow: auto;
 }
 
 /* ========================================================== 5. Parts list */
 
+/* The header and every row share one set of columns, so they line up. */
+.parts__head,
+.part {
+  display: grid;
+  grid-template-columns: 2.75rem 8rem minmax(0, 1fr) minmax(0, 13rem) 4.25rem;
+  column-gap: 0.75rem;
+  align-items: center;
+  padding: 0 var(--gutter);
+}
+
+.parts__head {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: var(--size-xs);
+}
+
 .parts { margin: 0; padding: 0; list-style: none; }
 
 .part {
-  display: grid;
-  grid-template-columns: 3rem minmax(6rem, 11rem) 1fr auto auto;
   grid-template-areas:
     "thumb name desc source action"
     "note  note note note   note";
-  align-items: center;
-  gap: var(--space-1) var(--space-3);
-  padding: var(--space-3) var(--space-2);
-  border-bottom: 1px solid var(--border);
+  min-height: 2.75rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--rule);
 }
 
-.part:hover { background: var(--bg-sunken); }
+.part:hover { background: var(--paper-2); }
 
 /* The keyboard's selection. A bar as well as a tint, so that it and the
    hover state cannot be mistaken for each other. */
-.part--selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.part--selected { background: var(--paper-2); box-shadow: inset 2px 0 0 var(--ink); }
 
 /* One fixed box that every drawing is fitted into. Symbols differ wildly in
    shape -- a resistor is tall and thin, an op-amp wide -- and sizing each to
@@ -496,97 +425,65 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 3rem;
-  height: 2.75rem;
+  width: 2.75rem;
+  height: 2.25rem;
 }
 
 .part__thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
-.part__name {
-  grid-area: name;
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  min-width: 0;
-}
+.part__name { grid-area: name; display: flex; align-items: baseline; gap: 0.4rem; min-width: 0; }
 
-.part__ipn { font-family: var(--font-mono); font-size: var(--text-md); text-decoration: none; }
+.part__ipn { font-family: var(--font-mono); font-size: var(--size-s); font-weight: 600; text-decoration: none; white-space: nowrap; }
 .part__ipn:hover { text-decoration: underline; }
 
-.part__desc {
-  grid-area: desc;
+.part__desc { grid-area: desc; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.part__source {
+  grid-area: source;
   min-width: 0;
   overflow: hidden;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.part__source {
-  grid-area: source;
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  white-space: nowrap;
-}
-
 .part__action { grid-area: action; }
+.part__action .button { width: 100%; padding-left: 0; padding-right: 0; }
 
 /* Why placing failed, on the row that failed. It spans the row because it is
    a sentence, and a cell's width would cut off the half that says what to do. */
 .part__note {
   grid-area: note;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius);
-  font-size: var(--text-sm);
-  line-height: 1.45;
+  margin: 0.25rem 0 0.25rem 3.5rem;
+  padding-left: 0.625rem;
+  border-left: 2px solid var(--ink-3);
+  color: var(--ink-2);
+  font-size: var(--size-s);
 }
 
-.part__note--error { background: var(--danger-soft); color: var(--danger); }
-.part__note--warn { background: var(--warn-soft); color: var(--warn); }
+.part__note--error { border-left-color: var(--bad); color: var(--bad); }
+.part__note--warn { border-left-color: var(--warn); color: var(--warn); }
 
 @media (max-width: 40rem) {
+  .parts__head { display: none; }
+
   .part {
-    grid-template-columns: 2.5rem 1fr auto;
+    grid-template-columns: 2.75rem minmax(0, 1fr) 4.25rem;
     grid-template-areas:
       "thumb name   action"
       "thumb desc   action"
       "thumb source action"
       "note  note   note";
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
   }
 
   .part__desc { white-space: normal; }
 }
 
-/* -- placeholder rows while the first index runs */
-
-.skeleton { margin: 0; padding: 0; list-style: none; }
-
-.skeleton li {
-  display: grid;
-  grid-template-columns: 3rem 9rem 1fr;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-2);
-  border-bottom: 1px solid var(--border);
-}
-
-.skeleton span {
-  display: block;
-  height: 0.7rem;
-  border-radius: 4px;
-  background: linear-gradient(90deg, var(--bg-sunken), var(--border), var(--bg-sunken));
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
-}
-
-.skeleton span:first-child { height: 2rem; }
-
-@keyframes shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
-}
-
-.shortcuts { margin-top: var(--space-4); }
+.shortcuts { margin-top: 1rem; color: var(--ink-3); font-size: var(--size-xs); }
 
 /* Hidden where they would be a lie: nothing with no hover has these keys. */
 @media (hover: none) {
@@ -595,167 +492,143 @@ kbd {
 
 /* =========================================================== 6. Part page */
 
-.previews {
-  display: flex;
-  flex-wrap: wrap;
-  /* Equal heights. A symbol is tall and narrow and a footprint short and
-     wide; aligned to the top, the row looks ragged. */
-  align-items: stretch;
-  gap: var(--space-4);
-  margin: var(--space-4) 0 var(--space-2);
+.back { display: inline-block; margin-bottom: 1.25rem; color: var(--ink-2); font-size: var(--size-s); }
+
+.title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.title h1 { font: 600 1.5rem / 1.2 var(--font-mono); letter-spacing: -0.01em; }
+
+.subtitle { margin-top: 0.25rem; font-size: 1rem; }
+.byline { margin-top: 0.125rem; color: var(--ink-2); font-size: var(--size-s); }
+
+/* The drawings, side by side on one sheet. The gaps between the cells show
+   the sheet's own colour, which is what draws the rules -- so they come out
+   right however the cells wrap. */
+.sheet {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1px;
+  margin-top: 1.25rem;
+  border: 1px solid var(--rule-2);
+  background: var(--rule-2);
 }
 
-.preview {
+.sheet__cell { display: flex; flex-direction: column; min-height: 13rem; margin: 0; background: var(--paper); }
+
+.sheet__cell figcaption {
   display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  min-width: 9rem;
-  margin: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-raised);
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: var(--size-xs);
 }
 
-.preview svg { width: auto; max-width: 100%; max-height: 12rem; }
-.preview figcaption { color: var(--fg-muted); font-size: var(--text-sm); text-align: center; }
-
-.preview [data-pin],
-.preview [data-pad] { cursor: pointer; outline: none; }
-
-.preview :is([data-pin], [data-pad]):focus-visible { outline: 2px solid var(--accent); }
-
-/* -- 3D model */
-
-.preview--model { justify-content: flex-start; }
-
-.model {
+/* A dotted grid, as on the canvas these were drawn on. */
+.sheet__drawing {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 15rem;
-  height: 12rem;
-  border-radius: var(--radius);
-  /* A neutral mid-tone, not the page's background. Component bodies are often
-     near-black and would vanish in the dark theme; the silver of a
-     termination vanishes in the light one. */
-  background: radial-gradient(circle at 50% 40%, #8d949e 0%, #5d636c 100%);
+  padding: 1rem;
+  background-image: radial-gradient(circle, var(--rule) 1px, transparent 1.2px);
+  background-size: 0.75rem 0.75rem;
+  background-position: center;
+}
+
+.sheet__drawing svg { width: auto; height: auto; max-width: 100%; max-height: 11rem; }
+
+.sheet [data-pin],
+.sheet [data-pad] { cursor: pointer; outline: none; }
+
+.sheet :is([data-pin], [data-pad]):focus-visible { outline: 1px solid var(--ink); }
+
+/* -- 3D model */
+
+.model {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+  /* A mid grey of its own, not the page's colour. Component bodies are often
+     near-black and would vanish on a dark page; the silver of a termination
+     vanishes on a light one. */
+  background: #7c8086;
   touch-action: none; /* the canvas handles its own drag */
 }
 
-.model canvas { display: block; border-radius: var(--radius); cursor: grab; }
+.model canvas { display: block; cursor: grab; }
 .model canvas:active { cursor: grabbing; }
 
-.model__status {
-  display: block;
-  min-height: 1rem;
-  margin-top: var(--space-1);
-  color: var(--fg-subtle);
-  font-size: var(--text-xs);
-}
-
-@media (max-width: 40rem) {
-  .preview--model { flex: 1 1 100%; }
-  .model { width: 100%; }
-}
+.hint { margin-top: 0.375rem; color: var(--ink-3); font-size: var(--size-xs); }
 
 /* -- other parts sharing a source */
 
-.related { margin: 0; padding: 0; list-style: none; }
+.related { margin: 0; padding: 0; border-top: 1px solid var(--rule-2); list-style: none; }
 
 .related li {
   display: flex;
   align-items: baseline;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
+  gap: 0.75rem;
+  padding: 0.4375rem 0;
+  border-bottom: 1px solid var(--rule);
 }
 
-.related .muted {
-  min-width: 0;
-  overflow: hidden;
-  font-size: var(--text-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.related a { font-weight: 600; white-space: nowrap; }
+.related span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ========================================================= 7. Status page */
 
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
-  gap: var(--space-3);
-}
-
-.metric {
+/* The numbers that say how the library is doing, in a row. */
+.figures {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-raised);
-  color: inherit;
-  text-decoration: none;
+  flex-wrap: wrap;
+  gap: 0.75rem 2.5rem;
+  margin: 1.25rem 0 0;
+  padding: 0.875rem 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
 }
 
-a.metric:hover { border-color: var(--accent); }
+.figure { display: flex; flex-direction: column; color: inherit; text-decoration: none; }
+.figure__value { font-size: 1.375rem; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.figure__label { color: var(--ink-2); font-size: var(--size-s); }
 
-.metric__value {
-  font-size: 1.5rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
+a.figure:hover .figure__label { text-decoration: underline; }
 
-.metric__label {
-  color: var(--fg-subtle);
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.metric--danger { border-color: var(--danger); }
-.metric--danger .metric__value { color: var(--danger); }
-.metric--warn { border-color: var(--warn); }
-.metric--warn .metric__value { color: var(--warn); }
+/* Coloured only when the number is not zero: a red "0 errors" teaches the
+   reader to ignore the colour. */
+.figure.is-bad .figure__value { color: var(--bad); }
+.figure.is-warn .figure__value { color: var(--warn); }
 
 /* ========================================================= 8. Issues page */
 
-.issue-groups { display: flex; flex-direction: column; gap: var(--space-2); }
-
-.issue-group {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-raised);
-  overflow: hidden;
-}
+.issue-group { border-bottom: 1px solid var(--rule); }
 
 .issue-group__head {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  align-items: baseline;
+  gap: 0.625rem;
+  padding: 0.5rem var(--gutter);
   list-style: none;
   cursor: pointer;
 }
 
 .issue-group__head::-webkit-details-marker { display: none; }
-.issue-group__head:hover { background: var(--bg-sunken); }
+.issue-group__head:hover { background: var(--paper-2); }
 
-.issue-group__kind { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--text-md); }
+.issue-group__kind { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--size-s); font-weight: 600; }
+.issue-group__count { color: var(--ink-3); font-size: var(--size-s); font-variant-numeric: tabular-nums; }
 
-.issue-group__count {
-  color: var(--fg-subtle);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
+.issue-group .table { margin-bottom: 0.5rem; font-size: var(--size-s); }
+.issue-group .table td { padding-left: var(--gutter); border-bottom: 0; border-top: 1px solid var(--rule); }
+
+.issue__message { width: 58%; }
+.issue__path { color: var(--ink-2); font-family: var(--font-mono); font-size: var(--size-xs); overflow-wrap: anywhere; }
+
+/* Too narrow for two columns: the path goes under the sentence it belongs to. */
+@media (max-width: 40rem) {
+  .issue-group .table td { display: block; width: auto; }
+  .issue-group .table td.issue__path { padding-top: 0; border-top: 0; }
 }
-
-.issue-group .table { font-size: var(--text-md); }
-.issue-group .table td { padding: var(--space-2) var(--space-4); }
-.issue-group .table tr:last-child td { border-bottom: none; }
-
-.issue__message { width: 60%; }
-.issue__path { color: var(--fg-subtle); font-size: var(--text-sm); overflow-wrap: anywhere; }

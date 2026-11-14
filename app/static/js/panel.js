@@ -58,43 +58,39 @@
 
      The two are offered differently because they are different in kind.
      Status is a closed set of three that a library cannot add to, and stays a
-     row of chips: one click, and what is on can be read without opening
+     row of tabs: one click, and what is on can be read without opening
      anything. Categories are declared by the library and keep being added to,
-     so they fold into a dropdown -- thirty chips wrap into a block tall enough
-     to push the parts they filter off the bottom of a panel that already
-     shares its height with an editor. */
+     so they fold into a dropdown -- thirty of them in a row would push the
+     parts they filter off the bottom of a panel that already shares its
+     height with an editor. */
   function renderFilters() {
     const controls = [];
     // With fewer than two choices there is nothing to narrow.
-    if (facets.statuses.length > 1) controls.push(statusChips());
+    if (facets.statuses.length > 1) controls.push(statusTabs());
     if (facets.categories.length > 1 || filters.category) controls.push(categorySelect());
 
     dom.filters.replaceChildren(...controls);
     dom.filters.hidden = controls.length === 0;
   }
 
-  function statusChips() {
-    const chips = el("div", "filter__chips");
-    chips.setAttribute("role", "group");
-    chips.setAttribute("aria-label", "Status");
+  function statusTabs() {
+    const tabs = el("div", "tabs");
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Status");
 
     const options = [{ value: null, label: "All" }, ...facets.statuses];
     for (const option of options) {
       const on = filters.status === option.value;
-      const chip = button(`chip${on ? " chip--on" : ""}`, option.label, () => {
-        // Pressing the chip that is on takes it off again.
-        filters.status = on ? null : option.value;
+      const tab = button(`tab${on ? " tab--on" : ""}`, option.label, () => {
+        filters.status = option.value;
         renderFilters();
         load();
       });
-      chip.setAttribute("aria-pressed", String(on));
-      if (option.count !== undefined) chip.append(el("span", "chip__count", option.count));
-      chips.append(chip);
+      tab.setAttribute("aria-pressed", String(on));
+      if (option.count !== undefined) tab.append(el("span", "tab__count", option.count));
+      tabs.append(tab);
     }
-
-    const row = el("div", "filter");
-    row.append(el("span", "filter__label", "Status"), chips);
-    return row;
+    return tabs;
   }
 
   /* A native <select>, not a menu built here. The platform draws its popup,
@@ -103,7 +99,7 @@
      the option text because options cannot be styled; that is the price. */
   function categorySelect() {
     const select = el("select");
-    select.id = "filter-category";
+    select.setAttribute("aria-label", "Category");
     select.append(new Option("All categories", ""));
 
     for (const option of facets.categories) {
@@ -129,12 +125,7 @@
       load();
     });
 
-    const label = el("label", "filter__label", "Category");
-    label.htmlFor = select.id;
-
-    const row = el("div", "filter");
-    row.append(label, wrap);
-    return row;
+    return wrap;
   }
 
   const isNarrowed = () =>
@@ -156,15 +147,19 @@
     dom.results.replaceChildren(...nodes);
   }
 
-  function skeleton() {
-    const list = el("ul", "skeleton");
-    list.setAttribute("aria-hidden", "true");
-    for (let i = 0; i < 5; i += 1) {
-      const row = el("li");
-      row.append(el("span"), el("span"), el("span"));
-      list.append(row);
-    }
-    return list;
+  /* The words above the columns. Kept from assistive technology: what each
+     row holds already says what it is. */
+  function listHead() {
+    const head = el("div", "parts__head");
+    head.setAttribute("aria-hidden", "true");
+    head.append(
+      el("span"),
+      el("span", null, "Part"),
+      el("span", null, "Description"),
+      el("span", null, "Preferred source"),
+      el("span")
+    );
+    return head;
   }
 
   function partRow(part) {
@@ -182,23 +177,28 @@
 
     const name = el("span", "part__name");
     name.append(link(`/ipn/${ipn}`, "part__ipn", part.ipn));
-    if (part.status !== "approved") name.append(el("span", "badge badge--warn", part.status));
+    // Approved is the ordinary case and goes unmarked.
+    if (part.status !== "approved") {
+      const colour = part.status === "draft" ? "tag--warn" : "tag--bad";
+      name.append(el("span", `tag ${colour}`, part.status));
+    }
 
     const description = el("span", "part__desc", part.description);
     description.title = part.description;
 
-    const others = part.mpn_count > 1 ? `  +${part.mpn_count - 1}` : "";
+    const others = part.mpn_count > 1 ? ` +${part.mpn_count - 1}` : "";
     const source = el(
       "span",
       "part__source",
       part.preferred_mpn ? part.preferred_mpn + others : "no source"
     );
+    source.title = source.textContent;
 
     // Spans the row, so that a message has the width to say something useful.
     const note = el("div", "part__note");
     note.hidden = true;
 
-    const place = button("button button--primary", "Place", () => placePart(part.ipn, place, note));
+    const place = button("button", "Place", () => placePart(part.ipn, place, note));
     place.setAttribute("aria-label", `Place ${part.ipn} into KiCad`);
     const action = el("span", "part__action");
     action.append(place);
@@ -220,8 +220,13 @@
   function render(data) {
     const indexing = data.state === "syncing";
     if (indexing) {
-      show(skeleton());
-      dom.count.textContent = "indexing";
+      show(
+        stateBox(
+          "Indexing the library",
+          "The repository is being cloned and read. The parts appear here when it is done."
+        )
+      );
+      dom.count.textContent = "";
       clearTimeout(pollTimer);
       pollTimer = setTimeout(load, INDEXING_POLL_MS);
     } else if (data.state === "empty") {
@@ -256,12 +261,12 @@
       const list = el("ul", "parts");
       const built = data.parts.map(partRow);
       list.append(...built.map((row) => row.element));
-      show(list);
+      show(listHead(), list);
       rows = built;
       dom.count.textContent = describe(data);
     }
 
-    // The filters and the status badge were drawn from an index that did not
+    // The filters and the status line were drawn from an index that did not
     // exist yet; now that it does, they are fetched again.
     if (wasIndexing && !indexing) loadStatus();
     wasIndexing = indexing;
@@ -395,7 +400,6 @@
     const me = await api("/api/v1/session/me");
     signedIn = Boolean(me.authenticated);
     dom.sessionName.textContent = signedIn ? me.display_name : "Not signed in";
-    dom.sessionName.classList.toggle("badge--ok", signedIn);
     dom.sessionAction.textContent = signedIn ? "Sign out" : "Sign in";
   }
 
@@ -454,29 +458,29 @@
   // --------------------------------------------------------- index status
 
   function showIndexStatus(status) {
-    const badge = dom.indexStatus;
-    badge.hidden = false;
-    badge.removeAttribute("href");
-    badge.title = "";
+    const line = dom.indexStatus;
+    line.hidden = false;
+    line.className = "masthead__status";
+    line.removeAttribute("href");
+    line.title = "";
 
     if (status.state !== "ready") {
-      badge.className = `badge${status.state === "error" ? " badge--danger" : ""}`;
-      badge.textContent = { syncing: "indexing", empty: "no library", error: "index failed" }[
+      line.textContent = { syncing: "indexing", empty: "no library", error: "index failed" }[
         status.state
       ];
-      badge.title = status.error || "";
+      line.classList.toggle("is-bad", status.state === "error");
+      line.title = status.error || "";
     } else if (status.errors) {
       // A link, not a tooltip: what it counts can be read.
-      badge.className = "badge badge--danger badge--link";
-      badge.textContent = plural(status.errors, "error");
-      badge.href = `${base}/issues?severity=error`;
+      line.textContent = plural(status.errors, "error");
+      line.classList.add("is-bad");
+      line.href = `${base}/issues?severity=error`;
     } else if (status.warnings) {
-      badge.className = "badge badge--warn badge--link";
-      badge.textContent = plural(status.warnings, "warning");
-      badge.href = `${base}/issues?severity=warning`;
+      line.textContent = plural(status.warnings, "warning");
+      line.classList.add("is-warn");
+      line.href = `${base}/issues?severity=warning`;
     } else {
-      badge.className = "badge badge--ok";
-      badge.textContent = plural(status.parts, "part");
+      line.textContent = plural(status.parts, "part");
     }
   }
 

@@ -3,25 +3,24 @@
 {% block title %}Issues &middot; {{ provider_name }}{% endblock %}
 
 {% block content %}
-  <header class="topbar">
-    <div class="topbar__title">
+  <header class="masthead">
+    <div class="masthead__title">
       <h1>Library issues</h1>
-      <span class="badge" id="issue-count" hidden></span>
+      <span class="masthead__status" id="issue-count" hidden></span>
     </div>
-    <div class="topbar__actions">
+    <div class="masthead__aside">
       <a class="button" href="{{ root_path }}/panel">Catalog</a>
     </div>
   </header>
 
-  <p class="muted">
+  <p class="lede">
     Everything the index could not line up. Paths are relative to the repository
     they are in, so they are what to open to fix them.
   </p>
 
   <div class="toolbar">
-    <div class="filter">
-      <span class="filter__label">Severity</span>
-      <div class="filter__chips" id="severity" role="group" aria-label="Severity"></div>
+    <div class="filters">
+      <div class="tabs" id="severity" role="group" aria-label="Severity"></div>
     </div>
   </div>
 

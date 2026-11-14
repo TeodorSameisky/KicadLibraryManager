@@ -15,22 +15,22 @@
 {% endblock %}
 
 {% block content %}
-  <header class="topbar">
-    <div class="topbar__title">
+  <header class="masthead">
+    <div class="masthead__title">
       <h1>{{ provider_name }}</h1>
-      <a class="badge" id="index-status" hidden></a>
+      <a class="masthead__status" id="index-status" hidden></a>
     </div>
 
-    <div class="topbar__actions">
+    <div class="masthead__aside">
       {% if auth_configured %}
-        <span class="badge {{ 'badge--ok' if session }}" id="session-name">
+        <span class="muted" id="session-name">
           {{- session.display_name if session else "Not signed in" -}}
         </span>
         <button type="button" class="button" id="session-action">
           {{- "Sign out" if session else "Sign in" -}}
         </button>
       {% else %}
-        <span class="badge badge--warn" title="Anyone who can reach this address can read the library">
+        <span class="tag tag--warn" title="Anyone who can reach this address can read the library">
           Authentication disabled
         </span>
       {% endif %}
@@ -42,7 +42,7 @@
       <label class="visually-hidden" for="search">Search parts</label>
       <input type="search" id="search" autocomplete="off" spellcheck="false"
              placeholder="Search by part number, description, value or MPN" />
-      <span class="small muted" id="count" aria-live="polite"></span>
+      <span class="search__count" id="count" aria-live="polite"></span>
     </div>
 
     {# Filled in from the index: the panel offers the filters this library
@@ -54,9 +54,8 @@
     <div class="state"><p class="state__title">Loading</p></div>
   </div>
 
-  <p class="small muted shortcuts">
-    <kbd>/</kbd> search &middot; <kbd>&uarr;</kbd><kbd>&darr;</kbd> move &middot;
-    <kbd>Enter</kbd> place
+  <p class="shortcuts">
+    <kbd>/</kbd> search &nbsp; <kbd>&uarr;</kbd> <kbd>&darr;</kbd> move &nbsp; <kbd>Enter</kbd> place
   </p>
 
   <details class="log" id="activity" hidden>

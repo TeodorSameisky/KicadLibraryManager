@@ -16,7 +16,7 @@
     severity: document.getElementById("severity"),
   };
 
-  // Linked to from the panel's badge and the status page, so that a reader
+  // Linked to from the panel's status line and the status page, so that a reader
   // arrives at the severity that sent them here.
   let severity = new URLSearchParams(window.location.search).get("severity");
   if (severity !== "error" && severity !== "warning") severity = null;
@@ -31,13 +31,13 @@
     dom.severity.replaceChildren(
       ...options.map((option) => {
         const on = severity === option.value;
-        const chip = button(`chip${on ? " chip--on" : ""}`, option.label, () => {
+        const tab = button(`tab${on ? " tab--on" : ""}`, option.label, () => {
           severity = option.value;
           load();
         });
-        chip.setAttribute("aria-pressed", String(on));
-        chip.append(el("span", "chip__count", option.count));
-        return chip;
+        tab.setAttribute("aria-pressed", String(on));
+        tab.append(el("span", "tab__count", option.count));
+        return tab;
       })
     );
   }
@@ -67,7 +67,7 @@
 
     const head = el("summary", "issue-group__head");
     head.append(
-      el("span", `badge ${isError ? "badge--danger" : "badge--warn"}`, group.severity),
+      el("span", `tag ${isError ? "tag--bad" : "tag--warn"}`, group.severity),
       el("span", "issue-group__kind", group.kind),
       el("span", "issue-group__count", group.items.length)
     );
@@ -77,7 +77,7 @@
       const row = el("tr");
       // Which repository, then where in it: what a maintainer opens.
       const where = [issue.source, issue.path].filter(Boolean).join(": ");
-      row.append(el("td", "issue__message", issue.message), el("td", "issue__path mono", where));
+      row.append(el("td", "issue__message", issue.message), el("td", "issue__path", where));
       body.append(row);
     }
 
@@ -106,9 +106,7 @@
       return;
     }
 
-    const list = el("div", "issue-groups");
-    list.append(...grouped(data.issues).map(renderGroup));
-    dom.list.replaceChildren(list);
+    dom.list.replaceChildren(...grouped(data.issues).map(renderGroup));
 
     dom.count.hidden = false;
     dom.count.textContent =

@@ -1,152 +1,157 @@
 {% extends "base.html" %}
 
-{% set state_badge = {
-  "ready": ("badge--ok", "ready"),
+{% set state_tag = {
+  "ready": ("tag--ok", "ready"),
   "syncing": ("", "indexing"),
-  "empty": ("badge--warn", "no sources"),
-  "error": ("badge--danger", "index failed"),
+  "empty": ("tag--warn", "no sources"),
+  "error": ("tag--bad", "index failed"),
 }[state] %}
 
 {% block page_class %}page--narrow{% endblock %}
 
 {% block content %}
-  <header class="topbar">
-    <div class="topbar__title">
+  <header class="masthead">
+    <div class="masthead__title">
       <h1>{{ provider_name }}</h1>
-      <span class="badge {{ state_badge[0] }}">{{ state_badge[1] }}</span>
+      <span class="tag {{ state_tag[0] }}">{{ state_tag[1] }}</span>
     </div>
-    <div class="topbar__actions">
+    <div class="masthead__aside">
       <a class="button button--primary" href="{{ root_path }}/panel">Open the catalog</a>
     </div>
   </header>
 
-  <div class="stack">
-    <p class="muted">Serves an internal part library to KiCad's Remote Symbols panel.</p>
+  <p class="lede">Serves an internal part library to KiCad's Remote Symbols panel.</p>
 
-    {# The same checks the app logs at startup. Nobody reads container logs to
-       find out why a login does nothing, so they are shown where the person
-       who can fix them will be looking. #}
-    {% if problems %}
-      <div class="notice notice--danger">
-        <p class="notice__title">Configuration problems</p>
-        <ul>
-          {% for problem in problems %}<li>{{ problem }}</li>{% endfor %}
-        </ul>
-      </div>
-    {% endif %}
-
-    {% if error %}
-      <div class="notice notice--danger">
-        <p class="notice__title">The last index failed</p>
-        <p>{{ error }}</p>
-        {% if state == "ready" %}
-          <p>The catalog being served is the one from before.</p>
-        {% endif %}
-      </div>
-    {% endif %}
-
-    <div class="metrics">
-      <div class="metric">
-        <span class="metric__value">{{ snapshot.part_count }}</span>
-        <span class="metric__label">parts</span>
-      </div>
-      <div class="metric">
-        <span class="metric__value">{{ snapshot.catalog.symbol_count }}</span>
-        <span class="metric__label">symbols</span>
-      </div>
-      <div class="metric">
-        <span class="metric__value">{{ snapshot.catalog.footprint_count }}</span>
-        <span class="metric__label">footprints</span>
-      </div>
-      {# Coloured only when not zero: a red "0 errors" teaches the reader to
-         ignore the colour. #}
-      <a class="metric {{ 'metric--danger' if snapshot.errors }}" href="{{ root_path }}/issues?severity=error">
-        <span class="metric__value">{{ snapshot.errors | length }}</span>
-        <span class="metric__label">errors</span>
-      </a>
-      <a class="metric {{ 'metric--warn' if snapshot.warnings }}" href="{{ root_path }}/issues?severity=warning">
-        <span class="metric__value">{{ snapshot.warnings | length }}</span>
-        <span class="metric__label">warnings</span>
-      </a>
+  {# The same checks the app logs at startup. Nobody reads container logs to
+     find out why a login does nothing, so they are shown where the person
+     who can fix them will be looking. #}
+  {% if problems %}
+    <div class="notice">
+      <p class="notice__title">Configuration problems</p>
+      <ul>
+        {% for problem in problems %}<li>{{ problem }}</li>{% endfor %}
+      </ul>
     </div>
+  {% endif %}
 
-    <h2 class="section">Sources</h2>
-    {% if snapshot.sources %}
-      <div class="table-scroll">
-        <table class="table">
-          <thead>
+  {% if error %}
+    <div class="notice">
+      <p class="notice__title">The last index failed</p>
+      <p>{{ error }}</p>
+      {% if state == "ready" %}
+        <p class="muted">The catalog being served is the one from before.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="figures">
+    <div class="figure">
+      <span class="figure__value">{{ snapshot.part_count }}</span>
+      <span class="figure__label">parts</span>
+    </div>
+    <div class="figure">
+      <span class="figure__value">{{ snapshot.catalog.symbol_count }}</span>
+      <span class="figure__label">symbols</span>
+    </div>
+    <div class="figure">
+      <span class="figure__value">{{ snapshot.catalog.footprint_count }}</span>
+      <span class="figure__label">footprints</span>
+    </div>
+    <div class="figure">
+      <span class="figure__value">{{ snapshot.catalog.model_count }}</span>
+      <span class="figure__label">3D models</span>
+    </div>
+    <a class="figure {{ 'is-bad' if snapshot.errors }}" href="{{ root_path }}/issues?severity=error">
+      <span class="figure__value">{{ snapshot.errors | length }}</span>
+      <span class="figure__label">errors</span>
+    </a>
+    <a class="figure {{ 'is-warn' if snapshot.warnings }}" href="{{ root_path }}/issues?severity=warning">
+      <span class="figure__value">{{ snapshot.warnings | length }}</span>
+      <span class="figure__label">warnings</span>
+    </a>
+  </div>
+
+  <h2 class="section">Sources</h2>
+  {% if snapshot.sources %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Source</th>
+            <th scope="col">Commit</th>
+            <th scope="col">Symbols</th>
+            <th scope="col">Footprints</th>
+            <th scope="col">3D models</th>
+            <th scope="col">Parts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for source in snapshot.sources %}
             <tr>
-              <th scope="col">Source</th>
-              <th scope="col">Commit</th>
-              <th scope="col">Symbols</th>
-              <th scope="col">Footprints</th>
-              <th scope="col">3D models</th>
-              <th scope="col">Parts</th>
+              <td>
+                {{ source.name }}
+                {% if source.error %}
+                  <span class="tag tag--bad">failed</span>
+                  <span class="small muted block">{{ source.error }}</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ source.commit[:8] if source.commit else "—" }}</td>
+              <td class="num">{{ source.symbols }}</td>
+              <td class="num">{{ source.footprints }}</td>
+              <td class="num">{{ source.models }}</td>
+              <td class="num">{{ source.parts }}</td>
             </tr>
-          </thead>
-          <tbody>
-            {% for source in snapshot.sources %}
-              <tr>
-                <td>
-                  {{ source.name }}
-                  {% if source.error %}
-                    <span class="badge badge--danger">failed</span>
-                    <span class="small muted block">{{ source.error }}</span>
-                  {% endif %}
-                </td>
-                <td class="mono small">{{ source.commit[:8] if source.commit else "—" }}</td>
-                <td>{{ source.symbols }}</td>
-                <td>{{ source.footprints }}</td>
-                <td>{{ source.models }}</td>
-                <td>{{ source.parts }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% elif state == "syncing" %}
-      <p class="small muted">The first index is still running. Reload in a moment.</p>
-    {% else %}
-      <p class="small muted">
-        No sources are configured. Set <span class="mono">LIBRARY_SOURCES</span> to a
-        JSON array of the git repositories that hold the library.
-      </p>
-    {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% elif state == "syncing" %}
+    <p class="muted">The first index is still running. Reload in a moment.</p>
+  {% else %}
+    <p class="muted">
+      No sources are configured. Set <span class="mono">LIBRARY_SOURCES</span> to a
+      JSON array of the git repositories that hold the library.
+    </p>
+  {% endif %}
 
-    <h2 class="section">Deployment</h2>
-    <dl class="fields">
-      <dt>Version</dt><dd>{{ version }}</dd>
+  <h2 class="section">Deployment</h2>
+  <dl class="spec">
+    <div><dt>Version</dt><dd>{{ version }}</dd></div>
+    <div>
       <dt>Authentication</dt>
       <dd>
         {% if auth_configured %}
           OAuth2
         {% else %}
-          <span class="badge badge--warn">disabled</span>
-          <span class="small muted">anyone who can reach this address can read the library</span>
+          <span class="tag tag--warn">disabled</span>
+          <span class="muted">anyone who can reach this address can read the library</span>
         {% endif %}
       </dd>
-      {% if web_login %}
-        {# The one value that has to be copied into the identity provider by
-           hand. A part page opened in a browser dies on a redirect URI the
-           provider does not recognise, and the error shows up there, not here. #}
+    </div>
+    {% if web_login %}
+      {# The one value that has to be copied into the identity provider by
+         hand. A part page opened in a browser dies on a redirect URI the
+         provider does not recognise, and the error shows up there, not here. #}
+      <div>
         <dt>Redirect URI</dt>
         <dd>
-          <span class="mono small">{{ callback_url }}</span>
+          <span class="mono">{{ callback_url }}</span>
           <span class="small muted block">
             must be registered with the identity provider for client
             <span class="mono">{{ client_id }}</span>
           </span>
         </dd>
-      {% endif %}
+      </div>
+    {% endif %}
+    <div>
       <dt>Provider metadata</dt>
-      <dd><a class="mono small" href="{{ metadata_url }}">{{ metadata_url }}</a></dd>
-      <dt>API reference</dt>
-      <dd><a href="{{ root_path }}/docs">{{ root_path }}/docs</a></dd>
-    </dl>
-
-    <p class="small muted">
-      To use this library, add the provider metadata address above in KiCad under
-      Preferences &rarr; Remote Symbols.
-    </p>
-  </div>
+      <dd>
+        <a class="mono" href="{{ metadata_url }}">{{ metadata_url }}</a>
+        <span class="small muted block">
+          add this address in KiCad under Preferences &rarr; Remote Symbols
+        </span>
+      </dd>
+    </div>
+    <div><dt>API reference</dt><dd><a href="{{ root_path }}/docs">{{ root_path }}/docs</a></dd></div>
+  </dl>
 {% endblock %}
