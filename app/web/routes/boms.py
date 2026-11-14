@@ -20,7 +20,13 @@ from app.boms.report import BomReport, build_report
 from app.boms.store import Bom, BomExists, BomStore, StoreUnavailable, Usage
 from app.library.parts import Part
 from app.library.snapshot import Snapshot
-from app.web.deps import get_boms, get_snapshot, require_access, require_part
+from app.web.deps import (
+    get_boms,
+    get_snapshot,
+    require_access,
+    require_librarian,
+    require_part,
+)
 from app.web.templating import render
 
 # A BOM of ten thousand lines is under a megabyte.
@@ -199,8 +205,9 @@ def bom_source(bom: Bom = Depends(_require_bom), boms: BomStore = Depends(get_bo
     return _csv(boms.source(bom.id) or "", _attachment_name(bom, "-as-uploaded.csv"))
 
 
-@api.delete("/boms/{bom_id}", status_code=204)
+@api.delete("/boms/{bom_id}", status_code=204, dependencies=[Depends(require_librarian)])
 def delete_bom(bom: Bom = Depends(_require_bom), boms: BomStore = Depends(get_boms)) -> Response:
+    """Throw a record away: a librarian's to do, since it cannot be undone."""
     try:
         boms.delete(bom.id)
     except StoreUnavailable as exc:

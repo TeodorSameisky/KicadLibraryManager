@@ -87,6 +87,9 @@ class Settings:
     oidc_scopes: tuple[str, ...] = ("openid", "email")
     # Sign-in from an ordinary browser, with this app as the OAuth2 client.
     web_login_enabled: bool = True
+    # Who may change the library and delete records: usernames, e-mail
+    # addresses or subject ids, as the identity provider reports them.
+    librarians: tuple[str, ...] = ()
 
     # -- sessions
     nonce_ttl_seconds: int = 120
@@ -109,6 +112,11 @@ class Settings:
     library_sources: tuple[Source, ...] = ()
     library_workdir: str = "/data/sources"
     remote_library_prefix: str = "remote"
+    # How often to look whether a source has new commits, when nothing has
+    # said so. Zero never looks: a restart, a librarian or a webhook has to.
+    library_refresh_minutes: int = 15
+    # What the git host signs its webhook calls with. Unset, there is no webhook.
+    webhook_secret: str | None = None
 
     # -- bills of materials
     # One SQLite file. It is the only thing here that cannot be rebuilt from
@@ -154,6 +162,7 @@ class Settings:
             oidc_audience=env.optional("OIDC_AUDIENCE"),
             oidc_scopes=env.words("OIDC_SCOPES", ("openid", "email")),
             web_login_enabled=env.flag("WEB_LOGIN_ENABLED", True),
+            librarians=env.words("LIBRARIANS", ()),
             nonce_ttl_seconds=env.integer("NONCE_TTL_SECONDS", 120),
             login_ttl_seconds=env.integer("LOGIN_TTL_SECONDS", 600),
             session_ttl_seconds=env.integer("SESSION_TTL_SECONDS", 8 * 60 * 60),
@@ -166,6 +175,8 @@ class Settings:
             library_sources=sources,
             library_workdir=env.text("LIBRARY_WORKDIR", "/data/sources"),
             remote_library_prefix=env.text("REMOTE_LIBRARY_PREFIX", "remote"),
+            library_refresh_minutes=max(0, env.integer("LIBRARY_REFRESH_MINUTES", 15)),
+            webhook_secret=env.optional("WEBHOOK_SECRET"),
             database_path=env.text("DATABASE_PATH", "/data/library-manager.db"),
             allow_insecure_localhost=env.flag("ALLOW_INSECURE_LOCALHOST", True),
             max_download_bytes=env.integer("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
@@ -268,6 +279,12 @@ class Settings:
             found.append(
                 f"AUTH_ENABLED is on but {' and '.join(missing)} "
                 f"{'is' if len(missing) == 1 else 'are'} not set, so the library is open"
+            )
+
+        if self.auth_configured and not self.librarians:
+            found.append(
+                "LIBRARIANS is empty, so nobody can refresh the library or delete a BOM; "
+                "list the usernames of the people who look after it"
             )
 
         if self.auth_configured and not https:

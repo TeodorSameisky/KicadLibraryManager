@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, Request
 
 from app.auth.oidc import OidcClient
+from app.auth.roles import is_librarian
 from app.auth.sessions import Session, SessionStore
 from app.boms.store import BomStore
 from app.config import Settings
@@ -69,6 +70,18 @@ def require_access(
     """
     if settings.auth_configured and session is None:
         raise NotSignedIn
+    return session
+
+
+def require_librarian(
+    settings: Settings = Depends(get_settings),
+    session: Session | None = Depends(require_access),
+) -> Session | None:
+    """Let a librarian through. Asked after `require_access`, so someone who
+    is not signed in is told to sign in, not that they lack a role."""
+    principal = session.principal if session else None
+    if not is_librarian(principal, settings.librarians, auth_configured=settings.auth_configured):
+        raise HTTPException(status_code=403, detail="Only a librarian can do this.")
     return session
 
 

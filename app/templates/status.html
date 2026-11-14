@@ -9,6 +9,10 @@
 
 {% block page_class %}page--narrow{% endblock %}
 
+{% block scripts %}
+  <script src="{{ root_path }}/static/js/status.js"></script>
+{% endblock %}
+
 {% block content %}
   <header class="masthead">
     <div class="masthead__title">
@@ -70,6 +74,22 @@
   </div>
 
   <h2 class="section">Sources</h2>
+  <p class="byline" id="refresh" data-state="{{ state }}">
+    {% if checked_at %}
+      Last checked {{ checked_at | moment }}.
+    {% endif %}
+    {% if refresh_minutes %}
+      Checked every {{ refresh_minutes }} minutes{% if webhook %}, and when the git host reports a push{% endif %}.
+    {% elif webhook %}
+      Checked when the git host reports a push.
+    {% else %}
+      Not checked again until the app restarts or a librarian refreshes it.
+    {% endif %}
+    {% if librarian and snapshot.sources %}
+      <button type="button" class="button" id="refresh-now">Refresh now</button>
+    {% endif %}
+    <span id="refresh-result" aria-live="polite"></span>
+  </p>
   {% if snapshot.sources %}
     <div class="table-scroll">
       <table class="table">
@@ -77,10 +97,10 @@
           <tr>
             <th scope="col">Source</th>
             <th scope="col">Commit</th>
-            <th scope="col">Symbols</th>
-            <th scope="col">Footprints</th>
-            <th scope="col">3D models</th>
-            <th scope="col">Parts</th>
+            <th scope="col" class="num">Symbols</th>
+            <th scope="col" class="num">Footprints</th>
+            <th scope="col" class="num">3D models</th>
+            <th scope="col" class="num">Parts</th>
           </tr>
         </thead>
         <tbody>

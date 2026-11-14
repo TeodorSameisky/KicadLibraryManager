@@ -129,8 +129,25 @@ that waiting for it would fail the container health check, so the app answers
 at once and reports `syncing` until the first index lands. Clones are shallow
 and live under `LIBRARY_WORKDIR`, which **must be a persistent volume**.
 
-If a source cannot be reached later, the previous index keeps being served and
-the failure is shown on the status page.
+### Keeping it current
+
+A part pushed to the repository shows up without anyone restarting anything.
+The sources are looked at again:
+
+- **when the git host says so.** Set `WEBHOOK_SECRET`, and add a webhook for
+  push events at `<PUBLIC_URL>/api/v1/library/webhook` with the same secret
+  and content type `application/json`. GitHub and Gitea both sign their calls
+  the way this expects. The part is in the catalog seconds after the push.
+- **when a librarian asks.** "Refresh now" on the status page fetches at once
+  and says what came of it.
+- **on a timer**, every `LIBRARY_REFRESH_MINUTES` (15 by default, 0 to switch
+  it off), for when nothing else says so.
+
+Looking is cheap. If every source is still at the commit that was indexed,
+nothing is read again and the snapshot being served is kept.
+
+If a source cannot be reached, the previous index keeps being served and the
+failure is shown on the status page.
 
 Everything that does not line up — a footprint no source has, a symbol whose
 parent is missing, an IPN in an undeclared category — is collected and listed
@@ -193,6 +210,9 @@ lists them all with their reasons. The ones a deployment needs:
 | `LIBRARY_WORKDIR` | Where the clones are kept. A volume. |
 | `DATABASE_PATH` | The SQLite file that holds the BOMs. On the same volume, and the thing to back up. |
 | `AUTH_ENABLED`, `OIDC_METADATA_URL`, `OIDC_CLIENT_ID` | Sign-in; see below. |
+| `LIBRARIANS` | Who may refresh the library and delete BOMs: comma-separated usernames, e-mail addresses or subject ids. |
+| `WEBHOOK_SECRET` | Shared with the git host's webhook, so a push refreshes the library at once. |
+| `LIBRARY_REFRESH_MINUTES` | How often to look for new commits unprompted. Default 15; 0 for never. |
 | `REMOTE_LIBRARY_PREFIX` | Must match the library prefix in KiCad's Remote Symbol Settings. Default `remote`. |
 
 A malformed value never stops the app from starting: it falls back to its
@@ -253,6 +273,24 @@ client:
 The status page prints the exact value. A public client needs no secret;
 `OIDC_CLIENT_SECRET` is honoured if you registered a confidential one.
 `WEB_LOGIN_ENABLED=false` turns this off.
+
+### Librarians
+
+Anyone signed in can read the library and upload a BOM. What changes the
+library or throws a record away is a librarian's to do: refreshing the index,
+deleting a BOM.
+
+Librarians are listed in `LIBRARIANS`, by the username, e-mail address or
+subject id the identity provider reports for them — not by display name, which
+is what a person chooses to be called. They are named here rather than by a
+group claim from the provider because of the token limit described below: a
+claim would ride in two of KiCad's three tokens, and a list costs nothing.
+
+If your provider lets people change their own username, list e-mail addresses
+or subject ids instead.
+
+With `AUTH_ENABLED=false` there is nobody to tell apart, so everyone can do
+what a librarian can.
 
 ### Keep the tokens small
 
@@ -344,8 +382,10 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/api/v1/parts/{ipn}/assets` | What KiCad is sent to place it | |
 | `/api/v1/parts/{ipn}/symbol.svg`, `/footprint.svg`, `/model.step` | Drawings and the 3D model | |
 | `/api/v1/issues?severity=&limit=` | Everything that does not line up | |
+| `POST /api/v1/library/refresh` | Fetch the sources now and index what changed; librarians | |
+| `POST /api/v1/library/webhook` | The same, for the git host; let in by its signature | ✓ |
 | `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, replace}` | |
-| `/api/v1/boms/{id}` | `GET` a BOM against the library; `DELETE` it | |
+| `/api/v1/boms/{id}` | `GET` a BOM against the library; `DELETE` it (librarians) | |
 | `/api/v1/boms/{id}/export.csv`, `/source.csv` | The BOM with library columns added; the file as uploaded | |
 | `/api/v1/parts/{ipn}/where-used` | The stored BOMs a part is on | |
 | `/ipn/{ipn}` | The part's page; where `Datasheet` points | |

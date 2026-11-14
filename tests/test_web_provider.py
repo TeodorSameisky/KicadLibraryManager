@@ -173,6 +173,7 @@ def test_a_healthy_deployment_has_no_problems():
         ({"LIBRARY_SOURCES": "not json"}, "LIBRARY_SOURCES is unusable"),
         ({"SESSION_TTL_SECONDS": "eight hours"}, "SESSION_TTL_SECONDS must be a whole number"),
         ({"AUTH_ENABLED": "maybe"}, "AUTH_ENABLED must be true or false"),
+        ({"LIBRARIANS": None}, "LIBRARIANS is empty, so nobody can refresh the library"),
     ],
 )
 def test_a_misconfiguration_is_named(environment, fragment):

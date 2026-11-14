@@ -54,6 +54,9 @@ def status_page(
         callback_url=settings.web_callback_url,
         client_id=settings.oidc_client_id,
         boms_available=request.app.state.boms.problem() is None,
+        checked_at=library.checked_at,
+        refresh_minutes=settings.library_refresh_minutes,
+        webhook=bool(settings.webhook_secret),
         metadata_url=f"{settings.public_url}/.well-known/kicad-remote-provider",
     )
 

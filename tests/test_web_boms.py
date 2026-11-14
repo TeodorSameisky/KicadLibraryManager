@@ -3,7 +3,7 @@
 import pytest
 
 from app.boms.store import BomStore
-from tests.conftest import OPEN, sign_in
+from tests.conftest import OPEN, sign_in, sign_in_librarian
 from tests.support import PART
 from tests.test_boms import KICAD_DEFAULT
 
@@ -159,8 +159,22 @@ def test_the_file_can_be_had_back_as_it_was_uploaded(api):
     assert "as-uploaded.csv" in response.headers["content-disposition"]
 
 
+def test_only_a_librarian_can_delete_a_bom(api):
+    """Anyone may add a record. Throwing one away cannot be undone."""
+    bom_id = upload(api).json()["id"]
+
+    refused = api.delete(f"/api/v1/boms/{bom_id}")
+
+    assert refused.status_code == 403
+    assert refused.json() == {"detail": "Only a librarian can do this."}
+    assert api.get(f"/api/v1/boms/{bom_id}").status_code == 200, "still there"
+    assert 'id="bom-delete"' not in api.get(f"/boms/{bom_id}").text, "and not offered"
+
+
 def test_a_bom_can_be_deleted(api):
     bom_id = upload(api).json()["id"]
+    sign_in_librarian(api)
+    assert 'id="bom-delete"' in api.get(f"/boms/{bom_id}").text
 
     assert api.delete(f"/api/v1/boms/{bom_id}").status_code == 204
     assert api.get(f"/api/v1/boms/{bom_id}").status_code == 404
@@ -281,8 +295,12 @@ def test_boms_are_closed_to_someone_signed_out(make_client, tree, method, path):
 def test_with_sign_in_off_an_upload_has_no_name_on_it(make_client, tree):
     client = make_client(tree.standard(), **OPEN)
 
-    assert upload(client).json()["uploaded_by"] == ""
+    stored = upload(client).json()
+
+    assert stored["uploaded_by"] == ""
     assert client.get("/boms").status_code == 200
+    # Nobody can be told apart, on a network declared to be trusted.
+    assert client.delete(f"/api/v1/boms/{stored['id']}").status_code == 204
 
 
 @pytest.fixture()

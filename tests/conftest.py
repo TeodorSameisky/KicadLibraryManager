@@ -27,6 +27,7 @@ ENVIRONMENT = {
     "AUTH_ENABLED": "true",
     "OIDC_METADATA_URL": FakeProvider.metadata_url,
     "OIDC_CLIENT_ID": FakeProvider.client_id,
+    "LIBRARIANS": "grace",
     # Nowhere: an app built without a store of its own must not write one to
     # wherever the default happens to point on the machine running the tests.
     "DATABASE_PATH": "/nonexistent-klm-tests/boms.db",
@@ -52,18 +53,28 @@ def wait_until_indexed(client: TestClient) -> None:
         time.sleep(0.01)
 
 
-def sign_in(client: TestClient, name: str = "Ada Lovelace", subject: str = "user-1") -> TestClient:
+def sign_in(
+    client: TestClient,
+    name: str = "Ada Lovelace",
+    subject: str = "user-1",
+    username: str = "ada",
+) -> TestClient:
     """Give a client a session, as either sign-in would have.
 
     What the catalog's tests care about is the cookie. How one is earned is
-    covered by the tests of the sign-in routes themselves.
+    covered by the tests of the sign-in routes themselves. Ada is a designer;
+    `sign_in_librarian` signs in Grace, who the settings name as a librarian.
     """
     settings = client.app.state.settings
     session_id = client.app.state.sessions.create(
-        Principal(subject, {"sub": subject, "name": name})
+        Principal(subject, {"sub": subject, "name": name, "preferred_username": username})
     )
     client.cookies.set(settings.cookie_name, session_id)
     return client
+
+
+def sign_in_librarian(client: TestClient) -> TestClient:
+    return sign_in(client, name="Grace Hopper", subject="user-2", username="grace")
 
 
 @pytest.fixture()

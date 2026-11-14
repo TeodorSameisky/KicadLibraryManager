@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from app import __version__
+from app.auth.roles import is_librarian
 from app.boms.parse import compact_references
 
 _APP_DIR = Path(__file__).resolve().parent.parent
@@ -22,6 +23,10 @@ templates = Jinja2Templates(directory=_APP_DIR / "templates")
 # time: which day a BOM was uploaded is what gets asked, and a clock time
 # would need a zone to mean anything.
 templates.env.filters["day"] = lambda stamp: time.strftime("%Y-%m-%d", time.gmtime(stamp))
+# For what happened minutes ago, where the day alone says nothing.
+templates.env.filters["moment"] = lambda stamp: time.strftime(
+    "%Y-%m-%d %H:%M UTC", time.gmtime(stamp)
+)
 templates.env.filters["references"] = compact_references
 
 
@@ -33,6 +38,7 @@ def render(request: Request, template: str, *, status_code: int = 200, **context
     resolves against the site root rather than against this app.
     """
     settings = request.app.state.settings
+    session = request.app.state.sessions.get(request.cookies.get(settings.cookie_name))
     return templates.TemplateResponse(
         request=request,
         name=template,
@@ -41,6 +47,14 @@ def render(request: Request, template: str, *, status_code: int = 200, **context
             "root_path": settings.root_path,
             "provider_name": settings.provider_name,
             "version": __version__,
+            # Decides which actions a page offers. What a route allows is
+            # decided by the route; this only keeps a page from offering a
+            # button that would be refused.
+            "librarian": is_librarian(
+                session.principal if session else None,
+                settings.librarians,
+                auth_configured=settings.auth_configured,
+            ),
             **context,
         },
     )
