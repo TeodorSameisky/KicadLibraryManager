@@ -2,12 +2,14 @@ services:
   web:
     build: .
     ports:
-      - "8000:8000"
-    environment:
-      PORT: 8000
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
-      AUTH_ENABLED: ${AUTH_ENABLED:-false}
-      OIDC_METADATA_URL: ${OIDC_METADATA_URL:-}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
-      OIDC_SCOPES: ${OIDC_SCOPES:-openid,profile,email}
+      - "${PORT:-8000}:${PORT:-8000}"
+    # Every setting is read from the environment; .env.example lists them.
+    env_file: .env
+    volumes:
+      # The library's clones. A named volume takes the image's ownership, so
+      # the app can write to it; a bind mount would keep the host's.
+      - library-data:/data
     restart: unless-stopped
+
+volumes:
+  library-data:

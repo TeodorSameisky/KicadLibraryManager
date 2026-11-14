@@ -1,198 +1,277 @@
-"""End-to-end: clone a real git repository, index it, and serve it.
+"""Keeping checkouts current, and a snapshot available.
 
-These use an actual git repository on disk rather than stubbing the sync, so
-the clone/fetch path in sources.py is covered by the same tests.
+The git tests use real repositories on disk rather than a stand-in for git:
+what they are about is exactly what git does with a clone.
 """
 
 import shutil
 import subprocess
-import textwrap
+import threading
 
 import pytest
 
-from app.kicad.sources import Source, SourceError, load_sources, sync
-from app.library_service import LibraryService, State
-from tests.test_library_index import footprint, symbol
+from app.library.service import LibraryService, State
+from app.library.sources import Checkout, Source, SourceError, parse_sources, sync
+from tests.support import LibraryTree
 
-pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
 
-def _git(*args, cwd):
-    subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True)
+def git(*args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def commit(repository, message="change"):
+    git("add", "-A", cwd=repository)
+    git(
+        "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message,
+        cwd=repository,
+    )  # fmt: skip
 
 
 @pytest.fixture()
 def origin(tmp_path):
-    """A git repository laid out like a company library."""
-    repo = tmp_path / "origin"
-    (repo / "symbols" / "Passives.kicad_symdir").mkdir(parents=True)
-    (repo / "footprints" / "Passives.pretty").mkdir(parents=True)
-    (repo / "parts" / "1102").mkdir(parents=True)
-    (repo / "mpns").mkdir(parents=True)
-
-    def write(rel, text):
-        (repo / rel).write_text(textwrap.dedent(text), encoding="utf-8")
-
-    write("symbols/Passives.kicad_symdir/R.kicad_sym", symbol("R", units=2))
-    write(
-        "symbols/Passives.kicad_symdir/R_0603.kicad_sym",
-        symbol("R_0603", extends="R", footprint="Passives:R_0603_1608Metric"),
-    )
-    write("footprints/Passives.pretty/R_0603_1608Metric.kicad_mod", footprint("R_0603_1608Metric"))
-    write("categories.yaml", '- code: "1102"\n  name: Resistors\n')
-    write(
-        "mpns/RC0603FR-0710KL.yaml",
-        "mpn: RC0603FR-0710KL\nmanufacturer: Yageo\nlifecycle: active\n",
-    )
-    write(
-        "parts/1102/1102-0001.yaml",
-        """\
-        ipn: 1102-0001
-        description: Resistor 10k 1% 0603
-        status: approved
-        symbol: Passives:R_0603
-        footprint: Passives:R_0603_1608Metric
-        fields:
-          Value: 10k
-        mpns:
-          - mpn: RC0603FR-0710KL
-            preferred: true
-        """,
-    )
-
-    _git("init", "-b", "main", cwd=repo)
-    _git("config", "user.email", "test@example.com", cwd=repo)
-    _git("config", "user.name", "Test", cwd=repo)
-    _git("add", "-A", cwd=repo)
-    _git("commit", "-m", "initial", cwd=repo)
-    return repo
+    """A git repository holding the standard library."""
+    tree = LibraryTree(tmp_path / "origin").standard()
+    git("init", "-b", "main", cwd=tree.root)
+    commit(tree.root, "initial")
+    return tree
 
 
 @pytest.fixture()
-def service(origin, tmp_path):
-    source = Source(id="company", name="Company", url=str(origin), ref="main")
-    return LibraryService(sources=[source], workdir=tmp_path / "work")
+def source(origin):
+    return Source(id="company", name="Company", url=str(origin.root))
 
 
-async def test_indexes_a_cloned_repository(service):
-    assert service.state is State.SYNCING
-
-    snap = await service.refresh()
-
-    assert service.state is State.READY
-    assert snap.part_count() == 1
-    assert snap.catalog.symbol_count() == 2
-    assert snap.errors == [], [str(e) for e in snap.errors]
-    assert snap.sources[0].commit
+# -- configuration ----------------------------------------------------------
 
 
-async def test_search_matches_description_and_mpn(service):
-    """IPNs carry no meaning, so these are what people actually search by."""
-    await service.refresh()
-
-    assert [p.ipn for p in service.search("10k")] == ["1102-0001"]
-    assert [p.ipn for p in service.search("yageo")] == ["1102-0001"]
-    assert [p.ipn for p in service.search("RC0603")] == ["1102-0001"]
-    assert [p.ipn for p in service.search("1102")] == ["1102-0001"]
-    assert service.search("nonexistent") == []
-    assert len(service.search("")) == 1
-
-
-async def test_refresh_picks_up_new_commits(service, origin):
-    await service.refresh()
-    first = service.snapshot.sources[0].commit
-
-    (origin / "parts" / "1102" / "1102-0002.yaml").write_text(
-        "ipn: 1102-0002\ndescription: Resistor 4k7\nsymbol: Passives:R_0603\n", encoding="utf-8"
+def test_sources_are_a_json_array():
+    sources = parse_sources(
+        '[{"id":"company","name":"Company Library","url":"https://example.com/a.git","ref":"v2"},'
+        ' {"id":"kicad","url":"https://example.com/b.git"}]'
     )
-    _git("add", "-A", cwd=origin)
-    _git("commit", "-m", "add a part", cwd=origin)
 
-    snap = await service.refresh()
-
-    assert snap.sources[0].commit != first
-    assert snap.part_count() == 2
+    assert sources[0] == Source("company", "Company Library", "https://example.com/a.git", "v2")
+    assert sources[1].name == "kicad", "the id, when no name is given"
+    assert sources[1].ref == "main"
 
 
-async def test_a_failing_source_keeps_the_previous_index(service):
-    """Losing the git host must not empty the catalog people are using."""
-    await service.refresh()
-    assert service.snapshot.part_count() == 1
-
-    service._sources = [
-        Source(id="company", name="Company", url="/nonexistent/repo.git", ref="main")
-    ]
-    await service.refresh()
-
-    assert service.state is State.READY
-    assert service.snapshot.part_count() == 1, "still serving the last good index"
-    assert service.error
-
-
-async def test_no_sources_reports_empty(tmp_path):
-    svc = LibraryService(sources=[], workdir=tmp_path)
-
-    await svc.refresh()
-
-    assert svc.state is State.EMPTY
-    assert svc.snapshot.part_count() == 0
-
-
-def test_sync_recovers_from_an_interrupted_clone(origin, tmp_path):
-    """A half-written directory must not wedge the platform permanently."""
-    source = Source(id="company", name="Company", url=str(origin), ref="main")
-    workdir = tmp_path / "work"
-
-    broken = workdir / "company"
-    broken.mkdir(parents=True)
-    (broken / "junk.txt").write_text("left over from a failed clone")
-
-    result = sync(source, workdir)
-
-    assert (result.path / "categories.yaml").is_file()
-    assert not (result.path / "junk.txt").exists()
-
-
-def test_source_config_parsing():
-    sources = load_sources('[{"id":"a","url":"https://example.com/a.git"}]')
-
-    assert sources[0].ref == "main", "defaults to main"
-    assert sources[0].name == "a", "falls back to the id"
+@pytest.mark.parametrize("text", [None, "", "   ", "[]"])
+def test_no_sources_is_not_an_error(text):
+    assert parse_sources(text) == ()
 
 
 @pytest.mark.parametrize(
-    "raw,reason",
+    "text",
     [
-        ("{}", "must be a list"),
-        ("not json", "invalid json"),
-        ('[{"url":"x"}]', "missing id"),
-        ('[{"id":"a"}]', "missing url"),
-        ('[{"id":"a/b","url":"x"}]', "id is used in paths"),
-        ('[{"id":"a","url":"x"},{"id":"a","url":"y"}]', "duplicate id"),
+        "not json",
+        "{}",
+        '["a string"]',
+        '[{"url":"x"}]',
+        '[{"id":"a"}]',
+        '[{"id":"a/b","url":"x"}]',
+        '[{"id":"..","url":"x"}]',
+        '[{"id":"a","url":"x"},{"id":"a","url":"y"}]',
     ],
+    ids=["not-json", "not-a-list", "not-an-object", "no-id", "no-url", "slash", "dots", "twice"],
 )
-def test_bad_source_config_is_rejected(raw, reason):
+def test_a_source_list_that_cannot_be_used_is_refused(text):
+    """The id names the directory the repository is cloned into."""
     with pytest.raises(SourceError):
-        load_sources(raw)
+        parse_sources(text)
 
 
-def test_changing_the_url_repoints_an_existing_clone(origin, tmp_path):
-    """Otherwise a fetch silently keeps pulling from the old repository."""
-    workdir = tmp_path / "work"
-    first = Source(id="company", name="Company", url=str(origin), ref="main")
-    sync(first, workdir)
+# -- git --------------------------------------------------------------------
 
+
+@needs_git
+def test_a_source_is_cloned(source, tmp_path):
+    checkout = sync(source, tmp_path / "work")
+
+    assert checkout.path == tmp_path / "work" / "company"
+    assert (checkout.path / "categories.yaml").is_file()
+    assert len(checkout.commit) == 40
+
+
+@needs_git
+def test_a_clone_follows_its_origin(source, origin, tmp_path):
+    first = sync(source, tmp_path / "work")
+
+    origin.part("1102-0002")
+    (origin.root / "categories.yaml").unlink()
+    commit(origin.root)
+    second = sync(source, tmp_path / "work")
+
+    assert second.commit != first.commit
+    assert (second.path / "parts/1102/1102-0002.yaml").is_file()
+    assert not (second.path / "categories.yaml").exists(), "deletions arrive too"
+
+
+@needs_git
+def test_a_directory_that_is_not_a_clone_is_replaced(source, tmp_path):
+    """An interrupted clone must not leave the platform broken until someone
+    deletes the directory by hand."""
+    leftover = tmp_path / "work" / "company"
+    leftover.mkdir(parents=True)
+    (leftover / "junk.txt").write_text("from a clone that never finished")
+
+    checkout = sync(source, tmp_path / "work")
+
+    assert (checkout.path / "categories.yaml").is_file()
+    assert not (checkout.path / "junk.txt").exists()
+
+
+@needs_git
+def test_a_changed_address_repoints_the_clone(source, origin, tmp_path):
+    """Otherwise a fetch quietly keeps pulling from the old repository."""
+    sync(source, tmp_path / "work")
     moved = tmp_path / "moved"
-    shutil.move(str(origin), str(moved))
-    relocated = Source(id="company", name="Company", url=str(moved), ref="main")
+    shutil.move(origin.root, moved)
 
-    result = sync(relocated, workdir)
+    checkout = sync(Source("company", "Company", str(moved)), tmp_path / "work")
+
     remote = subprocess.run(
         ["git", "remote", "get-url", "origin"],
-        cwd=str(result.path),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-
+        cwd=checkout.path, capture_output=True, text=True, check=True,
+    ).stdout.strip()  # fmt: skip
     assert remote == str(moved)
+
+
+@needs_git
+def test_an_unreachable_origin_leaves_the_clone_where_it_was(source, tmp_path):
+    """The current index points at these files. Losing the git host must not
+    take them away."""
+    sync(source, tmp_path / "work")
+    gone = Source("company", "Company", str(tmp_path / "nowhere"))
+
+    with pytest.raises(SourceError, match="git clone failed"):
+        sync(gone, tmp_path / "work")
+
+    assert (tmp_path / "work" / "company" / "categories.yaml").is_file()
+    assert [p.name for p in (tmp_path / "work").iterdir()] == ["company"], "nothing left behind"
+
+
+# -- the service ------------------------------------------------------------
+
+
+@needs_git
+async def test_a_repository_is_cloned_and_indexed(source, tmp_path):
+    service = LibraryService([source], tmp_path / "work")
+    assert service.state is State.SYNCING
+
+    snapshot = await service.refresh()
+
+    assert service.state is State.READY
+    assert service.snapshot is snapshot
+    assert snapshot.part_count == 1
+    assert snapshot.catalog.symbol_count == 2
+    assert snapshot.errors == []
+    assert snapshot.indexed_at is not None
+    assert snapshot.sources[0].commit
+
+
+@needs_git
+async def test_a_refresh_picks_up_new_commits(source, origin, tmp_path):
+    service = LibraryService([source], tmp_path / "work")
+    before = await service.refresh()
+
+    origin.part("1102-0002")
+    commit(origin.root)
+    after = await service.refresh()
+
+    assert after.sources[0].commit != before.sources[0].commit
+    assert after.part_count == 2
+    assert before.part_count == 1, "a snapshot already handed out does not change"
+
+
+class FlakySync:
+    """A sync that can be told to fail, in place of git."""
+
+    def __init__(self, tree):
+        self.tree = tree
+        self.error = None
+
+    def __call__(self, source, workdir) -> Checkout:
+        if self.error:
+            raise SourceError(self.error)
+        return self.tree.checkout
+
+
+async def test_a_failed_refresh_keeps_the_previous_index(tree, tmp_path):
+    """Losing the git host must not empty a catalog people are using."""
+    flaky = FlakySync(tree.standard())
+    service = LibraryService([tree.source], tmp_path, sync=flaky)
+    good = await service.refresh()
+
+    flaky.error = "git fetch failed: could not resolve host"
+    served = await service.refresh()
+
+    assert served is good and service.snapshot is good
+    assert service.state is State.READY
+    assert service.error == "company: git fetch failed: could not resolve host"
+
+    flaky.error = None
+    await service.refresh()
+    assert service.error is None, "and it clears once the source is back"
+
+
+async def test_a_first_index_that_fails_is_an_error_state(tree, tmp_path):
+    flaky = FlakySync(tree.standard())
+    flaky.error = "git clone failed: repository not found"
+    service = LibraryService([tree.source], tmp_path, sync=flaky)
+
+    await service.refresh()
+
+    assert service.state is State.ERROR
+    assert service.snapshot.part_count == 0
+    assert service.snapshot.sources[0].error == "git clone failed: repository not found"
+
+    flaky.error = None
+    await service.refresh()
+    assert service.state is State.READY, "and it recovers"
+
+
+async def test_with_no_sources_there_is_nothing_to_index(tmp_path):
+    service = LibraryService([], tmp_path)
+
+    await service.refresh()
+    service.start()
+
+    assert service.state is State.EMPTY
+    assert service.snapshot.part_count == 0
+
+
+async def test_the_first_index_runs_in_the_background(tree, tmp_path):
+    """Cloning takes longer than a container is given to become healthy, so
+    starting must not wait for it."""
+    release = threading.Event()
+    tree.standard()
+
+    def slow_sync(source, workdir):
+        release.wait(timeout=10)
+        return tree.checkout
+
+    service = LibraryService([tree.source], tmp_path, sync=slow_sync)
+    service.start()
+
+    assert service.state is State.SYNCING
+    assert service.snapshot.part_count == 0, "and it can be asked things meanwhile"
+
+    release.set()
+    await service.refresh()  # queues behind the one already running
+    assert service.state is State.READY
+    await service.stop()
+
+
+async def test_a_crash_while_indexing_does_not_take_the_app_down(tree, tmp_path):
+    def broken_sync(source, workdir):
+        raise RuntimeError("something nobody anticipated")
+
+    service = LibraryService([tree.source], tmp_path, sync=broken_sync)
+    service.start()
+    await service._task
+
+    assert service.state is State.ERROR
+    assert "something nobody anticipated" not in service.error, "details stay in the log"
+    await service.stop()

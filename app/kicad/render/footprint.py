@@ -1,48 +1,52 @@
 """Draw a KiCad footprint as SVG.
 
-Two things separate this from symbol rendering. PCB coordinates already run
-with Y downwards, so unlike a symbol nothing is flipped -- applying the symbol
-transform would mirror every part. And a footprint's meaning is carried by its
-layers, so they are drawn in a fixed order and coloured accordingly rather than
-all in one ink.
+Two things separate this from drawing a symbol. Board coordinates already run
+with Y downwards, so nothing is flipped -- applying the symbol's transform
+would mirror every part. And a footprint's meaning is in its layers, so they
+are drawn in a fixed order and coloured apart rather than all in one ink.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
-from app.kicad.sexpr import SExpr
-from app.kicad.svg import (
-    Canvas,
-    arc_sweep,
-    circle_through,
+from app.kicad.render.canvas import (
+    Bounds,
+    arc_through,
     document,
     escape,
-    floats,
+    fmt,
+    numbers,
     placeholder,
     point,
+    points,
+    stroke_width,
 )
+from app.kicad.sexpr import SExpr
 
+CSS_CLASS = "kfp"
 PX_PER_MM = 40.0
 MARGIN_MM = 0.4
 DEFAULT_STROKE_MM = 0.12
-CSS_CLASS = "kfp"
 
-# Layer colours echo KiCad's own so a footprint reads the way it does in the
-# editor. Scoped to the drawing's class; see the symbol renderer for why.
+# Layer colours echo KiCad's own, so a footprint reads the way it does in the
+# editor. Scoped to the drawing's class; the symbol renderer says why.
 STYLE = (
     "<style>"
     ".kfp{--fp-copper:#c8842a;--fp-silk:#111418;--fp-courtyard:#b06cc0;"
-    "--fp-fab:#9a8f7a;--fp-hole:#fdfdfd;--fp-text:#6b7480;--fp-hl:#2f6fd0}"
+    "--fp-fab:#9a8f7a;--fp-hole:#fdfdfd;--fp-hl:#2f6fd0}"
     "@media(prefers-color-scheme:dark){"
     ".kfp{--fp-copper:#d8973c;--fp-silk:#e8eaed;--fp-courtyard:#c58ad4;"
-    "--fp-fab:#8a8170;--fp-hole:#14171c;--fp-text:#6b7480;--fp-hl:#6fa4f0}}"
+    "--fp-fab:#8a8170;--fp-hole:#14171c;--fp-hl:#6fa4f0}}"
     ".kfp .pad rect,.kfp .pad ellipse{transition:fill .1s}"
     ".kfp .pad.hl rect,.kfp .pad.hl ellipse{fill:var(--fp-hl)}"
     "</style>"
 )
 
-LAYER_STYLE = {
+# Back to front. Copper is not listed because pads are always drawn last:
+# they are what a footprint is for.
+_LAYERS = {
     "F.CrtYd": ("var(--fp-courtyard)", 0.5),
     "B.CrtYd": ("var(--fp-courtyard)", 0.5),
     "F.Fab": ("var(--fp-fab)", 0.6),
@@ -51,255 +55,222 @@ LAYER_STYLE = {
     "B.SilkS": ("var(--fp-silk)", 1.0),
 }
 
-# The default for a layer this renderer has no opinion about -- user drawings,
-# Edge.Cuts on a footprint, adhesive. Drawn faintly rather than dropped: they
-# are part of the outline a reader is trying to recognise, and geometry that
-# sets the drawing's extent but is never painted leaves unexplained margins.
-DEFAULT_LAYER_STYLE = ("var(--fp-fab)", 0.5)
+# A layer with no entry above -- user drawings, an edge cut, adhesive -- is
+# drawn faintly behind everything else instead of being dropped. It is part
+# of the outline a reader is trying to recognise, and geometry that widens
+# the view box without ever being painted leaves a margin nothing explains.
+_OTHER_LAYER = ("var(--fp-fab)", 0.5)
 
-# Back to front, copper last: the pads are what a footprint is for. Layers not
-# named here are drawn first, behind everything this renderer knows about.
-LAYER_ORDER = ["F.CrtYd", "B.CrtYd", "F.Fab", "B.Fab", "F.SilkS", "B.SilkS"]
+# Mask and paste follow the copper and would only thicken the picture.
+_SKIPPED_LAYERS = {"F.Mask", "B.Mask", "F.Paste", "B.Paste"}
 
-# Mask and paste track the copper and would only thicken the picture.
-SKIP_LAYERS = {"F.Mask", "B.Mask", "F.Paste", "B.Paste"}
-
-GRAPHIC_HEADS = ("fp_line", "fp_rect", "fp_circle", "fp_arc", "fp_poly")
+_FILLED = {"yes", "solid", "true"}
 
 
-class _Scene(Canvas):
-    """A canvas that keeps layers apart so they can be ordered on output."""
+class _Drawing:
+    """Markup kept per layer, so it can be stacked in the right order."""
 
     def __init__(self) -> None:
-        super().__init__()
         self.layers: dict[str, list[str]] = {}
         self.pads: list[str] = []
+        self.bounds = Bounds()
 
-    def on_layer(self, layer: str, markup: str) -> None:
+    def on(self, layer: str, markup: str) -> None:
         self.layers.setdefault(layer, []).append(markup)
 
+    def body(self) -> str:
+        unranked = [layer for layer in self.layers if layer not in _LAYERS]
+        ranked = [layer for layer in _LAYERS if layer in self.layers]
+        return "".join(["".join(self.layers[layer]) for layer in (*unranked, *ranked)] + self.pads)
 
-def _layer_of(node: SExpr) -> str:
+
+def _layer(node: SExpr) -> str:
     layer = node.child("layer")
-    atoms = layer.atoms() if layer else []
-    return atoms[0] if atoms else ""
-
-
-def _stroke(node: SExpr) -> float:
-    stroke = node.child("stroke")
-    width = floats(stroke.child("width")) if stroke else []
-    return width[0] if width and width[0] > 0 else DEFAULT_STROKE_MM
+    return (layer.arg(0, "") if layer else "") or ""
 
 
 def _is_filled(node: SExpr) -> bool:
-    """Whether the shape is filled, per its own (fill ...) setting.
+    """Whether a shape is filled, by its own `(fill ...)` setting.
 
-    KiCad writes "yes"/"no" and, in older files, "solid"/"none". Filling
-    everything turns a component body outline on the fab layer into a solid
-    slab that hides the pads behind it.
+    KiCad writes yes/no and, in older files, solid/none. Filling regardless
+    turns the body outline on the fab layer into a slab that hides the pads.
     """
     fill = node.child("fill")
     if fill is None:
         return False
-    atoms = fill.atoms()
-    if atoms:
-        return atoms[0] in ("yes", "solid", "true")
+    if fill.args:
+        return fill.args[0] in _FILLED
     kind = fill.child("type")
-    return bool(kind and kind.atoms() and kind.atoms()[0] in ("solid", "background"))
+    return bool(kind and kind.arg(0) in ("solid", "background"))
 
 
-def _attrs(layer: str, node: SExpr) -> str:
-    colour, opacity = LAYER_STYLE.get(layer, DEFAULT_LAYER_STYLE)
-    fill = colour if _is_filled(node) else "none"
+def _paint(node: SExpr, layer: str) -> str:
+    colour, opacity = _LAYERS.get(layer, _OTHER_LAYER)
     return (
-        f'fill="{fill}" stroke="{colour}" stroke-width="{_stroke(node):.4f}" '
-        f'opacity="{opacity}" stroke-linecap="round" stroke-linejoin="round"'
+        f'fill="{colour if _is_filled(node) else "none"}" stroke="{colour}" '
+        f'stroke-width="{fmt(stroke_width(node, DEFAULT_STROKE_MM))}" opacity="{opacity}" '
+        'stroke-linecap="round" stroke-linejoin="round"'
     )
 
 
-def _fp_line(node: SExpr, scene: _Scene) -> None:
+def _segment(start: tuple[float, float], end: tuple[float, float], paint: str) -> str:
+    return (
+        f'<line x1="{fmt(start[0])}" y1="{fmt(start[1])}" '
+        f'x2="{fmt(end[0])}" y2="{fmt(end[1])}" {paint}/>'
+    )
+
+
+def _line(node: SExpr, layer: str, drawing: _Drawing) -> None:
     start, end = point(node.child("start")), point(node.child("end"))
-    if not start or not end:
+    if start is None or end is None:
         return
-    scene.bounds.add_point(start)
-    scene.bounds.add_point(end)
-    layer = _layer_of(node)
-    scene.on_layer(
-        layer,
-        f'<line x1="{start[0]:.4f}" y1="{start[1]:.4f}" '
-        f'x2="{end[0]:.4f}" y2="{end[1]:.4f}" {_attrs(layer, node)}/>',
-    )
+    drawing.bounds.include_all([start, end])
+    drawing.on(layer, _segment(start, end, _paint(node, layer)))
 
 
-def _fp_rect(node: SExpr, scene: _Scene) -> None:
+def _rect(node: SExpr, layer: str, drawing: _Drawing) -> None:
     start, end = point(node.child("start")), point(node.child("end"))
-    if not start or not end:
+    if start is None or end is None:
         return
     x, y = min(start[0], end[0]), min(start[1], end[1])
-    w, h = abs(end[0] - start[0]), abs(end[1] - start[1])
-    scene.bounds.add(x, y)
-    scene.bounds.add(x + w, y + h)
-    layer = _layer_of(node)
-    scene.on_layer(
+    width, height = abs(end[0] - start[0]), abs(end[1] - start[1])
+    drawing.bounds.include_all([(x, y), (x + width, y + height)])
+    drawing.on(
         layer,
-        f'<rect x="{x:.4f}" y="{y:.4f}" width="{w:.4f}" '
-        f'height="{h:.4f}" {_attrs(layer, node)}/>',
+        f'<rect x="{fmt(x)}" y="{fmt(y)}" width="{fmt(width)}" height="{fmt(height)}" '
+        f"{_paint(node, layer)}/>",
     )
 
 
-def _fp_circle(node: SExpr, scene: _Scene) -> None:
-    center, edge = point(node.child("center")), point(node.child("end"))
-    if not center or not edge:
+def _circle(node: SExpr, layer: str, drawing: _Drawing) -> None:
+    # A footprint circle is its centre and one point on the circumference.
+    centre, edge = point(node.child("center")), point(node.child("end"))
+    if centre is None or edge is None:
         return
-    r = math.hypot(edge[0] - center[0], edge[1] - center[1])
-    scene.bounds.add(center[0] - r, center[1] - r)
-    scene.bounds.add(center[0] + r, center[1] + r)
-    layer = _layer_of(node)
-    scene.on_layer(
+    r = math.hypot(edge[0] - centre[0], edge[1] - centre[1])
+    drawing.bounds.include_all([(centre[0] - r, centre[1] - r), (centre[0] + r, centre[1] + r)])
+    drawing.on(
         layer,
-        f'<circle cx="{center[0]:.4f}" cy="{center[1]:.4f}" '
-        f'r="{r:.4f}" {_attrs(layer, node)}/>',
+        f'<circle cx="{fmt(centre[0])}" cy="{fmt(centre[1])}" r="{fmt(r)}" '
+        f"{_paint(node, layer)}/>",
     )
 
 
-def _fp_arc(node: SExpr, scene: _Scene) -> None:
-    start, mid, end = (point(node.child(k)) for k in ("start", "mid", "end"))
-    if not (start and mid and end):
+def _arc(node: SExpr, layer: str, drawing: _Drawing) -> None:
+    start, mid, end = (point(node.child(key)) for key in ("start", "mid", "end"))
+    if start is None or mid is None or end is None:
         return
-    for p in (start, mid, end):
-        scene.bounds.add_point(p)
+    drawing.bounds.include_all([start, mid, end])
 
-    layer = _layer_of(node)
-    circle = circle_through(start, mid, end)
-    if circle is None:
-        scene.on_layer(
-            layer,
-            f'<line x1="{start[0]:.4f}" y1="{start[1]:.4f}" '
-            f'x2="{end[0]:.4f}" y2="{end[1]:.4f}" {_attrs(layer, node)}/>',
-        )
+    arc = arc_through(start, mid, end)
+    if arc is None:
+        drawing.on(layer, _segment(start, end, _paint(node, layer)))
         return
 
-    _, _, r = circle
-    sweep = arc_sweep(start, mid, end)
-    scene.on_layer(
+    drawing.on(
         layer,
-        f'<path d="M {start[0]:.4f},{start[1]:.4f} A {r:.4f},{r:.4f} '
-        f'0 0 {sweep} {end[0]:.4f},{end[1]:.4f}" {_attrs(layer, node)}/>',
+        f'<path d="M {fmt(start[0])},{fmt(start[1])} '
+        f"A {fmt(arc.radius)},{fmt(arc.radius)} 0 {arc.large} {arc.sweep} "
+        f'{fmt(end[0])},{fmt(end[1])}" {_paint(node, layer)}/>',
     )
 
 
-def _fp_poly(node: SExpr, scene: _Scene) -> None:
-    pts = node.child("pts")
-    if pts is None:
+def _polygon(node: SExpr, layer: str, drawing: _Drawing) -> None:
+    pts = points(node.child("pts"))
+    if len(pts) < 3:
         return
-    points = [p for p in (point(c) for c in pts.children("xy")) if p]
-    if len(points) < 3:
-        return
-    for p in points:
-        scene.bounds.add_point(p)
-    layer = _layer_of(node)
-    path = " ".join(f"{x:.4f},{y:.4f}" for x, y in points)
-    scene.on_layer(layer, f'<polygon points="{path}" {_attrs(layer, node)}/>')
+    drawing.bounds.include_all(pts)
+    path = " ".join(f"{fmt(x)},{fmt(y)}" for x, y in pts)
+    drawing.on(layer, f'<polygon points="{path}" {_paint(node, layer)}/>')
 
 
-def _pad(node: SExpr, scene: _Scene) -> None:
-    atoms = node.atoms()
-    shape = atoms[2] if len(atoms) >= 3 else "rect"
-    number = atoms[0] if atoms else ""
+_GRAPHICS: dict[str, Callable[[SExpr, str, _Drawing], None]] = {
+    "fp_line": _line,
+    "fp_rect": _rect,
+    "fp_circle": _circle,
+    "fp_arc": _arc,
+    "fp_poly": _polygon,
+}
 
-    at = floats(node.child("at"))
-    size = floats(node.child("size"))
+
+def _pad(node: SExpr, drawing: _Drawing) -> None:
+    # (pad "<number>" <type> <shape> (at x y [angle]) (size w h) ...)
+    number, shape = node.arg(0, "") or "", node.arg(2, "rect")
+    at, size = numbers(node.child("at")), numbers(node.child("size"))
     if len(at) < 2 or len(size) < 2:
         return
 
-    x, y = at[0], at[1]
-    angle = at[2] if len(at) > 2 else 0.0
-    w, h = size[0], size[1]
+    x, y, angle = at[0], at[1], (at[2] if len(at) > 2 else 0.0)
+    width, height = size[0], size[1]
 
-    half = math.hypot(w, h) / 2
-    scene.bounds.add(x - half, y - half)
-    scene.bounds.add(x + half, y + half)
+    # Bounded by the pad's diagonal, which holds whatever angle it sits at.
+    reach = math.hypot(width, height) / 2
+    drawing.bounds.include_all([(x - reach, y - reach), (x + reach, y + reach)])
 
-    rotate = f' transform="rotate({angle:.4f} {x:.4f} {y:.4f})"' if angle else ""
+    rotate = f' transform="rotate({fmt(angle)} {fmt(x)} {fmt(y)})"' if angle else ""
     copper = 'fill="var(--fp-copper)" stroke="none"'
 
-    # Grouped and tagged so the matching symbol pin can highlight it.
+    # Grouped and tagged with its number so the matching symbol pin can find it.
     tag = f' data-pad="{escape(number)}"' if number else ""
-    scene.pads.append(f'<g class="pad"{tag}>')
+    markup = [f'<g class="pad"{tag}>']
 
     if shape in ("circle", "oval"):
-        scene.pads.append(
-            f'<ellipse cx="{x:.4f}" cy="{y:.4f}" rx="{w / 2:.4f}" '
-            f'ry="{h / 2:.4f}" {copper}{rotate}/>'
+        markup.append(
+            f'<ellipse cx="{fmt(x)}" cy="{fmt(y)}" rx="{fmt(width / 2)}" '
+            f'ry="{fmt(height / 2)}" {copper}{rotate}/>'
         )
     else:
-        ratio = floats(node.child("roundrect_rratio"))
-        radius = min(w, h) * (ratio[0] if ratio else 0.0)
-        scene.pads.append(
-            f'<rect x="{x - w / 2:.4f}" y="{y - h / 2:.4f}" '
-            f'width="{w:.4f}" height="{h:.4f}" rx="{radius:.4f}" '
+        ratio = numbers(node.child("roundrect_rratio"))
+        corner = min(width, height) * (ratio[0] if ratio else 0.0)
+        markup.append(
+            f'<rect x="{fmt(x - width / 2)}" y="{fmt(y - height / 2)}" '
+            f'width="{fmt(width)}" height="{fmt(height)}" rx="{fmt(corner)}" '
             f"{copper}{rotate}/>"
         )
 
-    # A through-hole pad reads as a ring, so punch the barrel out of it.
-    drill = node.child("drill")
-    if drill is not None:
-        sizes = floats(drill)
-        if sizes:
-            scene.pads.append(
-                f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{sizes[0] / 2:.4f}" '
-                'fill="var(--fp-hole)" stroke="none"/>'
-            )
+    # A through-hole pad reads as a ring, so the barrel is punched out of it.
+    drill = numbers(node.child("drill"))
+    if drill:
+        markup.append(
+            f'<circle cx="{fmt(x)}" cy="{fmt(y)}" r="{fmt(drill[0] / 2)}" '
+            'fill="var(--fp-hole)" stroke="none"/>'
+        )
 
     if number:
-        scene.pads.append(
-            f'<text x="{x:.4f}" y="{y:.4f}" text-anchor="middle" '
-            f'dominant-baseline="central" font-size="{min(w, h) * 0.5:.4f}" '
-            f'fill="var(--fp-hole)" font-family="system-ui, sans-serif">'
+        markup.append(
+            f'<text x="{fmt(x)}" y="{fmt(y)}" text-anchor="middle" '
+            f'dominant-baseline="central" font-size="{fmt(min(width, height) * 0.5)}" '
+            'fill="var(--fp-hole)" font-family="system-ui, sans-serif">'
             f"{escape(number)}</text>"
         )
 
-    scene.pads.append("</g>")
-
-
-_DRAWERS = {
-    "fp_line": _fp_line,
-    "fp_rect": _fp_rect,
-    "fp_circle": _fp_circle,
-    "fp_arc": _fp_arc,
-    "fp_poly": _fp_poly,
-    "pad": _pad,
-}
+    markup.append("</g>")
+    drawing.pads.append("".join(markup))
 
 
 def render_footprint(footprint: SExpr, title: str = "") -> str:
     """Render a `(footprint ...)` node as a standalone SVG document."""
-    scene = _Scene()
-    for item in footprint.items:
-        if not isinstance(item, SExpr):
-            continue
-        if item.head in GRAPHIC_HEADS and _layer_of(item) in SKIP_LAYERS:
-            continue
-        drawer = _DRAWERS.get(item.head or "")
-        if drawer:
-            drawer(item, scene)
+    drawing = _Drawing()
 
-    if scene.bounds.empty:
-        return placeholder(CSS_CLASS, title, STYLE, "no graphics")
+    for item in footprint.lists():
+        if item.head == "pad":
+            _pad(item, drawing)
+            continue
+        graphic = _GRAPHICS.get(item.head or "")
+        if graphic is None:
+            continue
+        layer = _layer(item)
+        if layer not in _SKIPPED_LAYERS:
+            graphic(item, layer, drawing)
 
-    # Anything on a layer with no declared order goes behind the rest, in the
-    # order it was read. Dropping it instead would leave its contribution to
-    # the bounding box as blank space nothing accounts for.
-    unordered = [layer for layer in scene.layers if layer not in LAYER_ORDER]
-    body = "".join("".join(scene.layers[layer]) for layer in unordered)
-    body += "".join("".join(scene.layers.get(layer, [])) for layer in LAYER_ORDER)
-    body += "".join(scene.pads)
+    if drawing.bounds.empty:
+        return placeholder(css_class=CSS_CLASS, title=title, style=STYLE, message="no graphics")
 
     return document(
         css_class=CSS_CLASS,
-        view=scene.bounds.viewbox(MARGIN_MM),
+        view_box=drawing.bounds.view_box(MARGIN_MM),
         px_per_mm=PX_PER_MM,
         title=title,
         style=STYLE,
-        body=body,
+        body=drawing.body(),
     )

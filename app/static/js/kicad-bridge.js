@@ -1,170 +1,176 @@
-/*
- * Minimal KiCad Remote Symbols RPC bridge.
+/* The KiCad Remote Symbols RPC, from the page's side.
  *
- * KiCad drives the session: it injects window.kiclient.postMessage(json) and
- * opens with NEW_SESSION, which we must answer before sending anything of our
- * own. Replies travel back over whichever host bridge the platform exposes.
+ * KiCad drives. It injects window.kiclient.postMessage(json) and opens with
+ * NEW_SESSION, which has to be answered before the page may send anything of
+ * its own. Messages back to KiCad go over whichever host bridge the platform's
+ * WebView provides.
+ *
+ * Two things follow from how KiCad behaves:
+ *
+ *  - This file is loaded in <head>, not deferred. NEW_SESSION arrives as the
+ *    page loads, and a bridge installed later never sees it.
+ *  - The page must never reload itself. KiCad sends NEW_SESSION once per load
+ *    it started, so after a script-initiated reload there is no session and
+ *    nothing can be placed. State changes are applied in place instead.
  */
-(function () {
+(() => {
   "use strict";
 
   const RPC_VERSION = 1;
   const RESPONSE_TIMEOUT_MS = 8000;
+  const SESSION_TIMEOUT_MS = 8000;
+
+  const script = document.currentScript;
+  const server = {
+    server_name: (script && script.dataset.serverName) || "KiCad Library Manager",
+    server_version: (script && script.dataset.serverVersion) || "0",
+  };
 
   let sessionId = null;
-  let messageCounter = 0;
-  const waiters = new Map();
+  let lastMessageId = 0;
+  const pending = new Map(); // message id, as a string -> {resolve, reject, timer}
+  const sessionWaiters = new Set(); // {resolve, timer}
   const listeners = new Set();
 
-  function postToKiCad(payload) {
-    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kicad) {
-      window.webkit.messageHandlers.kicad.postMessage(payload);
-      return true;
+  /* The host's way of receiving a message, or null in an ordinary browser. */
+  function hostChannel() {
+    const { webkit, chrome, external } = window;
+    if (webkit && webkit.messageHandlers && webkit.messageHandlers.kicad) {
+      return (text) => webkit.messageHandlers.kicad.postMessage(text); // macOS, Linux
     }
-    if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-      window.chrome.webview.postMessage(payload);
-      return true;
+    if (chrome && chrome.webview && chrome.webview.postMessage) {
+      return (text) => chrome.webview.postMessage(text); // Windows
     }
-    if (window.external && typeof window.external.invoke === "function") {
-      window.external.invoke(payload);
-      return true;
+    if (external && typeof external.invoke === "function") {
+      return (text) => external.invoke(text);
     }
-    return false; // running in a plain browser, not inside KiCad
+    return null;
   }
 
-  function handleIncoming(incoming) {
-    let env = incoming;
-    if (typeof env === "string") {
+  function post(envelope) {
+    const channel = hostChannel();
+    if (!channel) return false;
+    channel(JSON.stringify({ version: RPC_VERSION, session_id: sessionId, ...envelope }));
+    return true;
+  }
+
+  // ------------------------------------------------------------- incoming
+
+  function openSession(envelope) {
+    sessionId = envelope.session_id;
+    lastMessageId = envelope.message_id || 0;
+
+    // Whatever was in flight belonged to the previous session.
+    for (const waiter of pending.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error("KiCad started a new session"));
+    }
+    pending.clear();
+
+    post({
+      message_id: ++lastMessageId,
+      response_to: envelope.message_id,
+      command: "NEW_SESSION",
+      status: "OK",
+      parameters: server,
+    });
+
+    for (const waiter of sessionWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(sessionId);
+    }
+    sessionWaiters.clear();
+  }
+
+  function receive(incoming) {
+    let envelope = incoming;
+    if (typeof envelope === "string") {
       try {
-        env = JSON.parse(env);
-      } catch (err) {
+        envelope = JSON.parse(envelope);
+      } catch {
         return;
       }
     }
-    if (!env || typeof env !== "object") return;
+    if (!envelope || typeof envelope !== "object") return;
 
-    if (env.command === "NEW_SESSION" && env.response_to === undefined) {
-      sessionId = env.session_id;
-      messageCounter = env.message_id || 0;
-      waiters.clear();
-      postToKiCad(
-        JSON.stringify({
-          version: RPC_VERSION,
-          session_id: sessionId,
-          message_id: ++messageCounter,
-          response_to: env.message_id,
-          command: "NEW_SESSION",
-          status: "OK",
-          parameters: { server_name: "KiCad Library Manager", server_version: "0.1.0" },
-        })
-      );
-      resolveSessionWaiters();
-      listeners.forEach((fn) => fn(env));
-      return;
-    }
-
-    if (env.response_to !== undefined) {
-      const waiter = waiters.get(String(env.response_to));
-      if (waiter) {
-        waiters.delete(String(env.response_to));
-        if (env.status === "ERROR") {
-          waiter.reject(new Error(env.error_message || "RPC error"));
-        } else {
-          waiter.resolve(env);
-        }
+    if (envelope.response_to !== undefined) {
+      const key = String(envelope.response_to);
+      const waiter = pending.get(key);
+      if (!waiter) return;
+      pending.delete(key);
+      clearTimeout(waiter.timer);
+      if (envelope.status === "ERROR") {
+        waiter.reject(new Error(envelope.error_message || "KiCad reported an error"));
+      } else {
+        waiter.resolve(envelope);
       }
       return;
     }
 
-    listeners.forEach((fn) => fn(env));
+    if (envelope.command === "NEW_SESSION") openSession(envelope);
+    for (const listener of listeners) listener(envelope);
   }
 
-  function send(command, parameters, data) {
-    return new Promise(function (resolve, reject) {
-      if (!sessionId) {
-        reject(new Error("No KiCad session yet"));
-        return;
-      }
-      const id = ++messageCounter;
-      const key = String(id);
-      const delivered = postToKiCad(
-        JSON.stringify({
-          version: RPC_VERSION,
-          session_id: sessionId,
-          message_id: id,
-          command: command,
-          parameters: parameters || {},
-          data: data || "",
-        })
-      );
-      if (!delivered) {
-        reject(new Error("No KiCad bridge available"));
-        return;
-      }
-      const timer = setTimeout(function () {
-        waiters.delete(key);
-        reject(new Error("Timed out waiting for KiCad"));
-      }, RESPONSE_TIMEOUT_MS);
-      waiters.set(key, {
-        resolve: function (v) { clearTimeout(timer); resolve(v); },
-        reject: function (e) { clearTimeout(timer); reject(e); },
-      });
-    });
-  }
-
-  const sessionWaiters = [];
-
-  function resolveSessionWaiters() {
-    while (sessionWaiters.length) {
-      const w = sessionWaiters.shift();
-      clearTimeout(w.timer);
-      w.resolve(sessionId);
-    }
-  }
-
-  /* Resolves once KiCad has opened a session, or rejects after timeoutMs.
-     KiCad sends NEW_SESSION when it loads the page, so a caller that runs
-     first would otherwise fail for no reason. */
-  function whenReady(timeoutMs) {
-    if (sessionId) return Promise.resolve(sessionId);
-    return new Promise(function (resolve, reject) {
-      const w = { resolve: resolve };
-      w.timer = setTimeout(function () {
-        const i = sessionWaiters.indexOf(w);
-        if (i >= 0) sessionWaiters.splice(i, 1);
-        reject(new Error("KiCad did not open a session"));
-      }, timeoutMs || 5000);
-      sessionWaiters.push(w);
-    });
-  }
-
-  const existing = window.kiclient || {};
-  const previous = typeof existing.postMessage === "function" ? existing.postMessage.bind(existing) : null;
-  existing.postMessage = function (incoming) {
-    handleIncoming(incoming);
+  // Wrap rather than replace: if KiCad has already put a kiclient in place,
+  // whatever it does with a message still happens.
+  const kiclient = window.kiclient || {};
+  const previous =
+    typeof kiclient.postMessage === "function" ? kiclient.postMessage.bind(kiclient) : null;
+  kiclient.postMessage = (incoming) => {
+    receive(incoming);
     if (previous) previous(incoming);
   };
-  window.kiclient = existing;
+  window.kiclient = kiclient;
+
+  // ------------------------------------------------------------- outgoing
+
+  /* Resolves once KiCad has opened a session. A caller that runs before
+     NEW_SESSION has arrived would otherwise fail for no reason of its own. */
+  function whenReady(timeoutMs = SESSION_TIMEOUT_MS) {
+    if (sessionId) return Promise.resolve(sessionId);
+    return new Promise((resolve, reject) => {
+      const waiter = { resolve };
+      waiter.timer = setTimeout(() => {
+        sessionWaiters.delete(waiter);
+        reject(new Error("KiCad did not open a session"));
+      }, timeoutMs);
+      sessionWaiters.add(waiter);
+    });
+  }
+
+  /* Send a command and wait for KiCad's answer to it. */
+  function send(command, parameters = {}, data = "") {
+    return new Promise((resolve, reject) => {
+      if (!sessionId) {
+        reject(new Error("There is no KiCad session"));
+        return;
+      }
+      const id = ++lastMessageId;
+      if (!post({ message_id: id, command, parameters, data })) {
+        reject(new Error("This page is not running inside KiCad"));
+        return;
+      }
+      const key = String(id);
+      const timer = setTimeout(() => {
+        pending.delete(key);
+        reject(new Error("KiCad did not answer in time"));
+      }, RESPONSE_TIMEOUT_MS);
+      pending.set(key, { resolve, reject, timer });
+    });
+  }
 
   window.KicadBridge = {
-    send: send,
-    whenReady: whenReady,
-    login: function () {
-      return whenReady(8000).then(function () {
-        return send("REMOTE_LOGIN", { interactive: true });
-      });
-    },
-    logout: function () {
-      return whenReady(8000).then(function () { return send("LOGOUT", {}); });
-    },
-    onMessage: function (fn) { listeners.add(fn); return function () { listeners.delete(fn); }; },
-    sessionId: function () { return sessionId; },
-    isEmbedded: function () {
-      return !!(
-        (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kicad) ||
-        (window.chrome && window.chrome.webview) ||
-        (window.external && typeof window.external.invoke === "function")
-      );
+    /* Whether a host bridge exists at all: false in an ordinary browser. */
+    isEmbedded: () => hostChannel() !== null,
+    whenReady,
+    send,
+    /* Ask KiCad to run its OAuth2 sign-in. It answers once the session
+       bootstrap has completed and the WebView holds a session cookie. */
+    login: () => whenReady().then(() => send("REMOTE_LOGIN", { interactive: true })),
+    logout: () => whenReady().then(() => send("LOGOUT")),
+    onMessage(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 })();

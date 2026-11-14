@@ -1,98 +1,195 @@
-"""Environment-driven configuration."""
+"""Configuration, read once from the environment.
+
+Nothing here raises. A container that refuses to start cannot be inspected,
+and every one of these mistakes can be fixed from the deployment's own
+settings page while the app keeps serving what it can. So a bad value falls
+back to its default and is recorded, and `Settings.problems()` is what the
+log and the status page show.
+"""
 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import lru_cache
 from urllib.parse import urlsplit
 
+from app import __version__
+from app.library.placement import PlacementOptions
+from app.library.sources import Source, SourceError, parse_sources
 
-def _bool(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+class _Environment:
+    """Typed reads of environment variables, remembering what was malformed."""
+
+    def __init__(self, environ: Mapping[str, str]) -> None:
+        self._environ = environ
+        self.errors: list[str] = []
+
+    def text(self, name: str, default: str = "") -> str:
+        return (self._environ.get(name) or "").strip() or default
+
+    def optional(self, name: str) -> str | None:
+        return self.text(name) or None
+
+    def flag(self, name: str, default: bool) -> bool:
+        raw = self.text(name).lower()
+        if not raw:
+            return default
+        if raw in _TRUE:
+            return True
+        if raw in _FALSE:
+            return False
+        self.errors.append(f"{name} must be true or false; got {raw!r}, using {default}")
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
+    def integer(self, name: str, default: int) -> int:
+        raw = self.text(name)
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            self.errors.append(f"{name} must be a whole number; got {raw!r}, using {default}")
+            return default
 
-def _int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    return int(raw) if raw and raw.strip() else default
-
-
-def _csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
-    raw = os.environ.get(name)
-    if not raw or not raw.strip():
-        return default
-    return tuple(part.strip() for part in raw.split(",") if part.strip())
-
-
-class ConfigError(Exception):
-    """Configuration that cannot produce a working deployment."""
+    def words(self, name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+        """A comma-separated list."""
+        found = tuple(word.strip() for word in self.text(name).split(",") if word.strip())
+        return found or default
 
 
 @dataclass(frozen=True)
 class Settings:
-    """Runtime settings.
+    # The externally reachable address, including any path prefix a reverse
+    # proxy mounts the app under. Every URL the app hands out is derived from
+    # it, and KiCad checks that they share an origin, so a wrong value fails
+    # the handshake outright instead of degrading.
+    public_url: str = "http://localhost:8000"
+    provider_name: str = "KiCad Library Manager"
+    provider_version: str = __version__
 
-    PUBLIC_URL must be the externally reachable origin: KiCad validates that the
-    panel, bootstrap and nonce URLs share an origin, so a wrong value here fails
-    the handshake rather than degrading gracefully.
-    """
+    # -- who may read the library
+    auth_enabled: bool = False
+    oidc_metadata_url: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: str | None = None  # only for a confidential client
+    oidc_audience: str | None = None
+    # "profile" is deliberately not requested. KiCad keeps its tokens in the
+    # OS credential store, which on Windows holds 2560 bytes -- about 1280
+    # characters. A provider that packs names and groups into the tokens goes
+    # over, and the login fails after succeeding with "Failed to store remote
+    # provider tokens securely".
+    oidc_scopes: tuple[str, ...] = ("openid", "email")
+    # Sign-in from an ordinary browser, with this app as the OAuth2 client.
+    web_login_enabled: bool = True
 
-    public_url: str
-    provider_name: str
-    provider_version: str
+    # -- sessions
+    nonce_ttl_seconds: int = 120
+    # A browser sign-in can take a password, a consent screen and a second
+    # factor, none of which fit in the two minutes a nonce gets.
+    login_ttl_seconds: int = 600
+    session_ttl_seconds: int = 8 * 60 * 60
+    cookie_name: str = "klm_session"
+    cookie_secure: bool = False
 
-    auth_enabled: bool
-    oidc_metadata_url: str | None
-    oidc_client_id: str | None
-    oidc_scopes: tuple[str, ...]
-    oidc_audience: str | None
+    # -- response headers
+    hsts_enabled: bool = True
+    hsts_max_age: int = 31_536_000
+    hsts_include_subdomains: bool = False
+    # A one-way door: browsers ship the preload list and leaving it takes
+    # months. Never on unless asked for.
+    hsts_preload: bool = False
 
-    # The browser sign-in flow runs here rather than in KiCad, so this app is
-    # the OAuth2 client for it. A public client with PKCE needs no secret; set
-    # one only if the provider registered a confidential client.
-    oidc_client_secret: str | None
-    web_login_enabled: bool
+    # -- the library
+    library_sources: tuple[Source, ...] = ()
+    library_workdir: str = "/data/sources"
+    remote_library_prefix: str = "remote"
 
-    nonce_ttl_seconds: int
-    login_ttl_seconds: int
-    session_ttl_seconds: int
-    cookie_name: str
-    cookie_secure: bool
+    # -- what the discovery document advertises
+    allow_insecure_localhost: bool = True
+    max_download_bytes: int = 64 * 1024 * 1024
+    supported_asset_types: tuple[str, ...] = ("symbol", "footprint", "3dmodel")
+    capability_parts: bool = False
+    # KiCad refuses to register a provider that offers neither transport, so
+    # both default on.
+    capability_direct_downloads: bool = True
+    capability_inline_payloads: bool = True
 
-    hsts_enabled: bool
-    hsts_max_age: int
-    hsts_include_subdomains: bool
-    hsts_preload: bool
+    # -- logging
+    log_level: str = "INFO"
+    log_json: bool = False
 
-    library_sources: str
-    library_workdir: str
-    remote_library_prefix: str
+    # Values that could not be read, each already replaced by its default.
+    errors: tuple[str, ...] = ()
 
-    allow_insecure_localhost: bool
-    max_download_bytes: int
-    supported_asset_types: tuple[str, ...]
+    @staticmethod
+    def from_env(environ: Mapping[str, str] | None = None) -> Settings:
+        env = _Environment(os.environ if environ is None else environ)
+        public_url = env.text("PUBLIC_URL", "http://localhost:8000").rstrip("/")
 
-    capability_parts: bool
-    capability_direct_downloads: bool
-    capability_inline_payloads: bool
+        try:
+            sources = parse_sources(env.text("LIBRARY_SOURCES"))
+        except SourceError as exc:
+            sources = ()
+            env.errors.append(f"LIBRARY_SOURCES is unusable, so no library is loaded: {exc}")
 
-    @property
-    def root_path(self) -> str:
-        """Path prefix this app is mounted under, e.g. "/kicadLibrary".
+        return Settings(
+            public_url=public_url,
+            provider_name=env.text("PROVIDER_NAME", "KiCad Library Manager"),
+            provider_version=env.text("PROVIDER_VERSION", __version__),
+            auth_enabled=env.flag("AUTH_ENABLED", False),
+            oidc_metadata_url=env.optional("OIDC_METADATA_URL"),
+            oidc_client_id=env.optional("OIDC_CLIENT_ID"),
+            oidc_client_secret=env.optional("OIDC_CLIENT_SECRET"),
+            oidc_audience=env.optional("OIDC_AUDIENCE"),
+            oidc_scopes=env.words("OIDC_SCOPES", ("openid", "email")),
+            web_login_enabled=env.flag("WEB_LOGIN_ENABLED", True),
+            nonce_ttl_seconds=env.integer("NONCE_TTL_SECONDS", 120),
+            login_ttl_seconds=env.integer("LOGIN_TTL_SECONDS", 600),
+            session_ttl_seconds=env.integer("SESSION_TTL_SECONDS", 8 * 60 * 60),
+            cookie_name=env.text("SESSION_COOKIE_NAME", "klm_session"),
+            cookie_secure=env.flag("COOKIE_SECURE", public_url.startswith("https://")),
+            hsts_enabled=env.flag("HSTS_ENABLED", True),
+            hsts_max_age=env.integer("HSTS_MAX_AGE", 31_536_000),
+            hsts_include_subdomains=env.flag("HSTS_INCLUDE_SUBDOMAINS", False),
+            hsts_preload=env.flag("HSTS_PRELOAD", False),
+            library_sources=sources,
+            library_workdir=env.text("LIBRARY_WORKDIR", "/data/sources"),
+            remote_library_prefix=env.text("REMOTE_LIBRARY_PREFIX", "remote"),
+            allow_insecure_localhost=env.flag("ALLOW_INSECURE_LOCALHOST", True),
+            max_download_bytes=env.integer("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
+            supported_asset_types=env.words(
+                "SUPPORTED_ASSET_TYPES", ("symbol", "footprint", "3dmodel")
+            ),
+            capability_parts=env.flag("CAPABILITY_PARTS", False),
+            capability_direct_downloads=env.flag("CAPABILITY_DIRECT_DOWNLOADS", True),
+            capability_inline_payloads=env.flag("CAPABILITY_INLINE_PAYLOADS", True),
+            log_level=env.text("LOG_LEVEL", "INFO").upper(),
+            log_json=env.text("LOG_FORMAT", "text").lower() == "json",
+            errors=tuple(env.errors),
+        )
 
-        A reverse proxy that strips the prefix leaves the app seeing "/panel"
-        while the browser sits at "/kicadLibrary/panel", so every URL we emit
-        has to carry the prefix back or it resolves against the site root.
-        """
-        return urlsplit(self.public_url).path.rstrip("/")
+    # -- addresses
 
     @property
     def origin(self) -> str:
         parts = urlsplit(self.public_url)
         return f"{parts.scheme}://{parts.netloc}"
+
+    @property
+    def root_path(self) -> str:
+        """The path prefix the app is mounted under, e.g. "/kicadLibrary".
+
+        A proxy that strips the prefix leaves the app seeing "/panel" while
+        the browser sits at "/kicadLibrary/panel". Every URL sent out has to
+        carry the prefix back, or it resolves against the site root.
+        """
+        return urlsplit(self.public_url).path.rstrip("/")
 
     @property
     def api_base_url(self) -> str:
@@ -108,37 +205,49 @@ class Settings:
 
     @property
     def web_callback_url(self) -> str:
-        """Where the provider sends the browser back after a sign-in.
+        """Where the identity provider returns a browser after sign-in.
 
-        Fixed, unlike KiCad's ephemeral loopback port, so it has to be
-        registered with the provider as an allowed redirect URI.
+        Fixed, unlike KiCad's loopback address with its ephemeral port, so it
+        has to be registered with the provider as an allowed redirect URI.
         """
         return f"{self.public_url}/auth/callback"
 
-    @property
-    def web_login_configured(self) -> bool:
-        return bool(self.auth_configured and self.web_login_enabled)
+    # -- what is switched on
 
     @property
     def auth_configured(self) -> bool:
+        """Whether the library is closed to anyone without a session."""
         return bool(self.auth_enabled and self.oidc_metadata_url and self.oidc_client_id)
 
+    @property
+    def web_login_configured(self) -> bool:
+        return self.auth_configured and self.web_login_enabled
+
+    @property
+    def placement(self) -> PlacementOptions:
+        return PlacementOptions(
+            public_url=self.public_url, remote_prefix=self.remote_library_prefix
+        )
+
+    # -- what is wrong
+
     def problems(self) -> list[str]:
-        """Misconfigurations worth reporting at startup.
+        """Misconfigurations worth putting in front of whoever can fix them.
 
         Each of these otherwise surfaces much later as a puzzle: KiCad loading
-        a panel on the user's own machine, or a login that drops its session
+        a panel from the user's own machine, or a login that drops its session
         with nothing in the logs to say why.
         """
-        found: list[str] = []
-        parts = urlsplit(self.public_url)
+        found = list(self.errors)
+        url = urlsplit(self.public_url)
+        https = url.scheme == "https"
 
-        if parts.scheme not in ("http", "https") or not parts.netloc:
+        if url.scheme not in ("http", "https") or not url.netloc:
             found.append(f"PUBLIC_URL must be an absolute URL; got {self.public_url!r}")
-        elif parts.hostname in ("localhost", "127.0.0.1", "::1"):
+        elif url.hostname in _LOCAL_HOSTS:
             found.append(
-                "PUBLIC_URL points at localhost, so KiCad would load the panel "
-                "from each user's own machine; set it to the deployed address"
+                "PUBLIC_URL points at localhost, so KiCad would load the panel from "
+                "each user's own machine; set it to the address this is deployed at"
             )
 
         if self.auth_enabled and not self.auth_configured:
@@ -150,18 +259,20 @@ class Settings:
                 )
                 if not value
             ]
-            found.append(f"AUTH_ENABLED is on but {', '.join(missing)} is not set")
-
-        if self.auth_configured and parts.scheme != "https":
             found.append(
-                "OAuth2 requires https: Secure session cookies are dropped over "
-                "http, which presents as a login that silently does nothing"
+                f"AUTH_ENABLED is on but {' and '.join(missing)} "
+                f"{'is' if len(missing) == 1 else 'are'} not set, so the library is open"
             )
 
-        if self.cookie_secure and parts.scheme != "https":
+        if self.auth_configured and not https:
             found.append(
-                "COOKIE_SECURE is on but PUBLIC_URL is http, so the session "
-                "cookie will never be sent back"
+                "sign-in needs https: over http the session cookie is dropped, "
+                "which looks like a login that does nothing"
+            )
+        elif self.cookie_secure and not https:
+            found.append(
+                "COOKIE_SECURE is on but PUBLIC_URL is http, so the session cookie "
+                "is never sent back"
             )
 
         if not (self.capability_direct_downloads or self.capability_inline_payloads):
@@ -171,50 +282,3 @@ class Settings:
             )
 
         return found
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    public_url = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
-    return Settings(
-        public_url=public_url,
-        provider_name=os.environ.get("PROVIDER_NAME", "KiCad Library Manager"),
-        provider_version=os.environ.get("PROVIDER_VERSION", "0.1.0"),
-        auth_enabled=_bool("AUTH_ENABLED", False),
-        oidc_metadata_url=os.environ.get("OIDC_METADATA_URL") or None,
-        oidc_client_id=os.environ.get("OIDC_CLIENT_ID") or None,
-        # "profile" is deliberately absent: authentik's profile scope carries the
-        # user's group list, and KiCad persists its token bundle in the OS
-        # credential store -- capped at 2560 bytes (~1280 UTF-16 chars) on
-        # Windows. Oversized tokens fail with "Failed to store remote provider
-        # tokens securely" after an otherwise successful login.
-        oidc_scopes=_csv("OIDC_SCOPES", ("openid", "email")),
-        oidc_audience=os.environ.get("OIDC_AUDIENCE") or None,
-        oidc_client_secret=os.environ.get("OIDC_CLIENT_SECRET") or None,
-        web_login_enabled=_bool("WEB_LOGIN_ENABLED", True),
-        nonce_ttl_seconds=_int("NONCE_TTL_SECONDS", 120),
-        # A sign-in round trip can include a password, consent and a second
-        # factor, none of which fit in the nonce's two minutes.
-        login_ttl_seconds=_int("LOGIN_TTL_SECONDS", 600),
-        session_ttl_seconds=_int("SESSION_TTL_SECONDS", 8 * 60 * 60),
-        cookie_name=os.environ.get("SESSION_COOKIE_NAME", "klm_session"),
-        cookie_secure=_bool("COOKIE_SECURE", public_url.startswith("https://")),
-        library_sources=os.environ.get("LIBRARY_SOURCES", ""),
-        library_workdir=os.environ.get("LIBRARY_WORKDIR", "/data/sources"),
-        remote_library_prefix=os.environ.get("REMOTE_LIBRARY_PREFIX", "remote"),
-        hsts_enabled=_bool("HSTS_ENABLED", True),
-        hsts_max_age=_int("HSTS_MAX_AGE", 31536000),
-        hsts_include_subdomains=_bool("HSTS_INCLUDE_SUBDOMAINS", False),
-        # Preload is a one-way door: browsers ship the entry and removal takes
-        # months, so it stays opt-in.
-        hsts_preload=_bool("HSTS_PRELOAD", False),
-        allow_insecure_localhost=_bool("ALLOW_INSECURE_LOCALHOST", True),
-        max_download_bytes=_int("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
-        supported_asset_types=_csv("SUPPORTED_ASSET_TYPES", ("symbol", "footprint", "3dmodel")),
-        capability_parts=_bool("CAPABILITY_PARTS", False),
-        # KiCad refuses to register a provider unless at least one asset
-        # transport is advertised, so these default on even before the catalog
-        # can serve anything.
-        capability_direct_downloads=_bool("CAPABILITY_DIRECT_DOWNLOADS", True),
-        capability_inline_payloads=_bool("CAPABILITY_INLINE_PAYLOADS", True),
-    )

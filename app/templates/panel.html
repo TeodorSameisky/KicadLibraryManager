@@ -1,15 +1,17 @@
 {% extends "base.html" %}
 
 {% block body_attrs %}
-  data-auth-configured="{{ 'true' if auth_configured else 'false' }}"
+  data-auth="{{ 'true' if auth_configured else 'false' }}"
   data-signed-in="{{ 'true' if session else 'false' }}"
   data-web-login="{{ 'true' if web_login else 'false' }}"
 {% endblock %}
 
 {% block head %}
-  <!-- Loaded early and undeferred: KiCad injects NEW_SESSION as the page
-       loads, and a bridge installed later would miss it. -->
-  <script src="{{ root_path }}/static/js/kicad-bridge.js"></script>
+  {# In the head and not deferred: KiCad sends NEW_SESSION as the page loads,
+     and a bridge installed any later would miss it. #}
+  <script src="{{ root_path }}/static/js/kicad-bridge.js"
+          data-server-name="{{ provider_name }}"
+          data-server-version="{{ provider_version }}"></script>
 {% endblock %}
 
 {% block content %}
@@ -21,15 +23,14 @@
 
     <div class="topbar__actions">
       {% if auth_configured %}
-        <span class="badge {{ 'badge--ok' if session else '' }}" id="session-badge">
-          {{ session.display_name if session else "Not signed in" }}
+        <span class="badge {{ 'badge--ok' if session }}" id="session-name">
+          {{- session.display_name if session else "Not signed in" -}}
         </span>
         <button type="button" class="button" id="session-action">
-          {{ "Sign out" if session else "Sign in" }}
+          {{- "Sign out" if session else "Sign in" -}}
         </button>
       {% else %}
-        <span class="badge badge--warn"
-              title="Anyone who can reach this URL can read the library">
+        <span class="badge badge--warn" title="Anyone who can reach this address can read the library">
           Authentication disabled
         </span>
       {% endif %}
@@ -41,15 +42,15 @@
       <label class="visually-hidden" for="search">Search parts</label>
       <input type="search" id="search" autocomplete="off" spellcheck="false"
              placeholder="Search by part number, description, value or MPN" />
-      <span class="small muted" id="count"></span>
+      <span class="small muted" id="count" aria-live="polite"></span>
     </div>
 
-    {# Populated from the index: the panel offers the filters this library
-       actually supports rather than a fixed list. #}
+    {# Filled in from the index: the panel offers the filters this library
+       supports, not a fixed list. #}
     <div class="filters" id="filters" hidden></div>
   </div>
 
-  <div id="results" aria-live="polite">
+  <div id="results">
     <div class="state"><p class="state__title">Loading</p></div>
   </div>
 
@@ -58,9 +59,9 @@
     <kbd>Enter</kbd> place
   </p>
 
-  <details class="log" id="log-wrap" hidden>
+  <details class="log" id="activity" hidden>
     <summary>Activity</summary>
-    <pre id="log"></pre>
+    <pre id="activity-log"></pre>
   </details>
 {% endblock %}
 

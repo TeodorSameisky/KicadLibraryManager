@@ -16,3 +16,5 @@ tests
 requirements-dev.txt
 README.md
 docker-compose.yml
+.claude
+.github

@@ -1,21 +1,15 @@
-"""Talking to an OIDC-compliant identity provider.
+"""The identity provider, as any OIDC-compliant one presents itself.
 
-There are two ways a session starts here, because there are two clients.
+Two jobs, one per way in.
 
-KiCad runs Authorization Code + PKCE itself and hands us the resulting access
-token at the bootstrap endpoint; for that flow we only decide whether a
-presented token is valid and who it belongs to. Two token shapes are supported,
-because providers differ:
+For KiCad's handshake, a presented access token is checked and attributed.
+Providers differ in what a token is: Keycloak, Authentik, Auth0 and Zitadel
+issue JWTs, which are verified here against the provider's published keys;
+Google's are opaque, and can only be resolved by asking the provider's
+userinfo endpoint whose they are.
 
-* JWT access tokens (Keycloak, Authentik, Auth0, Zitadel) are verified locally
-  against the provider's JWKS.
-* Opaque access tokens (Google) cannot be verified locally, so we fall back to
-  calling the provider's userinfo endpoint.
-
-A browser arriving at a part page has no KiCad to do that for it -- the link
-lives in a placed symbol and may be followed from a PDF export years later --
-so for that flow this app is the OAuth2 client and runs the exchange itself.
-Either way we never see the user's credentials.
+For a browser, this app is the OAuth2 client: it builds the address that
+starts Authorization Code + PKCE and redeems the code that comes back.
 """
 
 from __future__ import annotations
@@ -24,247 +18,282 @@ import base64
 import hashlib
 import secrets
 import time
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 import jwt
-from jwt import PyJWKClient
 
-from app.auth.session import friendly_name
-from app.config import Settings
+from app.auth.identity import Principal
+
+# Asymmetric algorithms only. Accepting HS256 would let anyone holding the
+# provider's public key sign their own tokens with it.
+_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
 
 _METADATA_TTL_SECONDS = 3600
-
-# RFC 7636 allows 43-128 characters from an unreserved set; token_urlsafe emits
-# exactly that alphabet.
-_VERIFIER_BYTES = 64
-
-
-def make_code_verifier() -> str:
-    return secrets.token_urlsafe(_VERIFIER_BYTES)[:128]
+# A token signed with a key we have not seen may mean the provider rotated
+# its keys, so they are fetched again -- but not for every bad token.
+_KEY_REFRESH_INTERVAL_SECONDS = 60
+_TIMEOUT_SECONDS = 10.0
 
 
-def code_challenge_for(verifier: str) -> str:
-    """The S256 challenge. `plain` is allowed by the RFC and worth nothing."""
+class IdentityError(Exception):
+    """A token or authorization code was not accepted."""
+
+
+class ProviderError(Exception):
+    """The identity provider could not be reached, or made no sense."""
+
+
+# -- PKCE (RFC 7636) --------------------------------------------------------
+
+
+def new_code_verifier() -> str:
+    """43 to 128 characters from the unreserved set; this yields 86."""
+    return secrets.token_urlsafe(64)
+
+
+def code_challenge(verifier: str) -> str:
+    """The S256 challenge. The RFC also allows `plain`, which proves nothing."""
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
-def _has_display_claim(claims: dict[str, Any]) -> bool:
-    return any(claims.get(key) for key in ("name", "preferred_username", "email"))
+# -- the provider -----------------------------------------------------------
 
 
-class TokenError(Exception):
-    """Raised when a token is missing, malformed, expired or untrusted."""
+class OidcClient:
+    def __init__(
+        self,
+        *,
+        metadata_url: str | None,
+        client_id: str | None,
+        client_secret: str | None = None,
+        scopes: tuple[str, ...] = ("openid",),
+        audience: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._metadata_url = metadata_url
+        self._client_id = client_id or ""
+        self._client_secret = client_secret
+        self._scopes = scopes
+        self._audience = audience
+        self._transport = transport
 
-
-def _oauth_error(response: httpx.Response) -> str:
-    """The provider's own error code, or the status if it sent none."""
-    try:
-        body = response.json()
-    except ValueError:
-        return f"HTTP {response.status_code}"
-
-    code = body.get("error")
-    if not code:
-        return f"HTTP {response.status_code}"
-    description = body.get("error_description")
-    return f"{code}: {description}" if description else str(code)
-
-
-@dataclass(frozen=True)
-class Principal:
-    """An authenticated user."""
-
-    subject: str
-    claims: dict[str, Any]
-
-    @property
-    def display_name(self) -> str:
-        return friendly_name(self.subject, self.claims)
-
-
-class OidcVerifier:
-    """Caches provider metadata and JWKS, and verifies access tokens."""
-
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
         self._metadata: dict[str, Any] | None = None
-        self._metadata_fetched_at = 0.0
-        self._jwk_client: PyJWKClient | None = None
+        self._metadata_at = 0.0
+        self._keys: dict[str | None, Any] = {}
+        self._keys_at: float | None = None
+
+    # -- talking to it
+
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        try:
+            async with httpx.AsyncClient(
+                transport=self._transport, timeout=_TIMEOUT_SECONDS
+            ) as client:
+                return await client.request(method, url, **kwargs)
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"the identity provider is unreachable ({exc!r})") from exc
+
+    @staticmethod
+    def _json(response: httpx.Response, what: str) -> dict[str, Any]:
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ProviderError(f"the provider's {what} is not JSON") from exc
+        if not isinstance(body, dict):
+            raise ProviderError(f"the provider's {what} is not a JSON object")
+        return body
 
     async def metadata(self) -> dict[str, Any]:
-        if not self._settings.oidc_metadata_url:
-            raise TokenError("No OIDC metadata URL configured")
+        """The provider's discovery document, cached for an hour."""
+        if not self._metadata_url:
+            raise ProviderError("no OIDC metadata URL is configured")
 
-        fresh = time.monotonic() - self._metadata_fetched_at < _METADATA_TTL_SECONDS
+        fresh = time.monotonic() - self._metadata_at < _METADATA_TTL_SECONDS
         if self._metadata is not None and fresh:
             return self._metadata
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(self._settings.oidc_metadata_url)
-            response.raise_for_status()
-            self._metadata = response.json()
+        response = await self._request("GET", self._metadata_url)
+        if response.status_code >= 400:
+            raise ProviderError(f"the provider's metadata returned HTTP {response.status_code}")
 
-        self._metadata_fetched_at = time.monotonic()
-        self._jwk_client = None  # keys may have rotated with the metadata
+        self._metadata = self._json(response, "metadata")
+        self._metadata_at = time.monotonic()
+        self._keys, self._keys_at = {}, None  # may have rotated along with it
         return self._metadata
 
-    # -- this app as the OAuth2 client ------------------------------------
+    async def _endpoint(self, name: str) -> str:
+        endpoint = (await self.metadata()).get(name)
+        if not endpoint:
+            raise ProviderError(f"the provider's metadata has no {name}")
+        return str(endpoint)
 
-    async def authorization_url(self, *, redirect_uri: str, state: str, code_challenge: str) -> str:
+    # -- checking a token someone else obtained
+
+    async def verify(self, access_token: str) -> Principal:
+        """Decide whether a token is genuine, and whose it is."""
+        token = access_token.strip()
+        if not token:
+            raise IdentityError("empty access token")
+
+        # A JWT is three dot-separated segments. Anything else is opaque.
+        if token.count(".") != 2:
+            return await self._userinfo(token)
+
+        principal = await self._verify_jwt(token)
+        if principal.has_name:
+            return principal
+
+        # The claims that name a person usually ride in the id_token, and
+        # KiCad only passes on the access token. Userinfo returns whatever the
+        # granted scopes allow. Not being able to ask must not cost the user
+        # a login that has already been verified.
+        try:
+            described = await self._userinfo(token)
+        except (IdentityError, ProviderError):
+            return principal
+        if described.subject != principal.subject:
+            return principal  # an answer about somebody else
+        return Principal(principal.subject, {**described.claims, **principal.claims})
+
+    async def _verify_jwt(self, token: str) -> Principal:
+        metadata = await self.metadata()
+        issuer = metadata.get("issuer")
+        if not issuer:
+            raise ProviderError("the provider's metadata has no issuer")
+
+        try:
+            header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError as exc:
+            raise IdentityError(f"malformed token: {exc}") from exc
+
+        key = await self._signing_key(header.get("kid"))
+        try:
+            claims = jwt.decode(
+                token,
+                key,
+                algorithms=_ALGORITHMS,
+                issuer=issuer,
+                audience=self._audience,
+                options={"verify_aud": self._audience is not None, "require": ["exp", "sub"]},
+            )
+        except jwt.PyJWTError as exc:
+            raise IdentityError(f"invalid token: {exc}") from exc
+
+        subject = claims.get("sub")
+        if not subject:
+            raise IdentityError("token has no subject")
+        return Principal(str(subject), claims)
+
+    async def _signing_key(self, key_id: str | None) -> Any:
+        if self._keys_at is None:
+            await self._load_keys()
+
+        key = self._find_key(key_id)
+        if key is None and self._keys_at is not None:
+            stale = time.monotonic() - self._keys_at >= _KEY_REFRESH_INTERVAL_SECONDS
+            if stale:
+                await self._load_keys()
+                key = self._find_key(key_id)
+
+        if key is None:
+            raise IdentityError("token is signed with a key the provider does not publish")
+        return key
+
+    def _find_key(self, key_id: str | None) -> Any:
+        if key_id is not None:
+            return self._keys.get(key_id)
+        # A token that names no key is only unambiguous when there is one.
+        return next(iter(self._keys.values())) if len(self._keys) == 1 else None
+
+    async def _load_keys(self) -> None:
+        response = await self._request("GET", await self._endpoint("jwks_uri"))
+        if response.status_code >= 400:
+            raise ProviderError(f"the provider's keys returned HTTP {response.status_code}")
+
+        try:
+            published = jwt.PyJWKSet.from_dict(self._json(response, "key set")).keys
+        except jwt.PyJWTError as exc:
+            raise ProviderError(f"the provider's key set is unusable: {exc}") from exc
+
+        self._keys = {jwk.key_id: jwk.key for jwk in published}
+        self._keys_at = time.monotonic()
+
+    async def _userinfo(self, token: str) -> Principal:
+        response = await self._request(
+            "GET",
+            await self._endpoint("userinfo_endpoint"),
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+        if response.status_code in (401, 403):
+            raise IdentityError("the provider rejected the access token")
+        if response.status_code >= 400:
+            raise ProviderError(f"the provider's userinfo returned HTTP {response.status_code}")
+
+        claims = self._json(response, "userinfo")
+        subject = claims.get("sub")
+        if not subject:
+            raise IdentityError("the provider's userinfo names no subject")
+        return Principal(str(subject), claims)
+
+    # -- being the OAuth2 client, for a browser
+
+    async def authorization_url(self, *, redirect_uri: str, state: str, challenge: str) -> str:
         """Where to send a browser to sign in."""
-        metadata = await self.metadata()
-        endpoint = metadata.get("authorization_endpoint")
-        if not endpoint:
-            raise TokenError("Provider metadata has no authorization_endpoint")
+        endpoint = await self._endpoint("authorization_endpoint")
+        query = urlencode(
+            {
+                "response_type": "code",
+                "client_id": self._client_id,
+                "redirect_uri": redirect_uri,
+                "scope": " ".join(self._scopes),
+                "state": state,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            }
+        )
+        return f"{endpoint}{'&' if '?' in endpoint else '?'}{query}"
 
-        query = {
-            "response_type": "code",
-            "client_id": self._settings.oidc_client_id or "",
-            "redirect_uri": redirect_uri,
-            "scope": " ".join(self._settings.oidc_scopes),
-            "state": state,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-        }
-        separator = "&" if "?" in endpoint else "?"
-        return f"{endpoint}{separator}{urlencode(query)}"
-
-    async def exchange_code(self, *, code: str, code_verifier: str, redirect_uri: str) -> Principal:
-        """Redeem an authorization code, returning who it belongs to."""
-        metadata = await self.metadata()
-        endpoint = metadata.get("token_endpoint")
-        if not endpoint:
-            raise TokenError("Provider metadata has no token_endpoint")
-
+    async def exchange_code(self, *, code: str, verifier: str, redirect_uri: str) -> Principal:
+        """Redeem an authorization code for the person it was issued to."""
         form = {
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": redirect_uri,
-            "client_id": self._settings.oidc_client_id or "",
-            "code_verifier": code_verifier,
+            "client_id": self._client_id,
+            "code_verifier": verifier,
         }
-        # Absent for a public client, which is the default: PKCE is what
-        # proves the exchange belongs to the request that started it.
-        if self._settings.oidc_client_secret:
-            form["client_secret"] = self._settings.oidc_client_secret
+        # Absent for a public client, which is the usual case: PKCE is what
+        # proves this exchange belongs to the request that started it.
+        if self._client_secret:
+            form["client_secret"] = self._client_secret
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                endpoint, data=form, headers={"Accept": "application/json"}
-            )
-
+        response = await self._request(
+            "POST",
+            await self._endpoint("token_endpoint"),
+            data=form,
+            headers={"Accept": "application/json"},
+        )
         if response.status_code >= 400:
-            # The body names the OAuth2 error ("invalid_grant"), which is the
-            # difference between a misconfigured redirect URI and a stale
-            # code. The code and verifier are not in it.
-            raise TokenError(f"Token exchange failed: {_oauth_error(response)}")
+            # The provider's own error code is the difference between a
+            # redirect URI it does not recognise and a code that went stale.
+            # Neither the code nor the verifier is in it.
+            raise IdentityError(f"the provider refused the sign-in ({_oauth_error(response)})")
 
-        payload = response.json()
-        access_token = payload.get("access_token")
+        access_token = self._json(response, "token response").get("access_token")
         if not access_token:
-            raise TokenError("Token response carried no access_token")
-
+            raise ProviderError("the provider's token response carried no access_token")
         return await self.verify(str(access_token))
 
-    # -- verifying a token someone else obtained --------------------------
 
-    async def verify(self, token: str) -> Principal:
-        if not token or not token.strip():
-            raise TokenError("Empty access token")
-
-        metadata = await self.metadata()
-
-        # A JWT has three dot-separated segments; anything else is opaque and can
-        # only be resolved by asking the provider.
-        if token.count(".") == 2:
-            try:
-                principal = self._verify_jwt(token, metadata)
-            except TokenError:
-                raise
-            except Exception as exc:  # malformed despite looking like a JWT
-                raise TokenError(f"Token verification failed: {exc}") from exc
-
-            # Identity claims usually ride in the id_token, but KiCad only hands
-            # us the access token, so the subject is often all we have. userinfo
-            # returns whatever the granted scopes allow.
-            if not _has_display_claim(principal.claims):
-                principal = await self._enrich(token, principal, metadata)
-            return principal
-
-        return await self._verify_via_userinfo(token, metadata)
-
-    async def _enrich(
-        self, token: str, principal: Principal, metadata: dict[str, Any]
-    ) -> Principal:
-        """Best-effort: a failure here must not cost the user their login."""
-        try:
-            enriched = await self._verify_via_userinfo(token, metadata)
-        except (TokenError, httpx.HTTPError):
-            return principal
-
-        if enriched.subject != principal.subject:
-            # Different subject means the response is not about this token.
-            return principal
-
-        merged = {**enriched.claims, **principal.claims}
-        return Principal(subject=principal.subject, claims=merged)
-
-    def _verify_jwt(self, token: str, metadata: dict[str, Any]) -> Principal:
-        jwks_uri = metadata.get("jwks_uri")
-        if not jwks_uri:
-            raise TokenError("Provider metadata has no jwks_uri")
-
-        if self._jwk_client is None:
-            self._jwk_client = PyJWKClient(jwks_uri, cache_keys=True)
-
-        try:
-            signing_key = self._jwk_client.get_signing_key_from_jwt(token)
-        except Exception as exc:
-            raise TokenError(f"No usable signing key: {exc}") from exc
-
-        audience = self._settings.oidc_audience
-        try:
-            claims = jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256", "RS384", "RS512", "ES256", "ES384"],
-                issuer=metadata.get("issuer"),
-                audience=audience,
-                options={
-                    "verify_aud": audience is not None,
-                    "require": ["exp", "sub"],
-                },
-            )
-        except jwt.PyJWTError as exc:
-            raise TokenError(f"Invalid token: {exc}") from exc
-
-        subject = claims.get("sub")
-        if not subject:
-            raise TokenError("Token has no subject")
-        return Principal(subject=str(subject), claims=claims)
-
-    async def _verify_via_userinfo(self, token: str, metadata: dict[str, Any]) -> Principal:
-        userinfo_endpoint = metadata.get("userinfo_endpoint")
-        if not userinfo_endpoint:
-            raise TokenError("Opaque token presented but provider has no userinfo_endpoint")
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                userinfo_endpoint,
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-            )
-
-        if response.status_code == 401:
-            raise TokenError("Provider rejected the access token")
-        if response.status_code >= 400:
-            raise TokenError(f"Userinfo lookup failed with HTTP {response.status_code}")
-
-        claims = response.json()
-        subject = claims.get("sub")
-        if not subject:
-            raise TokenError("Userinfo response has no subject")
-        return Principal(subject=str(subject), claims=claims)
+def _oauth_error(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not body.get("error"):
+        return f"HTTP {response.status_code}"
+    description = body.get("error_description")
+    return f"{body['error']}: {description}" if description else str(body["error"])

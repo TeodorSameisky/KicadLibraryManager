@@ -4,35 +4,40 @@ Rendered from the parsed symbol rather than by shelling out to KiCad, which
 would mean installing the whole application in the container to draw a
 resistor.
 
-KiCad's symbol coordinates run with Y upwards and SVG's run downwards, so the
-finished drawing is flipped once rather than every coordinate being negated.
+A symbol's Y axis runs upwards and SVG's runs downwards. The shapes are
+emitted exactly as the file gives them and the finished drawing is flipped
+once, rather than every coordinate being negated on its way through.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
-from app.kicad.sexpr import SExpr
-from app.kicad.svg import (
-    Canvas,
-    arc_sweep,
-    circle_through,
+from app.kicad.render.canvas import (
+    Bounds,
+    arc_through,
     document,
     escape,
-    floats,
+    fmt,
+    numbers,
     placeholder,
     point,
+    points,
+    stroke_width,
 )
+from app.kicad.sexpr import SExpr
 
+CSS_CLASS = "ksym"
 PX_PER_MM = 12.0
 MARGIN_MM = 1.5
 DEFAULT_STROKE_MM = 0.1524  # KiCad's own default symbol line width
-PIN_RADIUS_MM = 0.3
-CSS_CLASS = "ksym"
+PIN_DOT_RADIUS_MM = 0.3
 
-# Scoped to the drawing's own class rather than :root, so inlining it into a
-# page does not redefine that page's variables. The palette travels inside the
-# file because an <img>-embedded SVG inherits nothing from its host.
+# The palette travels inside the drawing because an <img>-embedded SVG is its
+# own document and inherits nothing from the page around it. It is scoped to
+# the drawing's class rather than :root so that inlining the same markup into
+# a page does not redefine that page's variables.
 STYLE = (
     "<style>"
     ".ksym{--symbol-line:#14171c;--symbol-fill:#fffbe6;--symbol-pin:#8a94a6;"
@@ -46,127 +51,108 @@ STYLE = (
     "</style>"
 )
 
-
-def _stroke_width(node: SExpr) -> float:
-    stroke = node.child("stroke")
-    width = floats(stroke.child("width")) if stroke else []
-    # Zero means "use the default", not "invisible".
-    return width[0] if width and width[0] > 0 else DEFAULT_STROKE_MM
+_FILLS = {"outline": "var(--symbol-line)", "background": "var(--symbol-fill)"}
 
 
-def _fill(node: SExpr) -> str:
+class _Drawing:
+    def __init__(self) -> None:
+        self.markup: list[str] = []
+        self.bounds = Bounds()
+
+
+def _paint(node: SExpr) -> str:
     fill = node.child("fill")
-    kind = fill.child("type").atoms()[0] if fill and fill.child("type") else "none"
-    if kind == "outline":
-        return "var(--symbol-line)"
-    if kind == "background":
-        return "var(--symbol-fill)"
-    return "none"
-
-
-def _attrs(node: SExpr) -> str:
+    kind = fill.child("type") if fill else None
     return (
-        f'fill="{_fill(node)}" stroke="var(--symbol-line)" '
-        f'stroke-width="{_stroke_width(node):.4f}" '
+        f'fill="{_FILLS.get(kind.arg(0) if kind else "", "none")}" '
+        f'stroke="var(--symbol-line)" '
+        f'stroke-width="{fmt(stroke_width(node, DEFAULT_STROKE_MM))}" '
         'stroke-linecap="round" stroke-linejoin="round"'
     )
 
 
-def _rectangle(node: SExpr, canvas: Canvas) -> None:
+def _rectangle(node: SExpr, drawing: _Drawing) -> None:
     start, end = point(node.child("start")), point(node.child("end"))
-    if not start or not end:
+    if start is None or end is None:
         return
     x, y = min(start[0], end[0]), min(start[1], end[1])
-    w, h = abs(end[0] - start[0]), abs(end[1] - start[1])
-    canvas.bounds.add(x, y)
-    canvas.bounds.add(x + w, y + h)
-    canvas.emit(
-        f'<rect x="{x:.4f}" y="{y:.4f}" width="{w:.4f}" height="{h:.4f}" ' f"{_attrs(node)}/>"
+    width, height = abs(end[0] - start[0]), abs(end[1] - start[1])
+    drawing.bounds.include_all([(x, y), (x + width, y + height)])
+    drawing.markup.append(
+        f'<rect x="{fmt(x)}" y="{fmt(y)}" width="{fmt(width)}" height="{fmt(height)}" '
+        f"{_paint(node)}/>"
     )
 
 
-def _polyline(node: SExpr, canvas: Canvas) -> None:
-    pts = node.child("pts")
-    if pts is None:
+def _polyline(node: SExpr, drawing: _Drawing) -> None:
+    pts = points(node.child("pts"))
+    if len(pts) < 2:
         return
-    points = [p for p in (point(c) for c in pts.children("xy")) if p]
-    if len(points) < 2:
+    drawing.bounds.include_all(pts)
+    path = " ".join(f"{fmt(x)},{fmt(y)}" for x, y in pts)
+    drawing.markup.append(f'<polyline points="{path}" {_paint(node)}/>')
+
+
+def _circle(node: SExpr, drawing: _Drawing) -> None:
+    centre = point(node.child("center"))
+    radius = numbers(node.child("radius"))
+    if centre is None or not radius:
         return
-    for p in points:
-        canvas.bounds.add_point(p)
-    path = " ".join(f"{x:.4f},{y:.4f}" for x, y in points)
-    canvas.emit(f'<polyline points="{path}" {_attrs(node)}/>')
+    (cx, cy), r = centre, radius[0]
+    drawing.bounds.include_all([(cx - r, cy - r), (cx + r, cy + r)])
+    drawing.markup.append(f'<circle cx="{fmt(cx)}" cy="{fmt(cy)}" r="{fmt(r)}" {_paint(node)}/>')
 
 
-def _circle(node: SExpr, canvas: Canvas) -> None:
-    center = point(node.child("center"))
-    radius = floats(node.child("radius"))
-    if not center or not radius:
+def _arc(node: SExpr, drawing: _Drawing) -> None:
+    start, mid, end = (point(node.child(key)) for key in ("start", "mid", "end"))
+    if start is None or mid is None or end is None:
         return
-    cx, cy, r = center[0], center[1], radius[0]
-    canvas.bounds.add(cx - r, cy - r)
-    canvas.bounds.add(cx + r, cy + r)
-    canvas.emit(f'<circle cx="{cx:.4f}" cy="{cy:.4f}" r="{r:.4f}" {_attrs(node)}/>')
+    drawing.bounds.include_all([start, mid, end])
 
-
-def _arc(node: SExpr, canvas: Canvas) -> None:
-    start, mid, end = (point(node.child(k)) for k in ("start", "mid", "end"))
-    if not (start and mid and end):
-        return
-    for p in (start, mid, end):
-        canvas.bounds.add_point(p)
-
-    circle = circle_through(start, mid, end)
-    if circle is None:  # collinear points describe a straight line
-        canvas.emit(
-            f'<polyline points="{start[0]:.4f},{start[1]:.4f} '
-            f'{end[0]:.4f},{end[1]:.4f}" {_attrs(node)}/>'
+    arc = arc_through(start, mid, end)
+    if arc is None:  # collinear: there is no circle, so draw the chord
+        drawing.markup.append(
+            f'<polyline points="{fmt(start[0])},{fmt(start[1])} '
+            f'{fmt(end[0])},{fmt(end[1])}" {_paint(node)}/>'
         )
         return
 
-    _, _, r = circle
-    sweep = 1 - arc_sweep(start, mid, end)
-    canvas.emit(
-        f'<path d="M {start[0]:.4f},{start[1]:.4f} A {r:.4f},{r:.4f} 0 0 '
-        f'{sweep} {end[0]:.4f},{end[1]:.4f}" {_attrs(node)}/>'
+    drawing.markup.append(
+        f'<path d="M {fmt(start[0])},{fmt(start[1])} '
+        f"A {fmt(arc.radius)},{fmt(arc.radius)} 0 {arc.large} {arc.sweep} "
+        f'{fmt(end[0])},{fmt(end[1])}" {_paint(node)}/>'
     )
 
 
-def _pin_number(node: SExpr) -> str:
-    number = node.child("number")
-    atoms = number.atoms() if number else []
-    return atoms[0] if atoms else ""
-
-
-def _pin(node: SExpr, canvas: Canvas) -> None:
-    at = floats(node.child("at"))
-    length = floats(node.child("length"))
+def _pin(node: SExpr, drawing: _Drawing) -> None:
+    at = numbers(node.child("at"))
+    length = numbers(node.child("length"))
     if len(at) < 3 or not length:
         return
 
-    x, y, angle = at[0], at[1], at[2]
-    rad = math.radians(angle)
-    # (x, y) is the connection point; the pin runs from there toward the body.
-    ex, ey = x + length[0] * math.cos(rad), y + length[0] * math.sin(rad)
+    # (x, y) is where a wire attaches; the angle is the direction the pin
+    # runs from there, towards the body.
+    x, y, angle = at[0], at[1], math.radians(at[2])
+    end_x, end_y = x + length[0] * math.cos(angle), y + length[0] * math.sin(angle)
+    drawing.bounds.include_all([(x, y), (end_x, end_y)])
 
-    canvas.bounds.add(x, y)
-    canvas.bounds.add(ex, ey)
-
-    # Grouped and tagged so the same pin can be picked out in the footprint.
-    number = _pin_number(node)
-    tag = f' data-pin="{escape(number)}"' if number else ""
-    canvas.emit(
+    # Grouped and tagged with its number so the page can pick out the pad it
+    # maps to in the footprint drawn beside it.
+    number = node.child("number")
+    label = number.arg(0, "") if number else ""
+    tag = f' data-pin="{escape(label)}"' if label else ""
+    drawing.markup.append(
         f'<g class="pin"{tag}>'
-        f'<line x1="{x:.4f}" y1="{y:.4f}" x2="{ex:.4f}" y2="{ey:.4f}" '
-        f'stroke="var(--symbol-line)" stroke-width="{DEFAULT_STROKE_MM:.4f}" '
+        f'<line x1="{fmt(x)}" y1="{fmt(y)}" x2="{fmt(end_x)}" y2="{fmt(end_y)}" '
+        f'stroke="var(--symbol-line)" stroke-width="{fmt(DEFAULT_STROKE_MM)}" '
         'stroke-linecap="round"/>'
-        f'<circle cx="{x:.4f}" cy="{y:.4f}" r="{PIN_RADIUS_MM:.4f}" '
+        f'<circle cx="{fmt(x)}" cy="{fmt(y)}" r="{fmt(PIN_DOT_RADIUS_MM)}" '
         'fill="none" stroke="var(--symbol-pin)" stroke-width="0.06"/>'
         "</g>"
     )
 
 
-_DRAWERS = {
+_SHAPES: dict[str, Callable[[SExpr, _Drawing], None]] = {
     "rectangle": _rectangle,
     "polyline": _polyline,
     "circle": _circle,
@@ -175,35 +161,31 @@ _DRAWERS = {
 }
 
 
-def _walk(node: SExpr, canvas: Canvas) -> None:
-    for item in node.items:
-        if not isinstance(item, SExpr):
-            continue
-        drawer = _DRAWERS.get(item.head or "")
-        if drawer:
-            drawer(item, canvas)
-        elif item.head == "symbol":  # a unit
-            _walk(item, canvas)
+def _draw(node: SExpr, drawing: _Drawing) -> None:
+    for item in node.lists():
+        shape = _SHAPES.get(item.head or "")
+        if shape is not None:
+            shape(item, drawing)
+        elif item.head == "symbol":  # a unit; its shapes are the symbol's
+            _draw(item, drawing)
 
 
 def render_symbol(symbol: SExpr, title: str = "") -> str:
     """Render one `(symbol ...)` node as a standalone SVG document."""
-    canvas = Canvas()
-    _walk(symbol, canvas)
+    drawing = _Drawing()
+    _draw(symbol, drawing)
 
-    if canvas.bounds.empty:
-        return placeholder(CSS_CLASS, title, STYLE, "no graphics")
+    if drawing.bounds.empty:
+        return placeholder(css_class=CSS_CLASS, title=title, style=STYLE, message="no graphics")
 
-    view = canvas.bounds.viewbox(MARGIN_MM)
-    b = canvas.bounds
-    # Flip once around the drawing's own centre rather than negating every point.
-    flip = b.min_y + (b.max_y - b.min_y) / 2
-
+    # Mirrored about the drawing's own horizontal centre line, so the view box
+    # computed from the unflipped coordinates still frames it.
+    flip = 2 * drawing.bounds.centre_y
     return document(
         css_class=CSS_CLASS,
-        view=view,
+        view_box=drawing.bounds.view_box(MARGIN_MM),
         px_per_mm=PX_PER_MM,
         title=title,
         style=STYLE,
-        body=f'<g transform="translate(0 {2 * flip:.4f}) scale(1 -1)">' f"{canvas.markup()}</g>",
+        body=f'<g transform="translate(0 {fmt(flip)}) scale(1 -1)">{"".join(drawing.markup)}</g>',
     )

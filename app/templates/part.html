@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% set status_badge = {"approved": "badge--ok", "draft": "badge--warn"}.get(part.status, "badge--danger") %}
+
+{% block title %}{{ part.ipn }} &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  <header class="topbar">
+    <div class="topbar__title">
+      <h1 class="mono">{{ part.ipn }}</h1>
+      <span class="badge {{ status_badge }}">{{ part.status }}</span>
+      {% if part.category %}
+        {# To the catalog, narrowed to this category: "what else is in here"
+           is the question that follows "what is this". #}
+        <a class="badge badge--link"
+           href="{{ root_path }}/panel?category={{ part.category | urlencode }}">{{ category_name }}</a>
+      {% endif %}
+    </div>
+    <div class="topbar__actions">
+      <a class="button" href="{{ root_path }}/panel">Catalog</a>
+    </div>
+  </header>
+
+  <p class="muted">{{ part.description or "No description" }}</p>
+
+  {% if symbol_svg or footprint_svg or has_model %}
+    <div class="previews" id="previews">
+      {% if symbol_svg %}
+        <figure class="preview">
+          {{ symbol_svg | safe }}
+          <figcaption>Symbol</figcaption>
+        </figure>
+      {% endif %}
+      {% if footprint_svg %}
+        <figure class="preview">
+          {{ footprint_svg | safe }}
+          <figcaption>Footprint</figcaption>
+        </figure>
+      {% endif %}
+      {% if has_model %}
+        <figure class="preview preview--model">
+          <div class="model" id="model-viewer" data-ipn="{{ part.ipn }}">
+            <button type="button" class="button" id="model-load">Show 3D model</button>
+          </div>
+          <figcaption>
+            3D model
+            <span class="model__status" id="model-status" aria-live="polite"></span>
+          </figcaption>
+        </figure>
+      {% endif %}
+    </div>
+    {% if symbol_svg and footprint_svg %}
+      <p class="small muted">Hover a pin or a pad to see where it maps.</p>
+    {% endif %}
+  {% endif %}
+
+  <h2 class="section">Library</h2>
+  <dl class="fields">
+    <dt>Symbol</dt><dd class="mono">{{ part.symbol or "—" }}</dd>
+    <dt>Footprint</dt><dd class="mono">{{ part.footprint or "—" }}</dd>
+  </dl>
+
+  {% if part.fields %}
+    <h2 class="section">Fields</h2>
+    <dl class="fields">
+      {% for name, value in part.fields.items() %}
+        <dt>{{ name }}</dt><dd>{{ value }}</dd>
+      {% endfor %}
+    </dl>
+  {% endif %}
+
+  <h2 class="section">Approved sources</h2>
+  {% if sources %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Manufacturer part</th>
+            <th scope="col">Manufacturer</th>
+            <th scope="col">Lifecycle</th>
+            <th scope="col">Datasheet</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ref, mpn in sources %}
+            <tr>
+              <td>
+                <span class="mono">{{ ref.mpn }}</span>
+                {% if ref.preferred %}<span class="badge badge--accent">preferred</span>{% endif %}
+              </td>
+              <td>{{ (mpn.manufacturer if mpn) or "—" }}</td>
+              <td>
+                {% if mpn %}
+                  <span class="badge {{ 'badge--ok' if mpn.lifecycle == 'active' else 'badge--warn' }}">
+                    {{- mpn.lifecycle -}}
+                  </span>
+                {% else %}
+                  <span class="badge badge--danger">not in the library</span>
+                {% endif %}
+              </td>
+              <td>
+                {# Only a web address becomes a link; the value is whatever a
+                   repository file says it is. #}
+                {% if mpn and mpn.datasheet_url %}
+                  <a href="{{ mpn.datasheet_url }}" rel="noopener noreferrer" target="_blank">Datasheet</a>
+                {% elif mpn and mpn.datasheet %}
+                  <span class="small muted">{{ mpn.datasheet }}</span>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="small muted">No manufacturer parts are listed for this part.</p>
+  {% endif %}
+
+  {% if related %}
+    {# Why manufacturer parts are documents of their own: when one is
+       discontinued, this is how far it reaches. #}
+    <h2 class="section">Shares a manufacturer part with</h2>
+    <ul class="related">
+      {% for other in related %}
+        <li>
+          <a class="mono" href="{{ root_path }}/ipn/{{ other.ipn | urlencode }}">{{ other.ipn }}</a>
+          <span class="muted">{{ other.description }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if symbol_svg and footprint_svg %}
+    <script src="{{ root_path }}/static/js/pin-map.js"></script>
+  {% endif %}
+  {# Only where there is a model. The viewer's kernel is megabytes, and it is
+     fetched when asked for, never in case it might be. #}
+  {% if has_model %}
+    <script src="{{ root_path }}/static/js/model-viewer.js"></script>
+  {% endif %}
+{% endblock %}

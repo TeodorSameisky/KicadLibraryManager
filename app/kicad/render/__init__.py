@@ -1,4 +1,4 @@
-"""Rendering library assets as SVG."""
+"""Library assets drawn as SVG."""
 
 from app.kicad.render.footprint import render_footprint
 from app.kicad.render.symbol import render_symbol

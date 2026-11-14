@@ -1,273 +1,353 @@
 # KiCad Library Manager
 
-Serves KiCad symbols, footprints and 3D models to the **Remote Symbols** panel in
-KiCad 10 and later.
+Serves an internal part library to the **Remote Symbols** panel in KiCad 10 and
+later.
 
-KiCad embeds a WebView, loads this app's `/panel` page inside it, and exchanges
+The library lives in git. This app indexes it, shows it as a searchable catalog
+inside KiCad, and places parts on the schematic: symbol, footprint and 3D model
+together, with the internal part number and a link back to the part's page.
+
+- [How it works](#how-it-works)
+- [The library](#the-library)
+- [Configuration](#configuration)
+- [Authentication](#authentication)
+- [Deployment](#deployment)
+- [Endpoints](#endpoints)
+- [Development](#development)
+
+## How it works
+
+KiCad embeds a WebView, loads this app's `/panel` page in it, and exchanges
 JSON-RPC messages with the page over `window.kiclient.postMessage`. Assets are
-pushed into KiCad from the page rather than fetched by it.
+pushed into KiCad from the page; KiCad does not fetch them.
 
-## Endpoints
+```
+KiCad ──GET──▶ /.well-known/kicad-remote-provider      what this provider offers
+KiCad ──loads─▶ /panel  (in its WebView)
+        ◀─ NEW_SESSION ─▶                               the RPC session opens
+panel ──GET──▶ /api/v1/parts/{ipn}/assets               on "Place"
+panel ──DL_FOOTPRINT, DL_3DMODEL, DL_SYMBOL──▶ KiCad    saved, saved, placed
+```
 
-Everything that reads the library requires a session when `AUTH_ENABLED` is
-on; see [Authentication](#authentication). The pages marked *open* stay
-reachable either way, because a probe has no session and the panel is what
-offers the sign-in button.
+### What gets placed
 
-| Path | Purpose | |
-| --- | --- | --- |
-| `/.well-known/kicad-remote-provider` | Discovery document KiCad reads first | open |
-| `/panel` | The page KiCad renders in its WebView | open |
-| `/` | Deployment status: sources, counts, configuration problems | open |
-| `/healthz` | Liveness: the process is serving | open |
-| `/readyz` | Readiness: there is a catalog to serve | open |
-| `/api/v1/session/bootstrap` | Exchanges KiCad's access token for a single-use nonce | open |
-| `/session/consume?n=` | Redeems a nonce, sets the session cookie | open |
-| `/auth/login?next=` | Starts a browser sign-in, with this app as the OAuth2 client | open |
-| `/auth/callback` | Redeems the authorization code, sets the session cookie | open |
-| `/api/v1/session/me` | Current session | open |
-| `/api/v1/session/logout` | Clears the session | open |
-| `/api/v1/status` | Index state, per source, plus the filters the catalog offers | |
-| `/api/v1/parts` | Part search: `q`, `status`, `category`, `limit` | |
-| `/api/v1/parts/{ipn}` | One part with its approved sources | |
-| `/api/v1/parts/{ipn}/assets` | The payload KiCad places | |
-| `/api/v1/parts/{ipn}/symbol.svg` | Symbol preview | |
-| `/api/v1/parts/{ipn}/footprint.svg` | Land pattern preview | |
-| `/api/v1/parts/{ipn}/model.step` | The 3D model, as the library holds it | |
-| `/api/v1/issues` | Everything in the library that does not resolve | |
-| `/ipn/{ipn}` | Part page; the Datasheet target of placed symbols | |
-| `/issues` | The issue list, grouped by kind | |
+A library symbol is a template. What lands on the schematic is an **IPN**, so
+the symbol is rewritten on its way out. It carries the internal part number, the
+part's field values, the preferred manufacturer part, and a `Datasheet` field
+pointing at the part's page on this app.
 
-`/api/v1/parts` reports both `total` (the catalog) and `matched` (what the
-filters selected), because "12 of 4000" says nothing about the search that
-produced the twelve.
+Three things about that payload are dictated by how KiCad receives it:
+
+- **One self-contained symbol.** KiCad saves exactly one symbol per payload, so
+  a symbol that `extends` another is flattened: the ancestor's body, the
+  descendant's properties, no `extends` left.
+- **No unit 0.** KiCad's remote receive path drops symbols that use the
+  "common to all units" unit, and the part lands with no graphics. Unit 0 is
+  folded into each real unit before sending.
+- **The footprint names KiCad's library, not ours.** KiCad files what it
+  receives under `<prefix>_<library>` (`remote_passives`), so that is what the
+  symbol's `Footprint` field says. `REMOTE_LIBRARY_PREFIX` must match the
+  prefix in KiCad's Remote Symbol Settings.
+
+Assets travel inline in the RPC envelope, zstd-compressed and base64-encoded:
+footprint and 3D model first with mode `SAVE`, the symbol last with mode
+`PLACE`. A part whose symbol cannot be completed is refused rather than placed
+broken; a missing footprint or model only warns.
+
+A multi-megabyte STEP file crossing a WebView string bridge can exceed KiCad's
+response timeout. The bundle warns when a model is large enough to be at risk.
 
 ### Previews
 
-Previews are drawn from the parsed files rather than by shelling out to
-KiCad, which would mean installing the whole application in the container to
-draw a resistor. The part page inlines them so that hovering a pin highlights
-the pad it maps to, and the other way round; the standalone endpoints are
-used for the panel's thumbnails, where no interaction is needed.
+Symbols and footprints are drawn as SVG from the parsed files, rather than by
+installing KiCad in the container to draw a resistor. The part page inlines
+them, so hovering a pin highlights the pad it maps to and the other way round.
 
-### 3D models
-
-STEP is a boundary representation rather than a mesh, so drawing one needs a
-CAD kernel. That kernel runs in the browser: `occt-import-js` is OpenCascade
-compiled to WebAssembly, which keeps a 400MB dependency out of the image and
-its CPU off every page view. It is 7.6MB and loads only when a viewer is
-opened, never speculatively.
-
-KiCad 10 ships STEP only; the VRML meshes earlier versions carried are gone,
-so there is no lighter format to fall back on.
-
-Models carry no single colour -- each face has its own, which is what
-separates a resistor's black body from its terminations -- so faces become
-geometry groups with a material each.
+3D models are STEP, which describes surfaces rather than triangles, so showing
+one needs a CAD kernel. That kernel runs in the browser: `occt-import-js` is
+OpenCascade compiled to WebAssembly. It is 7.6 MB and is fetched only when a
+viewer is opened. See [app/static/vendor](app/static/vendor/README.md).
 
 ## The library
 
-Parts come from one or more git repositories, configured as JSON in
-`LIBRARY_SOURCES`. Several are supported because a company library, the
-official KiCad libraries and a vendor library are separate repositories.
+Parts come from one or more git repositories, listed in `LIBRARY_SOURCES`.
+Several are supported because a company library, the official KiCad libraries
+and a vendor's are separate repositories; a symbol in one may name a footprint
+in another.
 
-Clones live under `LIBRARY_WORKDIR`, which **must be a persistent volume** --
-re-cloning a library with 3D models on every deploy is slow and pointless.
-
-Indexing runs in the background at startup. Cloning takes long enough that
-doing it inline would fail the container health check, so the app serves a
-documented `syncing` state until the first index lands.
-
-Only **IPNs** are placed in KiCad. An IPN names a symbol and a footprint,
-carries field values, and lists the approved manufacturer parts; MPNs are
-separate documents because one can satisfy several IPNs.
-
-## Placing a part
-
-A library symbol is a template. What gets placed is an IPN, so the symbol is
-rewritten on the way out: it carries the internal part number, the part's
-field values, the preferred manufacturer part, and a `Datasheet` pointing at
-that part's page.
-
-The payload contains the symbol *and every ancestor it extends*. KiCad
-resolves `extends` within the library it is handed, so a derived symbol sent
-alone places a part with no pins and no body.
-
-Assets travel inline in the RPC envelope, zstd-compressed and base64-encoded,
-in a fixed order: footprint and 3D model first with mode `SAVE`, the symbol
-last with mode `PLACE`. A part whose symbol cannot be completed is refused
-rather than placed broken.
-
-Large 3D models are the weak point of this transport -- a multi-megabyte STEP
-file crossing a WebView string bridge can exceed KiCad's response timeout. The
-bundle warns when a model is big enough to be at risk.
-
-## Run locally
-
-```bash
-cp .env.example .env
-docker compose up --build
+```
+categories.yaml                              the category codes an IPN may start with
+parts/<category>/<IPN>.yaml                  an internal part: 1102-0001
+mpns/<MPN>.yaml                              a manufacturer part
+symbols/<Library>.kicad_symdir/<Name>.kicad_sym
+footprints/<Library>.pretty/<Name>.kicad_mod
+3dmodels/<Library>.3dshapes/<Name>.step
 ```
 
-Without Docker:
+The asset directories may also sit at the repository root, the way KiCad's own
+libraries are laid out.
 
-```bash
-pip install -r requirements-dev.txt
-uvicorn app.main:app --reload
-pytest -q
+```yaml
+# parts/1102/1102-0001.yaml
+ipn: 1102-0001
+description: Resistor 10k 1% 0.1W 0603
+status: approved            # draft | approved | obsolete
+symbol: Passives:R_0603
+footprint: Passives:R_0603_1608Metric
+fields:
+  Value: 10k
+  Tolerance: 1%
+mpns:
+  - mpn: RC0603FR-0710KL
+    preferred: true
+  - mpn: CRCW060310K0FKEA
+
+# mpns/RC0603FR-0710KL.yaml
+mpn: RC0603FR-0710KL
+manufacturer: Yageo
+datasheet: https://example.com/datasheet.pdf
+lifecycle: active           # active | nrnd | obsolete | unknown
 ```
+
+Only IPNs are placed. An IPN is `<category>-<number>`, names a symbol and a
+footprint, and lists the manufacturer parts approved for it. MPNs are documents
+of their own because one can satisfy several IPNs — which is what makes "what
+does this discontinuation reach?" answerable.
+
+IPNs are one numbering scheme, so they are read from one repository: the first
+source that has a `parts/` directory.
+
+### Indexing
+
+The index is built in the background at startup. Cloning takes long enough
+that waiting for it would fail the container health check, so the app answers
+at once and reports `syncing` until the first index lands. Clones are shallow
+and live under `LIBRARY_WORKDIR`, which **must be a persistent volume**.
+
+If a source cannot be reached later, the previous index keeps being served and
+the failure is shown on the status page.
+
+Everything that does not line up — a footprint no source has, a symbol whose
+parent is missing, an IPN in an undeclared category — is collected and listed
+at `/issues`, grouped by kind, with the repository-relative path to open.
+
+## Configuration
+
+Everything is set through environment variables; [.env.example](.env.example)
+lists them all with their reasons. The ones a deployment needs:
+
+| Variable | |
+| --- | --- |
+| `PUBLIC_URL` | The externally reachable address, including any path prefix. Every URL the app hands out is derived from it. |
+| `LIBRARY_SOURCES` | JSON array of `{id, name, url, ref}` git repositories. |
+| `LIBRARY_WORKDIR` | Where the clones are kept. A volume. |
+| `AUTH_ENABLED`, `OIDC_METADATA_URL`, `OIDC_CLIENT_ID` | Sign-in; see below. |
+| `REMOTE_LIBRARY_PREFIX` | Must match the library prefix in KiCad's Remote Symbol Settings. Default `remote`. |
+
+A malformed value never stops the app from starting: it falls back to its
+default and is reported. The status page at `/` shows every configuration
+problem the app can detect, because nobody reads container logs to find out
+why a login does nothing.
 
 ## Authentication
 
-There are two clients, because there are two kinds of caller.
+With `AUTH_ENABLED=true` the library is closed: every endpoint that reads it
+needs a session. Any OIDC provider works. There are two ways to get a session,
+because there are two kinds of client, and in both the user's credentials stay
+between them and the identity provider.
 
-For the panel, **KiCad** is the OAuth2 client. It runs Authorization Code +
-PKCE itself: it starts a loopback listener on `127.0.0.1/oauth/callback`,
-launches the user's system browser, and exchanges the code at the identity
-provider's token endpoint. This app never sees credentials — it only verifies
-the resulting access token and converts it into a browser session for the panel.
+### From KiCad
 
-For a part page opened in an ordinary browser, **this app** is the client and
-runs the exchange itself; see [Browser sign-in](#browser-sign-in). Either way
-the credentials stay between the user and their identity provider.
+KiCad is the OAuth2 client. It runs Authorization Code + PKCE itself, through
+the system browser and a loopback listener, and hands this app the resulting
+access token:
 
 ```
-KiCad ──discovery──▶ /.well-known/kicad-remote-provider
-KiCad ──OAuth2 + PKCE──▶ your IdP ──access token──▶ KiCad
+KiCad ──OAuth2 + PKCE──▶ identity provider ──access token──▶ KiCad
 KiCad ──POST {access_token, next_url}──▶ /api/v1/session/bootstrap
       ◀── {nonce_url} ──
-WebView ──GET──▶ /session/consume?n=…  ──Set-Cookie, 303──▶ /panel
+WebView ──GET──▶ /session/consume?n=…   Set-Cookie, 303 to the panel
 ```
 
-Any OIDC provider works, configured via `OIDC_METADATA_URL` and
-`OIDC_CLIENT_ID`. Both JWT access tokens (verified locally against the
-provider's JWKS) and opaque tokens (resolved via `userinfo_endpoint`) are
-supported.
+The app verifies the token — JWTs against the provider's published keys, opaque
+tokens by asking its userinfo endpoint — and exchanges it for a single-use
+nonce that the WebView turns into a session cookie.
 
-### Keep the requested scopes small
+The provider must allow **PKCE on a public client** and a **loopback redirect
+on any port**: `http://127.0.0.1:<port>/oauth/callback`. Keycloak, Authentik,
+Auth0, Zitadel, Google and GitLab qualify. GitHub OAuth Apps do not.
 
-KiCad persists its token bundle (access + refresh + id_token) in the OS
-credential store. On Windows that is the Credential Manager, capped at 2560
-bytes -- about 1280 characters, since it stores UTF-16. An oversized bundle
-fails *after* a successful login with "Failed to store remote provider tokens
-securely".
+### From a browser
 
-authentik's `profile` scope includes the user's group list and can push the
-bundle past that limit, so the default is `openid,email`. Drop to `openid`
-alone if it still fails; the panel then shows the subject id instead of a name.
-
-The provider must allow **PKCE on a public client** and a **dynamic 127.0.0.1
-loopback redirect URI**, since KiCad picks an ephemeral port. Keycloak,
-Authentik, Auth0, Zitadel, Google and GitLab all qualify. **GitHub OAuth Apps do
-not** — they publish no RFC 8414 metadata and do not support PKCE.
-
-### What a session is required for
-
-With `AUTH_ENABLED` on, every endpoint that reads the library refuses a request
-without a session cookie. The exceptions are deliberate: health probes have no
-session, the discovery document is what tells KiCad how to authenticate at all,
-`/panel` carries the sign-in button, and `/auth/login` is the way in — a guard
-there would be a locked door with the key behind it.
-
-A refused request is answered in the shape its caller asked for: JSON for the
-API, and a page offering sign-in for a browser.
-
-Setting `AUTH_ENABLED=false` advertises auth type `none`, which leaves the panel
-and every asset readable by anyone who can reach the URL.
-
-### Browser sign-in
-
-A placed symbol's `Datasheet` field points at `/ipn/{ipn}` on this app, and
-that link is followed in an ordinary browser — from the schematic editor, or
-from a PDF export years later with no KiCad running at all. KiCad's WebView
-keeps its own cookie jar, so the session established there never reaches that
-browser, and the link cannot depend on KiCad being alive to work.
-
-So there is a second way in, where **this app is the OAuth2 client** rather
-than KiCad:
+A placed symbol's `Datasheet` field points at `/ipn/{ipn}`, and that link is
+followed in an ordinary browser — from the schematic, or from a PDF years
+later with no KiCad running. The WebView's cookie never reaches that browser.
+So the browser signs in with **this app as the OAuth2 client**:
 
 ```
-Browser ──GET──▶ /auth/login?next=/ipn/1102-0001
-        ◀── 307, to the provider (PKCE S256, state) ──
-Browser ──approves at the IdP──▶
-        ──GET──▶ /auth/callback?code=…&state=…
-        ◀── Set-Cookie, 303 to /ipn/1102-0001 ──
+Browser ──GET──▶ /auth/login?next=/ipn/1102-0001      307 to the provider
+        ──GET──▶ /auth/callback?code=…&state=…         Set-Cookie, 303 to the part
 ```
 
-It lands back on the part that was asked for, not on the panel. The PKCE
-verifier is held server-side against the `state` and never travels to the
-browser; `state` is single-use and is spent even on a failed attempt.
+It lands back on the part that was asked for. The PKCE verifier stays on the
+server, and `state` works once whether or not the attempt succeeds.
 
-This needs one thing registered at the provider, alongside KiCad's loopback
-redirect:
+This needs one more redirect URI registered at the provider, for the same
+client:
 
 ```
 <PUBLIC_URL>/auth/callback
 ```
 
-The deployment's landing page prints the exact value. A public client needs no
-secret — PKCE is what proves the exchange — but `OIDC_CLIENT_SECRET` is
-honoured if you registered a confidential one.
+The status page prints the exact value. A public client needs no secret;
+`OIDC_CLIENT_SECRET` is honoured if you registered a confidential one.
+`WEB_LOGIN_ENABLED=false` turns this off.
 
-`WEB_LOGIN_ENABLED=false` turns this off, leaving the KiCad handshake as the
-only way in; part pages are then reachable only from inside the panel.
+### Keep the tokens small
 
-The credential-store size limit described below constrains KiCad's token
-bundle, not this flow — the tokens here stay on the server.
+KiCad stores its token bundle (access, refresh and ID token) in the OS
+credential store. On Windows that holds 2560 bytes — about 1280 characters. A
+bundle over the limit fails *after* a successful login with "Failed to store
+remote provider tokens securely".
 
-### Security headers
+Two things keep it under:
 
-`Strict-Transport-Security` is set by the app rather than the proxy, since
-Coolify has no HSTS toggle and hand-written Traefik labels are overwritten on
-redeploy. It is emitted only on HTTPS requests, honouring `X-Forwarded-Proto`
-behind a terminating proxy. `HSTS_PRELOAD` stays off by default: preload list
-entries are effectively irreversible.
+- **Sign tokens with an elliptic-curve key** (ES256). RSA signatures are four
+  times the size.
+- **Put as few claims in the tokens as possible.** Request only the scopes you
+  need (`OIDC_SCOPES`, default `openid,email`), and check what your provider's
+  scope mappings actually emit: a `profile` mapping that includes names and
+  group lists will blow the limit on its own. One claim naming the user
+  (`preferred_username`) is enough for the panel to show who is signed in.
 
-### TLS is required
+If the access token names nobody, the app asks the provider's userinfo endpoint
+before falling back to a shortened subject id.
 
-OAuth2 and `Secure` cookies do not work over plain HTTP, and KiCad validates
-URL security during the bootstrap exchange. `PUBLIC_URL` must be `https://` in
-production.
+### What stays open
 
-## Deployment (Coolify)
+Health probes have no session; the discovery document is what tells KiCad how
+to authenticate at all; `/panel` carries the sign-in button; `/` is where a
+broken sign-in gets diagnosed, and shows counts and configuration only. A
+refused request is answered in the shape its caller can use: JSON for a script,
+a page with a way in for a browser.
 
-Built from the `Dockerfile` build pack; pushing to `main` triggers a redeploy.
+With `AUTH_ENABLED=false` the provider advertises auth type `none` and anyone
+who can reach the address can read the library.
 
-- Container port **8000** (or set `PORT`)
-- Health check path `/healthz`
-- **Set `PUBLIC_URL`** to the deployed origin — it defaults to
-  `http://localhost:8000`, which produces a discovery document KiCad will reject.
+## Deployment
 
-See [.env.example](.env.example) for all settings.
-
-## Tests
+One container, built from the `Dockerfile`.
 
 ```bash
-pytest -q
+cp .env.example .env
 ```
 
-The discovery document is validated against KiCad's own published JSON schema, a
-verbatim copy of which lives in `tests/fixtures/`. Refresh that fixture when
-targeting a newer KiCad release.
+```bash
+docker compose up --build
+```
+
+- The app listens on **8000** (`PORT` changes it).
+- Health check path: `/healthz`. It reports the process, not the library, so an
+  unreachable git host never restarts the container. `/readyz` reports whether
+  there is a catalog to serve.
+- Mount a volume at `/data`. A named volume inherits the image's ownership; a
+  bind mount keeps the host's and has to be writable by uid 1000.
+- `PUBLIC_URL` must be `https://` whenever sign-in is on. OAuth2 and `Secure`
+  cookies do not work over plain http.
+- The app sets `Strict-Transport-Security` itself, on HTTPS requests only
+  (`X-Forwarded-Proto` is honoured behind a proxy that terminates TLS).
+- Sessions are held in memory: run one instance, and expect a restart to sign
+  everyone out.
+
+On Coolify: use the Dockerfile build pack, set the port to 8000 and the health
+check to `/healthz`, add a volume at `/data`, and set the environment
+variables. A push to the deployed branch redeploys.
+
+Then, in KiCad: Preferences → Remote Symbols → add
+`<PUBLIC_URL>/.well-known/kicad-remote-provider`.
+
+### Logs
+
+`LOG_LEVEL` sets verbosity; `LOG_FORMAT=json` writes one JSON object per line.
+Every response carries an `X-Request-ID`, which is also on every log line the
+request produced, so a report can be tied to the lines that describe it. An
+unhandled error is logged in full and answered with nothing but that id.
+
+## Endpoints
+
+| Path | | Open |
+| --- | --- | --- |
+| `/.well-known/kicad-remote-provider` | Discovery document KiCad reads first | ✓ |
+| `/panel` | The catalog, as KiCad embeds it | ✓ |
+| `/` | Status: sources, counts, configuration problems | ✓ |
+| `/healthz`, `/readyz` | Liveness, readiness | ✓ |
+| `POST /api/v1/session/bootstrap` | KiCad's access token for a single-use nonce | ✓ |
+| `/session/consume?n=` | Redeems a nonce, sets the session cookie | ✓ |
+| `/auth/login?next=`, `/auth/callback` | Browser sign-in | ✓ |
+| `/api/v1/session/me`, `POST /api/v1/session/logout` | The current session | ✓ |
+| `/api/v1/status` | Index state per source, and the filters the catalog offers | |
+| `/api/v1/parts?q=&status=&category=&limit=` | Part search | |
+| `/api/v1/parts/{ipn}` | One part, with its sources | |
+| `/api/v1/parts/{ipn}/assets` | What KiCad is sent to place it | |
+| `/api/v1/parts/{ipn}/symbol.svg`, `/footprint.svg`, `/model.step` | Drawings and the 3D model | |
+| `/api/v1/issues?severity=&limit=` | Everything that does not line up | |
+| `/ipn/{ipn}` | The part's page; where `Datasheet` points | |
+| `/issues` | The issue list | |
+| `/docs` | Interactive API reference | ✓ |
 
 ## Development
 
 ```bash
 pip install -r requirements-dev.txt
-ruff check app tests
-ruff format app tests
+```
+
+```bash
+uvicorn app.main:app --reload
+```
+
+```bash
 pytest -q
 ```
 
-CI runs the same checks, and separately builds the image and calls it. The
-image is what ships, and a Dockerfile that has stopped building is otherwise
-only discovered on deploy.
+```bash
+ruff check app tests
+```
 
-### Logging
+```bash
+ruff format app tests
+```
 
-`LOG_LEVEL` sets verbosity and `LOG_FORMAT=json` switches to one JSON object
-per line. Every request carries an id, returned as `X-Request-ID` and included
-in each line it produced, so a report can be tied to the lines describing it.
+CI runs the same checks, then builds the image and calls it: the image is what
+ships, and a Dockerfile that has stopped building is otherwise found on deploy.
 
-Health probes are not logged unless they fail; one every thirty seconds
-otherwise drowns out everything worth reading.
+### Layout
+
+Each package only reaches downwards.
+
+```
+app/
+  main.py            the entry point: uvicorn app.main:app
+  application.py     create_app(): assembles everything below
+  config.py          Settings, read once from the environment
+  observability.py   logging, request ids, crash handling
+  security.py        HSTS and hardening headers
+  web/               HTTP: routes, pages, request-scoped dependencies
+  auth/              the OIDC provider, sessions, safe redirects
+  library/           sources, assets, parts, snapshots, placement, previews
+  kicad/             the file formats: reading, rewriting, drawing
+  templates/  static/
+tests/
+  support.py         library files, a library on disk, a fake identity provider
+```
+
+`kicad/` knows nothing about parts or HTTP; `library/` knows nothing about
+HTTP. The app is built by a factory from a `Settings` object, so a test builds
+the deployment it wants instead of patching the environment.
+
+The reader for KiCad's files is deliberately not a model of the format: a file
+is a generic tree, so a token a newer KiCad adds is just another node. The
+writer reproduces KiCad's own layout, so a served file is indistinguishable
+from one KiCad saved.
+
+The discovery document is validated against KiCad's own JSON schema, a verbatim
+copy of which is in `tests/fixtures/`. Refresh it when targeting a newer KiCad.

@@ -1,7 +1,7 @@
 [project]
 name = "kicad-library-manager"
-version = "0.1.0"
-description = "Serves KiCad symbols, footprints and 3D models to the Remote Symbols panel"
+version = "0.2.0"
+description = "Serves an internal part library to KiCad's Remote Symbols panel"
 requires-python = ">=3.12"
 
 [tool.ruff]
@@ -26,7 +26,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Fixtures build library files from fragments; long literals read better whole.
+# Tests build library files from fragments; long literals read better whole.
 "tests/*" = ["E501"]
 
 [tool.ruff.lint.isort]
@@ -34,6 +34,7 @@ known-first-party = ["app", "tests"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning:pytest_asyncio.*",

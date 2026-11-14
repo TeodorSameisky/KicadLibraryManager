@@ -1,123 +1,110 @@
-"""Test fixtures.
+"""Fixtures.
 
-Settings are cached and the FastAPI app reads its root_path at import time, so
-exercising a different environment means rebuilding both. `build_client` does
-that and guarantees the cache is cleared afterwards -- without which one test's
-configuration silently leaks into the next.
+An app is built from settings, so a test that needs a different deployment
+builds a different app. Nothing is reloaded and no environment is patched.
 """
 
+from __future__ import annotations
+
 import contextlib
-import importlib
-import sys
-from pathlib import Path
+import time
 
 import pytest
+from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.application import create_app
+from app.auth.identity import Principal
+from app.config import Settings
+from app.library.service import LibraryService
+from tests.support import FakeProvider, LibraryTree
 
-BASE_ENV = {
-    "PUBLIC_URL": "https://library.example.com",
+PUBLIC_URL = "https://library.example.com"
+
+# A deployment with sign-in switched on, which is what most tests are about.
+ENVIRONMENT = {
+    "PUBLIC_URL": PUBLIC_URL,
     "AUTH_ENABLED": "true",
-    "OIDC_METADATA_URL": "https://idp.example.com/.well-known/openid-configuration",
-    "OIDC_CLIENT_ID": "kicad-library-manager",
+    "OIDC_METADATA_URL": FakeProvider.metadata_url,
+    "OIDC_CLIENT_ID": FakeProvider.client_id,
 }
 
-_MANAGED_KEYS = (
-    "PUBLIC_URL",
-    "AUTH_ENABLED",
-    "OIDC_METADATA_URL",
-    "OIDC_CLIENT_ID",
-    "OIDC_SCOPES",
-    "OIDC_AUDIENCE",
-    "HSTS_ENABLED",
-    "HSTS_MAX_AGE",
-    "HSTS_INCLUDE_SUBDOMAINS",
-    "HSTS_PRELOAD",
-)
+OPEN = {"AUTH_ENABLED": "false", "OIDC_METADATA_URL": None, "OIDC_CLIENT_ID": None}
 
 
-@pytest.fixture()
-def build_client(monkeypatch):
-    stack = contextlib.ExitStack()
+def settings_for(**overrides: str | None) -> Settings:
+    """Settings for the standard deployment, with some variables changed.
 
-    def _build(**overrides):
-        env = {**BASE_ENV, **overrides}
-
-        for key in _MANAGED_KEYS:
-            monkeypatch.delenv(key, raising=False)
-        for key, value in env.items():
-            if value is not None:
-                monkeypatch.setenv(key, value)
-
-        import app.config
-        import app.main
-
-        app.config.get_settings.cache_clear()
-        module = importlib.reload(app.main)
-
-        from fastapi.testclient import TestClient
-
-        # The session cookie is Secure, so the base URL must be https or the
-        # client will silently decline to send it back.
-        return stack.enter_context(TestClient(module.app, base_url=env["PUBLIC_URL"]))
-
-    yield _build
-
-    stack.close()
-
-    # Clear while the patched environment is still in place is not enough: the
-    # next reader must re-read the restored environment, so clear again below.
-    import app.config
-
-    app.config.get_settings.cache_clear()
-    monkeypatch.undo()
-    app.config.get_settings.cache_clear()
-
-
-@pytest.fixture()
-def client(build_client):
-    return build_client()
-
-
-@pytest.fixture()
-def sign_in():
-    """Give a client a session cookie, as the bootstrap handshake would.
-
-    The nonce is minted directly rather than through a stubbed identity
-    provider: what the catalog routes care about is the cookie, and going via
-    the provider would make every catalog test depend on token verification
-    too. `tests/test_auth_routes.py` covers the handshake itself.
+    None removes a variable.
     """
-
-    def _sign_in(client, subject="test-user", **claims):
-        store = client.app.state.session_store
-        nonce = store.mint_nonce(subject, {"sub": subject, "name": "Test User", **claims}, "/panel")
-        client.get(f"/session/consume?n={nonce}", follow_redirects=False)
-        return client
-
-    return _sign_in
+    environment = {**ENVIRONMENT, **overrides}
+    return Settings.from_env({k: v for k, v in environment.items() if v is not None})
 
 
-@pytest.fixture()
-def signed_in_client(client, sign_in):
-    return sign_in(client)
+def wait_until_indexed(client: TestClient) -> None:
+    deadline = time.monotonic() + 10
+    while client.get("/readyz").status_code != 200:
+        if time.monotonic() > deadline:
+            raise AssertionError(f"the library never became ready: {client.get('/readyz').json()}")
+        time.sleep(0.01)
 
 
-@pytest.fixture()
-def stub_provider():
-    """Install a stand-in identity provider on a client.
+def sign_in(client: TestClient, name: str = "Ada Lovelace", subject: str = "user-1") -> TestClient:
+    """Give a client a session, as either sign-in would have.
 
-    Without it a test that touches the browser sign-in flow makes a real DNS
-    lookup for the example.com metadata URL and waits for it to fail.
+    What the catalog's tests care about is the cookie. How one is earned is
+    covered by the tests of the sign-in routes themselves.
     """
+    settings = client.app.state.settings
+    session_id = client.app.state.sessions.create(
+        Principal(subject, {"sub": subject, "name": name})
+    )
+    client.cookies.set(settings.cookie_name, session_id)
+    return client
 
-    def _install(client, principal=None, error=None, metadata=None):
-        from app.config import get_settings
-        from tests.test_web_login import StubProvider
 
-        stub = StubProvider(principal=principal, error=error, metadata=metadata)
-        stub._settings = get_settings()
-        client.app.state.oidc_verifier = stub
-        return stub
+@pytest.fixture()
+def provider() -> FakeProvider:
+    return FakeProvider()
 
-    return _install
+
+@pytest.fixture()
+def tree(tmp_path) -> LibraryTree:
+    return LibraryTree(tmp_path / "library")
+
+
+@pytest.fixture()
+def make_client(provider, tmp_path):
+    """Build an app and a client for it.
+
+    `tree` gives the app a library, indexed through the same background start
+    the real one uses. Without one there are no sources at all.
+    """
+    with contextlib.ExitStack() as stack:
+
+        def build(tree: LibraryTree | None = None, **environment: str | None) -> TestClient:
+            settings = settings_for(**environment)
+            library = None
+            if tree is not None:
+                library = LibraryService(
+                    [tree.source], tmp_path / "work", sync=lambda source, workdir: tree.checkout
+                )
+            app = create_app(settings, library=library, identity=provider.client())
+            # https, or the Secure session cookie would never be sent back.
+            client = stack.enter_context(TestClient(app, base_url=settings.origin))
+            if tree is not None:
+                wait_until_indexed(client)
+            return client
+
+        yield build
+
+
+@pytest.fixture()
+def client(make_client) -> TestClient:
+    """Sign-in required, nobody signed in, no library."""
+    return make_client()
+
+
+@pytest.fixture()
+def library_client(make_client, tree) -> TestClient:
+    """Signed in, with the standard library indexed."""
+    return sign_in(make_client(tree.standard(model=True)))

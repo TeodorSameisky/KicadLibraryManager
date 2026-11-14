@@ -1,96 +1,51 @@
-/* Renders a part's STEP model.
+/* Shows a part's STEP model.
  *
- * STEP is a boundary representation, not a mesh, so it has to be tessellated
- * by a CAD kernel before anything can draw it. occt-import-js is OpenCascade
- * compiled to WebAssembly and does that in the browser, which keeps a 400MB
- * kernel out of the server image and its CPU out of every page view.
+ * STEP describes surfaces, not triangles, so a CAD kernel has to tessellate it
+ * before anything can draw it. occt-import-js is OpenCascade compiled to
+ * WebAssembly and does that here in the browser, which keeps a 400 MB kernel
+ * out of the server image and its CPU out of every page view.
  *
- * That kernel is 7.6MB, so nothing here loads until the viewer is asked for.
+ * The kernel is 7.6 MB, so nothing below is fetched until the viewer is asked
+ * for.
  */
-(function () {
+(() => {
   "use strict";
 
-  var mount = document.getElementById("model-viewer");
-  if (!mount) return;
+  const mount = document.getElementById("model-viewer");
+  const loadButton = document.getElementById("model-load");
+  const statusLine = document.getElementById("model-status");
+  if (!mount || !loadButton) return;
 
-  var BASE = document.body.dataset.basePath || "";
-  var IPN = mount.dataset.ipn;
-  var loaded = false;
+  const base = document.body.dataset.basePath || "";
+  const vendor = `${base}/static/vendor`;
+  const modelUrl = `${base}/api/v1/parts/${encodeURIComponent(mount.dataset.ipn)}/model.step`;
 
-  var button = document.getElementById("model-load");
-  var statusEl = document.getElementById("model-status");
-
-  function setStatus(text) {
-    if (statusEl) statusEl.textContent = text;
-  }
+  const setStatus = (text) => { statusLine.textContent = text; };
 
   function loadScript(src) {
-    return new Promise(function (resolve, reject) {
-      var tag = document.createElement("script");
+    return new Promise((resolve, reject) => {
+      const tag = document.createElement("script");
       tag.src = src;
       tag.onload = resolve;
-      tag.onerror = function () { reject(new Error("could not load " + src)); };
-      document.head.appendChild(tag);
+      tag.onerror = () => reject(new Error("the viewer could not be loaded"));
+      document.head.append(tag);
     });
   }
 
-  /* A small orbit control: drag to rotate, wheel to zoom. Written here rather
-     than pulled in, because the alternative is another dependency for thirty
-     lines of arithmetic. */
-  function orbit(camera, canvas, target, radius, onChange) {
-    var theta = Math.PI * 0.25;
-    var phi = Math.PI * 0.3;
-    var distance = radius * 3.2;
-    var dragging = false;
-    var last = { x: 0, y: 0 };
-
-    function apply() {
-      phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
-      camera.position.set(
-        target.x + distance * Math.sin(phi) * Math.sin(theta),
-        target.y + distance * Math.cos(phi),
-        target.z + distance * Math.sin(phi) * Math.cos(theta)
-      );
-      camera.lookAt(target);
-      if (onChange) onChange();
-    }
-
-    canvas.addEventListener("pointerdown", function (e) {
-      dragging = true;
-      last = { x: e.clientX, y: e.clientY };
-      canvas.setPointerCapture(e.pointerId);
-    });
-
-    canvas.addEventListener("pointermove", function (e) {
-      if (!dragging) return;
-      theta -= (e.clientX - last.x) * 0.01;
-      phi -= (e.clientY - last.y) * 0.01;
-      last = { x: e.clientX, y: e.clientY };
-      apply();
-    });
-
-    ["pointerup", "pointercancel"].forEach(function (name) {
-      canvas.addEventListener(name, function () { dragging = false; });
-    });
-
-    canvas.addEventListener("wheel", function (e) {
-      e.preventDefault();
-      distance = Math.max(radius * 1.2, Math.min(radius * 12, distance * (1 + e.deltaY * 0.001)));
-      apply();
-    }, { passive: false });
-
-    apply();
-    return apply;
+  async function fetchModel() {
+    const response = await fetch(modelUrl, { credentials: "same-origin" });
+    if (!response.ok) throw new Error("the model is not available");
+    return new Uint8Array(await response.arrayBuffer());
   }
+
+  // ------------------------------------------------------------- geometry
 
   function material(THREE, rgb) {
-    var colour = new THREE.Color();
-    // OCCT reports linear values; saying so keeps a black body from washing out.
-    if (rgb) {
-      colour.setRGB(rgb[0], rgb[1], rgb[2], THREE.LinearSRGBColorSpace);
-    } else {
-      colour.setRGB(0.68, 0.70, 0.74, THREE.LinearSRGBColorSpace);
-    }
+    const colour = new THREE.Color();
+    // The kernel reports linear values. Saying so keeps a black body black
+    // instead of washing it out to grey.
+    const [r, g, b] = rgb || [0.68, 0.7, 0.74];
+    colour.setRGB(r, g, b, THREE.LinearSRGBColorSpace);
     return new THREE.MeshStandardMaterial({
       color: colour,
       metalness: 0.2,
@@ -99,146 +54,178 @@
     });
   }
 
-  function meshFrom(THREE, mesh) {
-    var geometry = new THREE.BufferGeometry();
+  function toMesh(THREE, source) {
+    const geometry = new THREE.BufferGeometry();
     geometry.setAttribute(
       "position",
-      new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3)
+      new THREE.Float32BufferAttribute(source.attributes.position.array, 3)
     );
-    if (mesh.attributes.normal) {
+    if (source.index) geometry.setIndex(Array.from(source.index.array));
+    if (source.attributes.normal) {
       geometry.setAttribute(
         "normal",
-        new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3)
+        new THREE.Float32BufferAttribute(source.attributes.normal.array, 3)
       );
-    }
-    if (mesh.index) geometry.setIndex(Array.from(mesh.index.array));
-    if (!mesh.attributes.normal) geometry.computeVertexNormals();
-
-    /* KiCad's models carry no single colour; each face has its own, which is
-       what separates a resistor's black body from its terminations. The faces
-       become geometry groups, one material per distinct colour. */
-    var faces = mesh.brep_faces || [];
-    if (!faces.length) {
-      return new THREE.Mesh(geometry, material(THREE, mesh.color));
+    } else {
+      geometry.computeVertexNormals();
     }
 
-    var materials = [];
-    var seen = {};
-    faces.forEach(function (face) {
-      var key = face.color ? face.color.join(",") : "default";
-      if (seen[key] === undefined) {
-        seen[key] = materials.length;
+    /* A KiCad model has no single colour. Each face carries its own, which is
+       what tells a resistor's black body from its terminations. So the faces
+       become groups of the geometry, with one material per distinct colour. */
+    const faces = source.brep_faces || [];
+    if (!faces.length) return new THREE.Mesh(geometry, material(THREE, source.color));
+
+    const materials = [];
+    const indexOf = new Map();
+    for (const face of faces) {
+      const key = face.color ? face.color.join(",") : "";
+      if (!indexOf.has(key)) {
+        indexOf.set(key, materials.length);
         materials.push(material(THREE, face.color));
       }
-      // first/last count triangles, so three indices each.
-      geometry.addGroup(face.first * 3, (face.last - face.first + 1) * 3, seen[key]);
-    });
-
+      // first and last count triangles; a group counts indices, three each.
+      geometry.addGroup(face.first * 3, (face.last - face.first + 1) * 3, indexOf.get(key));
+    }
     return new THREE.Mesh(geometry, materials);
   }
 
-  function build(THREE, meshes) {
-    var scene = new THREE.Scene();
-    var group = new THREE.Group();
+  function buildScene(THREE, meshes) {
+    const model = new THREE.Group();
+    for (const mesh of meshes) model.add(toMesh(THREE, mesh));
 
-    meshes.forEach(function (mesh) { group.add(meshFrom(THREE, mesh)); });
+    // Framed on the model itself, wherever it sits relative to the origin.
+    const box = new THREE.Box3().setFromObject(model);
+    const centre = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.001);
 
-    // Centre on the model rather than assuming it sits at the origin.
-    var box = new THREE.Box3().setFromObject(group);
-    var centre = box.getCenter(new THREE.Vector3());
-    var radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.001);
-    scene.add(group);
+    const scene = new THREE.Scene();
+    scene.add(model);
 
-    var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     scene.add(new THREE.HemisphereLight(0xffffff, dark ? 0x202430 : 0xb0b4bc, 1.6));
-    var key = new THREE.DirectionalLight(0xffffff, 2.2);
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(1, 2, 1.5);
-    scene.add(key);
-    var fill = new THREE.DirectionalLight(0xffffff, 0.7);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.7);
     fill.position.set(-1.5, 0.5, -1);
-    scene.add(fill);
+    scene.add(key, fill);
 
-    return { scene: scene, centre: centre, radius: radius };
+    return { scene, centre, radius };
   }
 
-  function render() {
-    var width = mount.clientWidth || 320;
-    var height = mount.clientHeight || 240;
+  // -------------------------------------------------------------- control
 
-    setStatus("Reading the model");
+  /* Drag to turn, wheel to zoom. Written here because the alternative is a
+     further dependency for thirty lines of arithmetic. */
+  function orbit(camera, canvas, centre, radius, onChange) {
+    let theta = Math.PI * 0.25;
+    let phi = Math.PI * 0.3;
+    let distance = radius * 3.2;
+    let dragFrom = null;
 
-    return Promise.all([
-      loadScript(BASE + "/static/vendor/occt-import-js.js"),
-      import(BASE + "/static/vendor/three.module.min.js"),
-      fetch(BASE + "/api/v1/parts/" + encodeURIComponent(IPN) + "/model.step")
-        .then(function (r) {
-          if (!r.ok) throw new Error("no model available");
-          return r.arrayBuffer();
-        }),
-    ]).then(function (results) {
-      var THREE = results[1];
-      var buffer = results[2];
+    function apply() {
+      phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+      camera.position.set(
+        centre.x + distance * Math.sin(phi) * Math.sin(theta),
+        centre.y + distance * Math.cos(phi),
+        centre.z + distance * Math.sin(phi) * Math.cos(theta)
+      );
+      camera.lookAt(centre);
+      onChange();
+    }
 
-      setStatus("Tessellating");
-      return window.occtimportjs({
-        locateFile: function (name) { return BASE + "/static/vendor/" + name; },
-      }).then(function (occt) {
-        var result = occt.ReadStepFile(new Uint8Array(buffer), null);
-        if (!result || !result.success || !result.meshes.length) {
-          throw new Error("the model could not be read");
-        }
+    canvas.addEventListener("pointerdown", (event) => {
+      dragFrom = { x: event.clientX, y: event.clientY };
+      canvas.setPointerCapture(event.pointerId);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (!dragFrom) return;
+      theta -= (event.clientX - dragFrom.x) * 0.01;
+      phi -= (event.clientY - dragFrom.y) * 0.01;
+      dragFrom = { x: event.clientX, y: event.clientY };
+      apply();
+    });
+    for (const name of ["pointerup", "pointercancel"]) {
+      canvas.addEventListener(name, () => { dragFrom = null; });
+    }
+    canvas.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault(); // zoom the model, not the page
+        const scaled = distance * (1 + event.deltaY * 0.001);
+        distance = Math.max(radius * 1.2, Math.min(radius * 12, scaled));
+        apply();
+      },
+      { passive: false }
+    );
 
-        var built = build(THREE, result.meshes);
-        var camera = new THREE.PerspectiveCamera(40, width / height, 0.01, 10000);
+    return apply;
+  }
 
-        var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setSize(width, height);
-        mount.replaceChildren(renderer.domElement);
+  // ----------------------------------------------------------------- show
 
-        /* The model does not move on its own, so it is drawn when something
-           changes rather than on every frame. An idle animation loop costs a
-           laptop battery the whole time a part page is left open. Draws are
-           coalesced into the next frame so a drag that fires several pointer
-           events still renders once. */
-        var pending = false;
-        function draw() {
-          if (pending) return;
-          pending = true;
-          requestAnimationFrame(function () {
-            pending = false;
-            renderer.render(built.scene, camera);
-          });
-        }
+  async function show() {
+    setStatus("Fetching the model");
+    // three.js is split in two files; the module below imports the other.
+    const [THREE, bytes] = await Promise.all([
+      import(`${vendor}/three.module.min.js`),
+      fetchModel(),
+      loadScript(`${vendor}/occt-import-js.js`),
+    ]);
 
-        var apply = orbit(camera, renderer.domElement, built.centre, built.radius, draw);
+    setStatus("Tessellating");
+    const occt = await window.occtimportjs({ locateFile: (name) => `${vendor}/${name}` });
+    const result = occt.ReadStepFile(bytes, null);
+    if (!result || !result.success || !result.meshes.length) {
+      throw new Error("the model could not be read");
+    }
 
-        var resize = function () {
-          var w = mount.clientWidth || width;
-          var h = mount.clientHeight || height;
-          camera.aspect = w / h;
-          camera.updateProjectionMatrix();
-          renderer.setSize(w, h);
-          apply();
-        };
-        window.addEventListener("resize", resize);
+    const { scene, centre, radius } = buildScene(THREE, result.meshes);
+    const size = () => [mount.clientWidth || 320, mount.clientHeight || 240];
+    const [width, height] = size();
 
-        setStatus("Drag to rotate, scroll to zoom");
+    const camera = new THREE.PerspectiveCamera(40, width / height, radius / 100, radius * 100);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height);
+    mount.replaceChildren(renderer.domElement);
+
+    /* The model does not move by itself, so it is drawn when something
+       changes and not on every frame: an idle animation loop spends a
+       laptop's battery for as long as the page stays open. Draws are folded
+       into the next frame, so a drag that fires several pointer events in
+       one still renders once. */
+    let queued = false;
+    function draw() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        renderer.render(scene, camera);
       });
+    }
+
+    const update = orbit(camera, renderer.domElement, centre, radius, draw);
+    update();
+
+    window.addEventListener("resize", () => {
+      const [w, h] = size();
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      draw();
     });
+
+    setStatus("Drag to turn, scroll to zoom");
   }
 
-  button.addEventListener("click", function () {
-    if (loaded) return;
-    loaded = true;
-    button.disabled = true;
-    button.hidden = true;
-
-    render().catch(function (err) {
-      loaded = false;
-      button.disabled = false;
-      button.hidden = false;
-      setStatus("Could not show the model: " + err.message);
-    });
+  loadButton.addEventListener("click", async () => {
+    loadButton.hidden = true;
+    try {
+      await show();
+    } catch (error) {
+      loadButton.hidden = false;
+      setStatus(`The model cannot be shown: ${error.message}`);
+    }
   });
 })();

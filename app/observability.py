@@ -1,8 +1,8 @@
-"""Logging, request correlation, and error responses that do not leak.
+"""Logging, request correlation, and failures that do not leak.
 
-Three things a deployed service needs and a development one can do without:
-logs it can be searched by, a way to tie a user's report to the lines that
-describe it, and errors that say what went wrong without describing the
+Three things a deployed service needs that a development one can do without:
+logs that can be searched, a way to tie a user's report to the lines that
+describe it, and errors that say something went wrong without describing the
 container's filesystem to whoever asked.
 """
 
@@ -10,23 +10,27 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+import re
 import sys
 import time
 import uuid
 from contextvars import ContextVar
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-
-request_id: ContextVar[str] = ContextVar("request_id", default="-")
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 log = logging.getLogger(__name__)
 
-# Paths whose success is noise: a health probe every 30 seconds drowns out
-# everything that matters.
-QUIET_PATHS = {"/healthz", "/readyz"}
+request_id: ContextVar[str] = ContextVar("request_id", default="-")
+
+# A caller may supply its own id so that one trace spans several services, but
+# it is written into every log line, so it is only accepted in a safe shape.
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+# A probe every thirty seconds drowns out everything worth reading, so these
+# are only logged when they fail.
+_QUIET_PATHS = {"/healthz", "/readyz"}
 
 
 class _RequestIdFilter(logging.Filter):
@@ -36,29 +40,23 @@ class _RequestIdFilter(logging.Filter):
 
 
 class _JsonFormatter(logging.Formatter):
-    """One JSON object per line, for log aggregators."""
+    """One JSON object per line, for a log aggregator."""
 
     def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "time": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
+        entry = {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(record.created)),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
             "request_id": getattr(record, "request_id", "-"),
         }
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
-        for key, value in getattr(record, "extra_fields", {}).items():
-            payload[key] = value
-        return json.dumps(payload, default=str)
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry, default=str)
 
 
-def configure_logging(level: str | None = None, json_output: bool | None = None) -> None:
-    """Install handlers. Safe to call more than once."""
-    resolved = (level or os.environ.get("LOG_LEVEL", "INFO")).upper()
-    if json_output is None:
-        json_output = os.environ.get("LOG_FORMAT", "text").lower() == "json"
-
+def configure_logging(level: str = "INFO", *, json_output: bool = False) -> None:
+    """Send every logger through one handler. Safe to call more than once."""
     handler = logging.StreamHandler(sys.stdout)
     handler.addFilter(_RequestIdFilter())
     handler.setFormatter(
@@ -68,68 +66,71 @@ def configure_logging(level: str | None = None, json_output: bool | None = None)
     )
 
     root = logging.getLogger()
-    root.handlers.clear()
-    root.addHandler(handler)
-    root.setLevel(resolved)
+    root.handlers[:] = [handler]
+    root.setLevel(level if level in logging.getLevelNamesMapping() else "INFO")
 
-    # uvicorn installs its own; let ours carry everything so the format is one.
+    # uvicorn installs handlers of its own; ours carries everything, so that
+    # there is one format. Its access log would repeat the line written below.
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logger = logging.getLogger(name)
         logger.handlers.clear()
         logger.propagate = True
+    logging.getLogger("uvicorn.access").disabled = True
 
-    logging.getLogger("app").setLevel(resolved)
 
+class RequestContextMiddleware:
+    """Gives each request an id, logs how it went, and absorbs crashes.
 
-class RequestContextMiddleware(BaseHTTPMiddleware):
-    """Tags each request with an id, and logs how it went.
-
-    The id is echoed in the response so a user reporting a failure can quote
-    something that finds the exact request in the logs.
+    The id is returned in X-Request-ID, so someone reporting a failure can
+    quote something that finds the exact request in the logs. An exception
+    that nothing else handled is logged in full here and answered with a
+    message that says nothing: an exception's text routinely contains
+    absolute paths, and a stack trace is a description of the deployment.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        incoming = request.headers.get("x-request-id", "")
-        token = request_id.set(incoming[:64] if incoming else uuid.uuid4().hex[:12])
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        supplied = Headers(scope=scope).get("x-request-id", "")
+        current = supplied if _REQUEST_ID.match(supplied) else uuid.uuid4().hex[:12]
+        token = request_id.set(current)
+
+        method, path = scope["method"], scope["path"]
         started = time.perf_counter()
+        status = 500
+        responded = False
+
+        async def send_tagged(message: Message) -> None:
+            nonlocal status, responded
+            if message["type"] == "http.response.start":
+                responded = True
+                status = message["status"]
+                MutableHeaders(scope=message)["X-Request-ID"] = current
+            await send(message)
 
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send_tagged)
         except Exception:
-            elapsed = (time.perf_counter() - started) * 1000
-            log.exception("%s %s failed after %.0fms", request.method, request.url.path, elapsed)
-            request_id.reset(token)
-            raise
-
-        elapsed = (time.perf_counter() - started) * 1000
-        response.headers["X-Request-ID"] = request_id.get()
-
-        if request.url.path not in QUIET_PATHS or response.status_code >= 400:
-            log.log(
-                logging.WARNING if response.status_code >= 500 else logging.INFO,
-                "%s %s -> %d in %.0fms",
-                request.method,
-                request.url.path,
-                response.status_code,
-                elapsed,
+            log.exception("%s %s raised", method, path)
+            if responded:
+                raise  # the response is already under way; nothing to replace
+            failure = JSONResponse(
+                {"detail": "Internal server error", "request_id": current}, status_code=500
             )
-
-        request_id.reset(token)
-        return response
-
-
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Return something safe, and keep the detail in the logs.
-
-    An exception's text routinely contains absolute paths, and a stack trace
-    describes the deployment. Neither belongs in a response.
-    """
-    log.exception("unhandled error on %s %s", request.method, request.url.path)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": "Internal server error",
-            "request_id": request_id.get(),
-        },
-        headers={"X-Request-ID": request_id.get()},
-    )
+            await failure(scope, receive, send_tagged)
+        finally:
+            if path not in _QUIET_PATHS or status >= 400:
+                log.log(
+                    logging.WARNING if status >= 500 else logging.INFO,
+                    "%s %s -> %d in %.0fms",
+                    method,
+                    path,
+                    status,
+                    (time.perf_counter() - started) * 1000,
+                )
+            request_id.reset(token)

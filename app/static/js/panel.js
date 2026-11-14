@@ -1,567 +1,516 @@
 /* The catalog panel KiCad embeds.
  *
- * Three things shape it. It renders in a WebView that is often narrow, so the
- * layout collapses rather than scrolling sideways. It is used from inside an
- * editor, so it is driveable from the keyboard without reaching for a mouse.
- * And placing a part can fail for reasons the user can act on -- a missing
- * footprint, a broken extends chain -- so failures are reported on the row
- * that produced them rather than in a log the user has to think to open.
+ * Three things shape it. It is drawn in a WebView that is often narrow, so the
+ * layout folds rather than scrolling sideways. It is used from inside an
+ * editor, so it can be driven from the keyboard. And placing a part can fail
+ * for reasons the user can act on -- a missing footprint, a broken symbol --
+ * so a failure is reported on the row that caused it, not in a log somebody
+ * would have to think to open.
  */
-(function () {
+(() => {
   "use strict";
 
-  var App = window.App;
-  var cfg = document.body.dataset;
-  var AUTH = cfg.authConfigured === "true";
+  const { api, el, link, button, stateBox, plural, base } = window.App;
+  const bridge = window.KicadBridge;
+  const config = document.body.dataset;
 
-  var els = {
+  const SEARCH_DELAY_MS = 150;
+  const INDEXING_POLL_MS = 2000;
+
+  const dom = {
     search: document.getElementById("search"),
+    count: document.getElementById("count"),
     filters: document.getElementById("filters"),
     results: document.getElementById("results"),
-    count: document.getElementById("count"),
-    status: document.getElementById("index-status"),
-    sessionBadge: document.getElementById("session-badge"),
+    indexStatus: document.getElementById("index-status"),
+    sessionName: document.getElementById("session-name"),
     sessionAction: document.getElementById("session-action"),
-    log: document.getElementById("log"),
-    logWrap: document.getElementById("log-wrap"),
+    activity: document.getElementById("activity"),
+    activityLog: document.getElementById("activity-log"),
   };
 
-  var signedIn = cfg.signedIn === "true";
+  // Filters can arrive in the address, so that a part's page can link back to
+  // "everything else in this category".
+  const params = new URLSearchParams(window.location.search);
+  const filters = { status: params.get("status"), category: params.get("category") };
+  dom.search.value = params.get("q") || "";
 
-  /* Filters can arrive in the URL so a part page can link back to "everything
-     else in this category". */
-  var params = new URLSearchParams(window.location.search);
-  var filters = {
-    status: params.get("status"),
-    category: params.get("category"),
-  };
-  var facets = { statuses: [], categories: [] };
-  var rows = [];
-  var selected = -1;
-  var searchTimer = null;
-  var pollTimer = null;
+  let facets = { statuses: [], categories: [] };
+  let rows = []; // {element, place} for each part on screen
+  let selected = -1;
+  let signedIn = config.signedIn === "true";
+  let wasIndexing = false;
+  let latestRequest = 0;
+  let pollTimer = null;
 
-  // ------------------------------------------------------------- helpers
+  // ------------------------------------------------------------- activity
 
   function log(message) {
-    if (!els.log) return;
-    var stamp = new Date().toLocaleTimeString();
-    els.log.textContent = "[" + stamp + "] " + message + "\n" + els.log.textContent;
-    if (els.logWrap) els.logWrap.hidden = false;
+    const time = new Date().toLocaleTimeString();
+    dom.activityLog.textContent = `[${time}] ${message}\n${dom.activityLog.textContent}`;
+    dom.activity.hidden = false;
   }
 
-  function showState(title, hint, actions) {
-    rows = [];
-    selected = -1;
-    els.results.replaceChildren(App.stateBox(title, hint, actions));
-  }
+  // -------------------------------------------------------------- filters
 
-  function showSkeleton() {
-    rows = [];
-    selected = -1;
-    var list = App.el("ul", "skeleton");
-    list.setAttribute("aria-hidden", "true");
-    for (var i = 0; i < 5; i++) {
-      var row = document.createElement("li");
-      row.appendChild(App.el("span"));
-      row.appendChild(App.el("span"));
-      row.appendChild(App.el("span"));
-      list.appendChild(row);
-    }
-    els.results.replaceChildren(list);
-  }
+  /* Drawn from the index rather than written down here, so the panel offers
+     what this library actually contains.
 
-  // ------------------------------------------------------------- filters
-
-  /* Filters are drawn from the index rather than hard-coded, so the panel
-     offers what this library actually contains. An option that could only ever
-     return nothing is worse than no option.
-
-     The two facets are shaped differently, so they are offered differently.
-     Status is a closed vocabulary of three that the library cannot add to, and
-     it stays a row of chips: one click, and what is on is readable without
-     opening anything. Categories are declared by the library and keep being
-     added, so they collapse into a dropdown. Thirty chips wrap into a block
-     tall enough to push the parts they filter off the bottom of a panel that
-     is already sharing its height with an editor. */
+     The two are offered differently because they are different in kind.
+     Status is a closed set of three that a library cannot add to, and stays a
+     row of chips: one click, and what is on can be read without opening
+     anything. Categories are declared by the library and keep being added to,
+     so they fold into a dropdown -- thirty chips wrap into a block tall enough
+     to push the parts they filter off the bottom of a panel that already
+     shares its height with an editor. */
   function renderFilters() {
-    if (!els.filters) return;
-    App.clear(els.filters);
+    const controls = [];
+    // With fewer than two choices there is nothing to narrow.
+    if (facets.statuses.length > 1) controls.push(statusChips());
+    if (facets.categories.length > 1 || filters.category) controls.push(categorySelect());
 
-    var groups = [
-      { key: "status", label: "Status", options: facets.statuses, build: chipRow },
-      {
-        key: "category",
-        label: "Category",
-        all: "All categories",
-        options: facets.categories,
-        build: dropdown,
-      },
-    ];
-
-    var any = false;
-    groups.forEach(function (group) {
-      if (group.options.length < 2) return; // one option filters nothing
-      any = true;
-      els.filters.appendChild(group.build(group));
-    });
-
-    els.filters.hidden = !any;
+    dom.filters.replaceChildren(...controls);
+    dom.filters.hidden = controls.length === 0;
   }
 
-  function chipRow(group) {
-    var row = App.el("div", "filter");
-    row.appendChild(App.el("span", "filter__label", group.label));
+  function statusChips() {
+    const chips = el("div", "filter__chips");
+    chips.setAttribute("role", "group");
+    chips.setAttribute("aria-label", "Status");
 
-    var list = App.el("div", "filter__chips");
-    list.setAttribute("role", "group");
-    list.setAttribute("aria-label", group.label);
-    list.appendChild(chip(group.key, null, "All", null));
-    group.options.forEach(function (option) {
-      list.appendChild(chip(group.key, option.value, option.label, option.count));
-    });
+    const options = [{ value: null, label: "All" }, ...facets.statuses];
+    for (const option of options) {
+      const on = filters.status === option.value;
+      const chip = button(`chip${on ? " chip--on" : ""}`, option.label, () => {
+        // Pressing the chip that is on takes it off again.
+        filters.status = on ? null : option.value;
+        renderFilters();
+        load();
+      });
+      chip.setAttribute("aria-pressed", String(on));
+      if (option.count !== undefined) chip.append(el("span", "chip__count", option.count));
+      chips.append(chip);
+    }
 
-    row.appendChild(list);
+    const row = el("div", "filter");
+    row.append(el("span", "filter__label", "Status"), chips);
     return row;
   }
 
-  function chip(key, value, label, count) {
-    var active = filters[key] === value;
-    var node = App.button("chip" + (active ? " chip--on" : ""), label, function () {
-      filters[key] = active ? null : value;
-      renderFilters();
-      load();
-    });
-    node.setAttribute("aria-pressed", active ? "true" : "false");
-    if (count !== null && count !== undefined) {
-      node.appendChild(App.el("span", "chip__count", count));
+  /* A native <select>, not a menu built here. The platform draws its popup,
+     so it escapes the panel instead of being clipped by it, and it already
+     scrolls, takes the arrow keys and jumps as you type. The counts ride in
+     the option text because options cannot be styled; that is the price. */
+  function categorySelect() {
+    const select = el("select");
+    select.id = "filter-category";
+    select.append(new Option("All categories", ""));
+
+    for (const option of facets.categories) {
+      select.append(new Option(`${option.label}  (${option.count})`, option.value));
     }
-    return node;
-  }
-
-  /* A native <select>, not a menu of our own. Its popup is drawn by the
-     platform, so it escapes the panel instead of being clipped by it, and it
-     already scrolls, takes the arrow keys and jumps on type-ahead. The counts
-     ride inside the option text because options cannot be styled; that is the
-     price of everything above. */
-  function dropdown(group) {
-    var row = App.el("div", "filter");
-    var id = "filter-" + group.key;
-    var chosen = filters[group.key];
-
-    var label = App.el("label", "filter__label", group.label);
-    label.htmlFor = id;
-    row.appendChild(label);
-
-    var select = App.el("select");
-    select.id = id;
-
-    var all = App.el("option", null, group.all);
-    all.value = "";
-    select.appendChild(all);
-
-    var matched = false;
-    group.options.forEach(function (option) {
-      var node = App.el("option", null, option.label + "  (" + option.count + ")");
-      node.value = option.value;
-      if (option.value === chosen) {
-        node.selected = true;
-        matched = true;
-      }
-      select.appendChild(node);
-    });
-
-    /* A category arriving in the URL that the catalog no longer has still
-       narrows the list, so the control admits to it rather than reading
-       "All categories" over an empty result. */
-    if (chosen && !matched) {
-      var orphan = App.el("option", null, chosen + "  (0)");
-      orphan.value = chosen;
-      orphan.selected = true;
-      select.appendChild(orphan);
+    /* A category from the address that the catalog no longer has still
+       narrows the list. The control owns up to it, rather than reading "All
+       categories" above an empty result. */
+    if (filters.category && !facets.categories.some((c) => c.value === filters.category)) {
+      select.append(new Option(`${filters.category}  (0)`, filters.category));
     }
+    select.value = filters.category || "";
 
-    var wrap = App.el("span", "select" + (chosen ? " select--on" : ""));
-    wrap.appendChild(select);
-    row.appendChild(wrap);
+    const wrap = el("span", `select${filters.category ? " select--on" : ""}`);
+    wrap.append(select);
 
-    /* Re-rendering here would rebuild the element under the cursor and drop
-       the focus a keyboard user just spent three keys getting to, so the one
-       thing that changes is changed in place. */
-    select.addEventListener("change", function () {
-      filters[group.key] = select.value || null;
-      wrap.classList.toggle("select--on", !!filters[group.key]);
+    /* Changed in place. Rendering the filters again here would rebuild the
+       element under the cursor and drop the focus a keyboard user just spent
+       three keys getting to. */
+    select.addEventListener("change", () => {
+      filters.category = select.value || null;
+      wrap.classList.toggle("select--on", Boolean(filters.category));
       load();
     });
 
+    const label = el("label", "filter__label", "Category");
+    label.htmlFor = select.id;
+
+    const row = el("div", "filter");
+    row.append(label, wrap);
     return row;
   }
 
-  // -------------------------------------------------------------- parts
+  const isNarrowed = () =>
+    Boolean(dom.search.value.trim() || filters.status || filters.category);
 
-  function partRow(part) {
-    var row = App.el("li", "part");
-    row.tabIndex = -1;
-
-    var thumb = App.el("span", "part__thumb");
-    var img = document.createElement("img");
-    img.loading = "lazy";
-    img.alt = "";
-    img.src = App.base + "/api/v1/parts/" + encodeURIComponent(part.ipn) + "/symbol.svg";
-    // A part whose symbol cannot be built still belongs in the list.
-    img.addEventListener("error", function () { thumb.replaceChildren(); });
-    thumb.appendChild(img);
-    row.appendChild(thumb);
-
-    var name = App.el("span", "part__name");
-    name.appendChild(App.link("/ipn/" + encodeURIComponent(part.ipn), "part__ipn", part.ipn));
-    if (part.status && part.status !== "approved") {
-      name.appendChild(App.el("span", "badge badge--warn", part.status));
-    }
-    row.appendChild(name);
-
-    var desc = App.el("span", "part__desc", part.description || "");
-    desc.title = part.description || "";
-    row.appendChild(desc);
-
-    var source = part.preferred_mpn
-      ? part.preferred_mpn + (part.mpn_count > 1 ? "  +" + (part.mpn_count - 1) : "")
-      : "no source";
-    row.appendChild(App.el("span", "part__source", source));
-
-    var place = App.button("button button--primary", "Place", function () {
-      placePart(part.ipn, row, place);
-    });
-    place.setAttribute("aria-label", "Place " + part.ipn + " into KiCad");
-    var action = App.el("span", "part__action");
-    action.appendChild(place);
-    row.appendChild(action);
-
-    // Spans the row, so a message has the width to say something useful.
-    var box = App.el("div", "part__note");
-    box.hidden = true;
-    row.appendChild(box);
-
-    row._place = place;
-    return row;
-  }
-
-  /* Report on the row that produced it. A failure in a collapsed log at the
-     bottom of the page is a failure nobody reads. */
-  function note(row, kind, message) {
-    var box = row.querySelector(".part__note");
-    if (!box) return;
-    box.className = "part__note" + (kind ? " part__note--" + kind : "");
-    box.textContent = message || "";
-    box.hidden = !message;
-  }
-
-  function render(data) {
-    if (data.state === "syncing") {
-      showSkeleton();
-      els.count.textContent = "indexing";
-      if (!pollTimer) pollTimer = setTimeout(function () { pollTimer = null; load(); }, 2000);
-      return;
-    }
-    if (data.state === "empty") {
-      showState(
-        "No library configured",
-        "Set LIBRARY_SOURCES to a git repository holding the part library."
-      );
-      els.count.textContent = "";
-      return;
-    }
-
-    if (!data.parts.length) {
-      var narrowed = filtersActive();
-      showState(
-        narrowed ? "Nothing matches" : "The catalog is empty",
-        narrowed
-          ? "Try a value, a package or a manufacturer part number."
-          : "Parts appear here once the library repository contains them.",
-        narrowed ? [App.button("button", "Clear filters", resetFilters)] : []
-      );
-      els.count.textContent = data.total ? App.plural(data.total, "part") + " in catalog" : "";
-      return;
-    }
-
-    var list = App.el("ul", "parts");
-    rows = data.parts.map(function (part) {
-      var row = partRow(part);
-      row.dataset.ipn = part.ipn;
-      list.appendChild(row);
-      return row;
-    });
-    selected = -1;
-    els.results.replaceChildren(list);
-    els.count.textContent = describe(data);
-  }
-
-  /* "12 of 40 matches" beats "12 of 4000": the size of the catalog says
-     nothing about the search that produced the list in front of you. With no
-     filters on, though, the catalog IS the result, so it stays "parts". */
-  function describe(data) {
-    var noun = filtersActive() ? ["match", "matches"] : ["part", "parts"];
-    if (data.returned < data.matched) {
-      return data.returned + " of " + App.plural(data.matched, noun[0], noun[1]);
-    }
-    return App.plural(data.matched, noun[0], noun[1]);
-  }
-
-  function filtersActive() {
-    return !!((els.search && els.search.value.trim()) || filters.status || filters.category);
-  }
-
-  function resetFilters() {
-    filters = { status: null, category: null };
-    if (els.search) els.search.value = "";
+  function clearFilters() {
+    filters.status = null;
+    filters.category = null;
+    dom.search.value = "";
     renderFilters();
     load();
   }
 
-  function query() {
-    var parts = ["q=" + encodeURIComponent(els.search ? els.search.value : "")];
-    if (filters.status) parts.push("status=" + encodeURIComponent(filters.status));
-    if (filters.category) parts.push("category=" + encodeURIComponent(filters.category));
-    return parts.join("&");
+  // ----------------------------------------------------------------- list
+
+  function show(...nodes) {
+    rows = [];
+    selected = -1;
+    dom.results.replaceChildren(...nodes);
   }
 
-  function load() {
-    App.api("/api/v1/parts?" + query())
-      .then(render)
-      .catch(function (err) {
-        if (err.unauthorized) {
-          showState("Sign in to browse this library", "Use the button above.");
-          els.count.textContent = "";
-          return;
-        }
-        showState("Could not load parts", err.message);
-      });
+  function skeleton() {
+    const list = el("ul", "skeleton");
+    list.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 5; i += 1) {
+      const row = el("li");
+      row.append(el("span"), el("span"), el("span"));
+      list.append(row);
+    }
+    return list;
   }
 
-  // -------------------------------------------------------------- place
+  function partRow(part) {
+    const ipn = encodeURIComponent(part.ipn);
+    const row = el("li", "part");
 
-  function placePart(ipn, row, place) {
+    const thumb = el("span", "part__thumb");
+    const image = el("img");
+    image.loading = "lazy";
+    image.alt = "";
+    image.src = `${base}/api/v1/parts/${ipn}/symbol.svg`;
+    // A part whose symbol cannot be drawn still belongs in the list.
+    image.addEventListener("error", () => image.remove());
+    thumb.append(image);
+
+    const name = el("span", "part__name");
+    name.append(link(`/ipn/${ipn}`, "part__ipn", part.ipn));
+    if (part.status !== "approved") name.append(el("span", "badge badge--warn", part.status));
+
+    const description = el("span", "part__desc", part.description);
+    description.title = part.description;
+
+    const others = part.mpn_count > 1 ? `  +${part.mpn_count - 1}` : "";
+    const source = el(
+      "span",
+      "part__source",
+      part.preferred_mpn ? part.preferred_mpn + others : "no source"
+    );
+
+    // Spans the row, so that a message has the width to say something useful.
+    const note = el("div", "part__note");
+    note.hidden = true;
+
+    const place = button("button button--primary", "Place", () => placePart(part.ipn, place, note));
+    place.setAttribute("aria-label", `Place ${part.ipn} into KiCad`);
+    const action = el("span", "part__action");
+    action.append(place);
+
+    row.append(thumb, name, description, source, action, note);
+    return { element: row, place };
+  }
+
+  /* "12 of 40 matches" beats "12 of 4000": the size of the catalog says
+     nothing about the search that produced the list on screen. With nothing
+     narrowing it, though, the catalog is the result, so those are "parts". */
+  function describe(data) {
+    const count = isNarrowed()
+      ? plural(data.matched, "match", "matches")
+      : plural(data.matched, "part");
+    return data.returned < data.matched ? `${data.returned} of ${count}` : count;
+  }
+
+  function render(data) {
+    const indexing = data.state === "syncing";
+    if (indexing) {
+      show(skeleton());
+      dom.count.textContent = "indexing";
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(load, INDEXING_POLL_MS);
+    } else if (data.state === "empty") {
+      show(
+        stateBox(
+          "No library is configured",
+          "Set LIBRARY_SOURCES to the git repository that holds the part library."
+        )
+      );
+      dom.count.textContent = "";
+    } else if (data.state === "error") {
+      show(
+        stateBox("The library could not be indexed", "The status page says what went wrong.", [
+          link("/", "button", "Open the status page"),
+        ])
+      );
+      dom.count.textContent = "";
+    } else if (data.parts.length === 0) {
+      const narrowed = isNarrowed();
+      show(
+        narrowed
+          ? stateBox("Nothing matches", "Try a value, a package or a manufacturer part number.", [
+              button("button", "Clear filters", clearFilters),
+            ])
+          : stateBox(
+              "The catalog is empty",
+              "Parts appear here once the library repository contains them."
+            )
+      );
+      dom.count.textContent = data.total ? `${plural(data.total, "part")} in the catalog` : "";
+    } else {
+      const list = el("ul", "parts");
+      const built = data.parts.map(partRow);
+      list.append(...built.map((row) => row.element));
+      show(list);
+      rows = built;
+      dom.count.textContent = describe(data);
+    }
+
+    // The filters and the status badge were drawn from an index that did not
+    // exist yet; now that it does, they are fetched again.
+    if (wasIndexing && !indexing) loadStatus();
+    wasIndexing = indexing;
+  }
+
+  async function load() {
+    const request = ++latestRequest;
+    const query = new URLSearchParams({ q: dom.search.value });
+    if (filters.status) query.set("status", filters.status);
+    if (filters.category) query.set("category", filters.category);
+
+    try {
+      const data = await api(`/api/v1/parts?${query}`);
+      // An answer to a search that has since been replaced is not shown:
+      // replies can arrive out of the order they were asked in.
+      if (request === latestRequest) render(data);
+    } catch (error) {
+      if (request !== latestRequest) return;
+      dom.count.textContent = "";
+      show(
+        error.unauthorized
+          ? stateBox("Sign in to browse this library", "Use the button at the top of the panel.")
+          : stateBox("The parts could not be loaded", error.message, [
+              button("button", "Try again", load),
+            ])
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------- place
+
+  function setNote(note, kind, message) {
+    note.className = `part__note${kind ? ` part__note--${kind}` : ""}`;
+    note.textContent = message;
+    note.hidden = !message;
+  }
+
+  async function placePart(ipn, place, note) {
     place.disabled = true;
-    var original = place.textContent;
     place.textContent = "Placing";
-    note(row, null, "");
-    log("Fetching assets for " + ipn);
+    setNote(note, null, "");
 
-    App.api("/api/v1/parts/" + encodeURIComponent(ipn) + "/assets")
-      .then(function (bundle) {
-        var warnings = bundle.warnings || [];
-        warnings.forEach(function (w) { log("Warning: " + w); });
-        if (warnings.length) note(row, "warn", warnings.join(" "));
+    try {
+      if (!bridge.isEmbedded()) throw new Error("Parts can only be placed from inside KiCad.");
 
-        // Sent in the order the server returns them: footprint and 3D model
-        // first with mode SAVE, the symbol last with mode PLACE.
-        return bundle.assets.reduce(function (chain, asset) {
-          return chain.then(function () {
-            log("Sending " + asset.label);
-            return window.KicadBridge.send(asset.command, asset.parameters, asset.data);
-          });
-        }, Promise.resolve());
-      })
-      .then(function () {
-        log("Placed " + ipn);
-        place.textContent = "Placed";
-        setTimeout(function () { place.textContent = original; }, 1500);
-      })
-      .catch(function (err) {
-        log("Could not place " + ipn + ": " + err.message);
-        note(row, "error", err.message);
-        place.textContent = original;
-      })
-      .then(function () { place.disabled = false; });
+      log(`Fetching ${ipn}`);
+      const bundle = await api(`/api/v1/parts/${encodeURIComponent(ipn)}/assets`);
+
+      for (const warning of bundle.warnings) log(`Warning: ${warning}`);
+      if (bundle.warnings.length) setNote(note, "warn", bundle.warnings.join(" "));
+
+      // One at a time, in the order the server gives them: the footprint and
+      // 3D model are saved first, and the symbol is placed last, so that what
+      // it refers to is already there when it lands.
+      await bridge.whenReady();
+      for (const asset of bundle.assets) {
+        log(`Sending ${asset.filename}`);
+        await bridge.send(asset.command, asset.parameters, asset.data);
+      }
+
+      log(`Placed ${ipn}`);
+      place.textContent = "Placed";
+      setTimeout(() => { place.textContent = "Place"; }, 1500);
+    } catch (error) {
+      log(`Could not place ${ipn}: ${error.message}`);
+      setNote(note, "error", error.message);
+      place.textContent = "Place";
+    } finally {
+      place.disabled = false;
+    }
   }
 
-  // ----------------------------------------------------------- keyboard
+  // ------------------------------------------------------------- keyboard
 
-  /* The panel lives inside an editor, where reaching for a mouse to place a
-     resistor is the slow path. */
+  /* The panel lives inside an editor, where reaching for the mouse to place a
+     resistor is the slow way round. */
   function select(index) {
     if (!rows.length) return;
-    if (selected >= 0 && rows[selected]) rows[selected].classList.remove("part--on");
+    if (rows[selected]) rows[selected].element.classList.remove("part--selected");
     selected = Math.max(0, Math.min(rows.length - 1, index));
-    var row = rows[selected];
-    row.classList.add("part--on");
+    const row = rows[selected].element;
+    row.classList.add("part--selected");
     row.scrollIntoView({ block: "nearest" });
   }
 
   function onKeyDown(event) {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
-    /* An open dropdown owns the arrow keys, Enter and type-ahead, and the list
-       shortcuts would fight it for all three: arrows would scroll the parts
-       behind the popup, "/" would yank focus out of it mid-choice. */
-    var active = document.activeElement;
-    if (active && active.tagName === "SELECT") return;
+    const focused = document.activeElement;
+    /* An open dropdown owns the arrows, Enter and typing. The list's
+       shortcuts would fight it for all three. */
+    if (focused && focused.tagName === "SELECT") return;
+    const typing = focused === dom.search;
 
-    var typing = active === els.search;
-
-    if (event.key === "/" && !typing) {
-      event.preventDefault();
-      if (els.search) els.search.focus();
-      return;
-    }
-    if (event.key === "Escape") {
-      if (typing && els.search.value) {
-        els.search.value = "";
-        load();
-      } else if (els.search) {
-        els.search.blur();
+    switch (event.key) {
+      case "/":
+        if (typing) return;
+        dom.search.focus();
+        break;
+      case "Escape":
+        if (typing && dom.search.value) {
+          dom.search.value = "";
+          load();
+        } else {
+          dom.search.blur();
+        }
+        return;
+      case "ArrowDown":
+        select(selected + 1);
+        break;
+      case "ArrowUp":
+        select(selected - 1);
+        break;
+      case "Enter": {
+        // A focused button or link keeps its own Enter.
+        if (focused && (focused.tagName === "BUTTON" || focused.tagName === "A")) return;
+        const row = rows[selected];
+        if (!row || row.place.disabled) return;
+        row.place.click();
+        break;
       }
-      return;
+      default:
+        return;
     }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      select(selected + 1);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      select(selected <= 0 ? 0 : selected - 1);
-      return;
-    }
-    if (event.key === "Enter" && selected >= 0 && rows[selected]) {
-      event.preventDefault();
-      var place = rows[selected]._place;
-      if (place && !place.disabled) place.click();
-    }
+    event.preventDefault();
   }
 
-  // ------------------------------------------------------------ session
+  // -------------------------------------------------------------- session
 
-  function refreshSession() {
-    if (!AUTH) return Promise.resolve();
-    return App.api("/api/v1/session/me").then(function (me) {
-      signedIn = !!me.authenticated;
-      if (els.sessionBadge) {
-        els.sessionBadge.textContent = signedIn ? me.display_name : "Not signed in";
-        els.sessionBadge.className = "badge " + (signedIn ? "badge--ok" : "");
-      }
-      if (els.sessionAction) {
-        els.sessionAction.textContent = signedIn ? "Sign out" : "Sign in";
-      }
-    });
+  async function refreshSession() {
+    const me = await api("/api/v1/session/me");
+    signedIn = Boolean(me.authenticated);
+    dom.sessionName.textContent = signedIn ? me.display_name : "Not signed in";
+    dom.sessionName.classList.toggle("badge--ok", signedIn);
+    dom.sessionAction.textContent = signedIn ? "Sign out" : "Sign in";
   }
 
-  /* The catalog is closed to a signed-out visitor, so both directions have to
-     reload it: signing in opens a list that was refused, signing out closes
-     one that is on screen. */
-  function afterSessionChange() {
+  /* Both directions change what may be seen: signing in opens a list that was
+     refused, signing out closes the one on screen. Everything is fetched
+     again in place -- the page is never reloaded, because KiCad would not
+     open a new RPC session for it. */
+  function reloadCatalog() {
     load();
-    refreshStatus();
+    loadStatus();
   }
 
-  function onSessionAction() {
-    els.sessionAction.disabled = true;
-    var done = function () { els.sessionAction.disabled = false; };
+  async function signOut() {
+    log("Signing out");
+    await api("/api/v1/session/logout", { method: "POST" });
+    await refreshSession();
+    reloadCatalog();
+    log("Signed out");
+    // KiCad holds tokens of its own; without this it would sign straight
+    // back in. Outside KiCad there is nobody to tell.
+    if (bridge.isEmbedded()) await bridge.logout().catch(() => {});
+  }
 
-    if (signedIn) {
-      log("Signing out");
-      App.api("/api/v1/session/logout", { method: "POST" })
-        .then(refreshSession)
-        .then(function () {
-          log("Signed out");
-          afterSessionChange();
-          return window.KicadBridge.logout().catch(function () {});
-        })
-        .then(done, done);
-      return;
-    }
-
-    /* Outside KiCad there is no bridge to ask, so the browser signs in
-       against the provider itself. The panel is reachable this way whenever
-       someone opens the URL directly rather than through the WebView. */
-    if (!window.KicadBridge.isEmbedded()) {
-      if (cfg.webLogin !== "true") {
-        log("Browser sign-in is disabled; sign in from KiCad instead.");
-        done();
+  async function signIn() {
+    /* Outside KiCad there is no bridge to ask, so the browser signs in with
+       the identity provider itself and comes back here. Leaving the page is
+       fine in a browser: there is no RPC session to lose. */
+    if (!bridge.isEmbedded()) {
+      if (config.webLogin !== "true") {
+        log("Signing in from a browser is disabled; sign in from KiCad instead.");
         return;
       }
-      window.location.href =
-        App.base + "/auth/login?next=" + encodeURIComponent(window.location.pathname);
+      const here = window.location.pathname + window.location.search;
+      window.location.assign(`${base}/auth/login?next=${encodeURIComponent(here)}`);
       return;
     }
 
-    log("Requesting sign-in");
-    window.KicadBridge.login()
-      .then(refreshSession)
-      .then(function () {
-        log(signedIn ? "Signed in" : "Sign-in did not create a session");
-        afterSessionChange();
-      })
-      .catch(function (err) { log("Sign-in failed: " + err.message); })
-      .then(done, done);
+    log("Asking KiCad to sign in");
+    await bridge.login();
+    await refreshSession();
+    reloadCatalog();
+    log(signedIn ? "Signed in" : "The sign-in did not create a session");
   }
 
-  // ------------------------------------------------------------- status
-
-  function refreshStatus() {
-    App.api("/api/v1/status")
-      .then(function (status) {
-        facets = status.facets || { statuses: [], categories: [] };
-        renderFilters();
-        if (!els.status) return;
-
-        els.status.hidden = false;
-        els.status.removeAttribute("href");
-        els.status.title = "";
-
-        if (status.state !== "ready") {
-          els.status.className = "badge";
-          els.status.textContent = status.state;
-          if (status.error) els.status.title = status.error;
-          return;
-        }
-        if (status.errors) {
-          // A link rather than a tooltip: what it counts is readable.
-          els.status.className = "badge badge--danger badge--link";
-          els.status.textContent = App.plural(status.errors, "unresolved reference");
-          els.status.href = App.base + "/issues";
-          return;
-        }
-        if (status.warnings) {
-          els.status.className = "badge badge--warn badge--link";
-          els.status.textContent = App.plural(status.warnings, "warning");
-          els.status.href = App.base + "/issues?severity=warning";
-          return;
-        }
-        els.status.className = "badge badge--ok";
-        els.status.textContent = App.plural(status.parts, "part");
-      })
-      .catch(function () {
-        // Signed out, or the list already reported the failure.
-        if (els.status) els.status.hidden = true;
-      });
+  async function onSessionAction() {
+    dom.sessionAction.disabled = true;
+    try {
+      await (signedIn ? signOut() : signIn());
+    } catch (error) {
+      log(`${signedIn ? "Sign-out" : "Sign-in"} failed: ${error.message}`);
+    } finally {
+      dom.sessionAction.disabled = false;
+    }
   }
 
-  // --------------------------------------------------------------- init
+  // --------------------------------------------------------- index status
 
-  if (!window.KicadBridge.isEmbedded()) {
-    log("Not running inside KiCad; parts can be browsed but not placed.");
+  function showIndexStatus(status) {
+    const badge = dom.indexStatus;
+    badge.hidden = false;
+    badge.removeAttribute("href");
+    badge.title = "";
+
+    if (status.state !== "ready") {
+      badge.className = `badge${status.state === "error" ? " badge--danger" : ""}`;
+      badge.textContent = { syncing: "indexing", empty: "no library", error: "index failed" }[
+        status.state
+      ];
+      badge.title = status.error || "";
+    } else if (status.errors) {
+      // A link, not a tooltip: what it counts can be read.
+      badge.className = "badge badge--danger badge--link";
+      badge.textContent = plural(status.errors, "error");
+      badge.href = `${base}/issues?severity=error`;
+    } else if (status.warnings) {
+      badge.className = "badge badge--warn badge--link";
+      badge.textContent = plural(status.warnings, "warning");
+      badge.href = `${base}/issues?severity=warning`;
+    } else {
+      badge.className = "badge badge--ok";
+      badge.textContent = plural(status.parts, "part");
+    }
   }
 
-  window.KicadBridge.onMessage(function (env) {
-    if (env.command === "NEW_SESSION") log("Session established with KiCad");
+  async function loadStatus() {
+    try {
+      const status = await api("/api/v1/status");
+      facets = status.facets;
+      showIndexStatus(status);
+    } catch {
+      // Signed out, or the list has already said what went wrong.
+      facets = { statuses: [], categories: [] };
+      dom.indexStatus.hidden = true;
+    }
+    renderFilters();
+  }
+
+  // ----------------------------------------------------------------- start
+
+  let searchTimer = null;
+  dom.search.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(load, SEARCH_DELAY_MS);
   });
 
-  if (els.search) {
-    els.search.value = params.get("q") || "";
-    els.search.addEventListener("input", function () {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(load, 150);
-    });
-  }
-
-  if (els.sessionAction) {
-    els.sessionAction.addEventListener("click", onSessionAction);
-  }
-
+  if (dom.sessionAction) dom.sessionAction.addEventListener("click", onSessionAction);
   document.addEventListener("keydown", onKeyDown);
 
+  bridge.onMessage((envelope) => {
+    if (envelope.command === "NEW_SESSION") log("KiCad opened a session");
+  });
+  if (!bridge.isEmbedded()) {
+    log("Not running inside KiCad: parts can be browsed here, but not placed.");
+  }
+
   load();
-  refreshStatus();
+  loadStatus();
 })();
