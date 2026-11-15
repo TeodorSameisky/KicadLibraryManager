@@ -117,6 +117,9 @@ class Settings:
     library_refresh_minutes: int = 15
     # What the git host signs its webhook calls with. Unset, there is no webhook.
     webhook_secret: str | None = None
+    # A token that may push to the library's repository. Without one the app
+    # reads the library and cannot add to it.
+    library_write_token: str | None = None
 
     # -- bills of materials
     # One SQLite file. It is the only thing here that cannot be rebuilt from
@@ -177,6 +180,7 @@ class Settings:
             remote_library_prefix=env.text("REMOTE_LIBRARY_PREFIX", "remote"),
             library_refresh_minutes=max(0, env.integer("LIBRARY_REFRESH_MINUTES", 15)),
             webhook_secret=env.optional("WEBHOOK_SECRET"),
+            library_write_token=env.optional("LIBRARY_WRITE_TOKEN"),
             database_path=env.text("DATABASE_PATH", "/data/library-manager.db"),
             allow_insecure_localhost=env.flag("ALLOW_INSECURE_LOCALHOST", True),
             max_download_bytes=env.integer("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
@@ -197,6 +201,10 @@ class Settings:
     def origin(self) -> str:
         parts = urlsplit(self.public_url)
         return f"{parts.scheme}://{parts.netloc}"
+
+    @property
+    def hostname(self) -> str:
+        return urlsplit(self.public_url).hostname or "localhost"
 
     @property
     def root_path(self) -> str:

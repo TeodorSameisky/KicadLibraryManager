@@ -25,6 +25,25 @@
     {% endif %}
   </header>
 
+  {# A draft is anyone's to correct. Once approved, a part is the librarians'
+     -- and so is deciding that it is approved, or that it is finished. Each
+     of these is a commit to the library; the routes decide who may. #}
+  {% if writable and (librarian or part.status == "draft") %}
+    <div class="actions">
+      <a class="button" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/edit">Edit</a>
+      {% if librarian %}
+        {% if part.status == "draft" %}
+          <button type="button" class="button button--primary" data-set-status="approved" data-ipn="{{ part.ipn }}">Approve</button>
+        {% elif part.status == "approved" %}
+          <button type="button" class="button button--danger" data-set-status="obsolete" data-ipn="{{ part.ipn }}">Retire</button>
+        {% else %}
+          <button type="button" class="button" data-set-status="approved" data-ipn="{{ part.ipn }}">Reinstate</button>
+        {% endif %}
+      {% endif %}
+    </div>
+    <div id="status-result" aria-live="polite"></div>
+  {% endif %}
+
   {% if symbol_svg or footprint_svg or has_model %}
     <div class="sheet" id="previews">
       {% if symbol_svg %}
@@ -167,6 +186,9 @@
 {% endblock %}
 
 {% block scripts %}
+  {% if writable and (librarian or part.status == "draft") %}
+    <script src="{{ root_path }}/static/js/part-form.js"></script>
+  {% endif %}
   {% if symbol_svg and footprint_svg %}
     <script src="{{ root_path }}/static/js/pin-map.js"></script>
   {% endif %}

@@ -54,6 +54,8 @@ class Snapshot:
     parts: PartsIndex = field(default_factory=PartsIndex)
     sources: tuple[SourceStatus, ...] = ()
     issues: tuple[Issue, ...] = ()
+    # The source the parts were read from, and so the one a new part goes to.
+    parts_source: str | None = None
     indexed_at: float | None = None  # epoch seconds; None until an index lands
     duration: float = 0.0
 
@@ -180,12 +182,14 @@ def build_snapshot(outcomes: Sequence[Checkout | SyncFailure]) -> Snapshot:
 
     issues = asset_issues(catalog)
     parts = PartsIndex()
+    parts_source = None
 
     # IPNs are one numbering scheme, so they come from one repository: the
     # first source that has any.
     providers = [checkout for checkout in checkouts if has_parts(checkout.path)]
     if providers:
         provider = providers[0].source
+        parts_source = provider.id
         parts = load_parts(providers[0].path)
         issues.extend(part_issues(parts, catalog, provider.id))
 
@@ -209,4 +213,5 @@ def build_snapshot(outcomes: Sequence[Checkout | SyncFailure]) -> Snapshot:
         parts=parts,
         sources=tuple(statuses[outcome.source.id] for outcome in outcomes),
         issues=tuple(issues),
+        parts_source=parts_source,
     )

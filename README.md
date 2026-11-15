@@ -13,6 +13,7 @@ where it is used.
 
 - [How it works](#how-it-works)
 - [The library](#the-library)
+- [Requesting and approving parts](#requesting-and-approving-parts)
 - [BOMs and where used](#boms-and-where-used)
 - [Configuration](#configuration)
 - [Authentication](#authentication)
@@ -153,6 +154,41 @@ Everything that does not line up — a footprint no source has, a symbol whose
 parent is missing, an IPN in an undeclared category — is collected and listed
 at `/issues`, grouped by kind, with the repository-relative path to open.
 
+## Requesting and approving parts
+
+The library is authored in git, and most of the people who should be able to
+add to it would rather not write YAML and push it. So the app does that part:
+it writes the files, commits them in the name of whoever asked, and pushes.
+
+- **Anyone signed in can request a part** at `/parts/new`: a category, a
+  description, a symbol and footprint from the library, the fields the symbol
+  should carry, and the manufacturer parts that may be bought for it. It is
+  added as a **draft** under the next free number in its category, and is in
+  the catalog — and placeable — at once.
+- **A draft can be corrected by anyone.**
+- **A librarian approves it.** From then on only a librarian changes it, and
+  a librarian retires it when it should no longer be designed in.
+
+Each of these is one commit to the repository. The author is the person; the
+committer is this app, so the history shows both who wanted the change and
+that it came through here. That history is the audit trail: there is no
+second record of who approved what.
+
+A manufacturer part the library already has is used as it is. A new one is
+added with what the form says about it. One manufacturer part can serve
+several internal parts, so a part's form never rewrites one that exists.
+
+If somebody else pushes while a change is being saved, it is made again on top
+of theirs — which is also what stops two parts requested at the same moment
+from being given the same number.
+
+This needs `LIBRARY_WRITE_TOKEN`: a token that may push to the library's
+repository. On GitHub, a fine-grained personal access token limited to that
+one repository with "Contents: read and write". Without it the app only reads
+the library, and the pages do not offer to change it. Parts are written to the
+source the parts are read from. Files this app writes are laid out its own
+way; a comment in a hand-written part file does not survive an edit made here.
+
 ## BOMs and where used
 
 Export a project's BOM from KiCad's schematic editor (Tools → Generate Bill of
@@ -211,6 +247,7 @@ lists them all with their reasons. The ones a deployment needs:
 | `DATABASE_PATH` | The SQLite file that holds the BOMs. On the same volume, and the thing to back up. |
 | `AUTH_ENABLED`, `OIDC_METADATA_URL`, `OIDC_CLIENT_ID` | Sign-in; see below. |
 | `LIBRARIANS` | Who may refresh the library and delete BOMs: comma-separated usernames, e-mail addresses or subject ids. |
+| `LIBRARY_WRITE_TOKEN` | A token that may push to the library's repository. Lets parts be requested and approved in the app. |
 | `WEBHOOK_SECRET` | Shared with the git host's webhook, so a push refreshes the library at once. |
 | `LIBRARY_REFRESH_MINUTES` | How often to look for new commits unprompted. Default 15; 0 for never. |
 | `REMOTE_LIBRARY_PREFIX` | Must match the library prefix in KiCad's Remote Symbol Settings. Default `remote`. |
@@ -276,9 +313,10 @@ The status page prints the exact value. A public client needs no secret;
 
 ### Librarians
 
-Anyone signed in can read the library and upload a BOM. What changes the
-library or throws a record away is a librarian's to do: refreshing the index,
-deleting a BOM.
+Anyone signed in can read the library, upload a BOM, and request a part or
+correct a draft. What decides something, or throws a record away, is a
+librarian's to do: approving a part, changing or retiring an approved one,
+refreshing the index, deleting a BOM.
 
 Librarians are listed in `LIBRARIANS`, by the username, e-mail address or
 subject id the identity provider reports for them — not by display name, which
@@ -382,6 +420,11 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/api/v1/parts/{ipn}/assets` | What KiCad is sent to place it | |
 | `/api/v1/parts/{ipn}/symbol.svg`, `/footprint.svg`, `/model.step` | Drawings and the 3D model | |
 | `/api/v1/issues?severity=&limit=` | Everything that does not line up | |
+| `POST /api/v1/parts` | Request a part: added as a draft under the next number | |
+| `PUT /api/v1/parts/{ipn}` | Change a part; a draft by anyone, otherwise librarians | |
+| `POST /api/v1/parts/{ipn}/status` | Approve, retire or return to draft; librarians | |
+| `/api/v1/library/choices` | The categories, symbols, footprints and manufacturer parts a form offers | |
+| `/parts/new`, `/ipn/{ipn}/edit` | The forms for the above | |
 | `POST /api/v1/library/refresh` | Fetch the sources now and index what changed; librarians | |
 | `POST /api/v1/library/webhook` | The same, for the git host; let in by its signature | ✓ |
 | `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, replace}` | |

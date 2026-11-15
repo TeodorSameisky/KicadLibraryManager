@@ -3,4 +3,8 @@
   {% for name, path in (("Catalog", "/panel"), ("BOMs", "/boms"), ("Issues", "/issues")) %}
     <a href="{{ root_path }}{{ path }}"{% if here == name %} aria-current="page"{% endif %}>{{ name }}</a>
   {% endfor %}
+  {# Offered only where the app can write to the library's repository. #}
+  {% if writable %}
+    <a href="{{ root_path }}/parts/new"{% if here == "Request" %} aria-current="page"{% endif %}>Request a part</a>
+  {% endif %}
 </nav>

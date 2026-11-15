@@ -21,12 +21,19 @@ from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
+from app.library.publish import Identity, Publisher, PublishError, PushRejected
 from app.library.snapshot import Snapshot, SyncFailure, build_snapshot
 from app.library.sources import Checkout, Source, SourceError, sync
 
 log = logging.getLogger(__name__)
 
 Sync = Callable[[Source, Path], Checkout]
+
+# A write to a checkout: given its root, change the files and return the
+# commit message. May raise to refuse.
+Write = Callable[[Path], str]
+
+_PUSH_ATTEMPTS = 3
 
 
 class State(str, Enum):
@@ -44,11 +51,13 @@ class LibraryService:
         *,
         sync: Sync = sync,
         refresh_interval_seconds: float = 0,
+        publisher: Publisher | None = None,
     ) -> None:
         self._sources = tuple(sources)
         self._workdir = workdir
         self._sync = sync
         self._interval = refresh_interval_seconds
+        self._publisher = publisher
         self._snapshot = Snapshot()
         self._state = State.SYNCING if self._sources else State.EMPTY
         self._error: str | None = None
@@ -74,6 +83,11 @@ class LibraryService:
     def checked_at(self) -> float | None:
         """When the sources were last looked at, whether or not they had moved."""
         return self._checked_at
+
+    @property
+    def writable(self) -> bool:
+        """Whether this deployment can change the library, not only read it."""
+        return self._publisher is not None and bool(self._sources)
 
     # -- lifecycle
 
@@ -122,6 +136,53 @@ class LibraryService:
         return True
 
     # -- indexing
+
+    async def change(self, write: Write, author: Identity) -> Snapshot:
+        """Make a change to the library and publish it.
+
+        The source is brought up to date, `write` changes its files, and the
+        result is committed under `author` and pushed. If somebody else pushed
+        in between, it is done again on top of theirs -- which is also what
+        keeps two parts requested at the same moment from being given the same
+        number. The library is then indexed again, so what is served is what
+        was just written.
+
+        Holds the same lock as a refresh: nothing else touches the checkout
+        while it is being written.
+        """
+        if self._publisher is None:
+            raise PublishError("this deployment is not set up to change the library")
+        async with self._lock:
+            await asyncio.to_thread(self._change, write, author)
+        return await self.refresh()
+
+    def _change(self, write: Write, author: Identity) -> None:
+        """Blocking: runs git. Called off the event loop."""
+        assert self._publisher is not None
+        source = self._writable_source()
+
+        for _ in range(_PUSH_ATTEMPTS):
+            try:
+                checkout = self._sync(source, self._workdir)
+            except SourceError as exc:
+                raise PublishError(f"the library's repository cannot be reached: {exc}") from exc
+            try:
+                message = write(checkout.path)
+                self._publisher.publish(checkout.path, source, message, author)
+                return
+            except PushRejected:
+                continue  # somebody pushed first; start again from what they pushed
+            except BaseException:
+                # Whatever stopped it, leave no half-written files behind for
+                # the index being served to trip over.
+                self._publisher.discard(checkout.path)
+                raise
+        raise PublishError("the library kept changing while this was being saved; try again")
+
+    def _writable_source(self) -> Source:
+        """The source new parts go to: the one the parts are read from."""
+        wanted = self._snapshot.parts_source
+        return next((s for s in self._sources if s.id == wanted), self._sources[0])
 
     async def refresh(self) -> Snapshot:
         """Sync every source and index the result. Callers queue, not overlap."""

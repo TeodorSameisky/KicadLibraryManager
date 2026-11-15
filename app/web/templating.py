@@ -47,6 +47,7 @@ def render(request: Request, template: str, *, status_code: int = 200, **context
             "root_path": settings.root_path,
             "provider_name": settings.provider_name,
             "version": __version__,
+            "writable": request.app.state.library.writable,
             # Decides which actions a page offers. What a route allows is
             # decided by the route; this only keeps a page from offering a
             # button that would be refused.

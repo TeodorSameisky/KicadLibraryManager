@@ -36,6 +36,16 @@ LIFECYCLES = ("active", "nrnd", "obsolete", "unknown")
 _UNREADABLE: Any = object()
 
 
+def mpn_file_stem(mpn: str) -> str:
+    """The file name a manufacturer part is kept under, without `.yaml`.
+
+    Usually the part number itself. But part numbers contain slashes, colons
+    and spaces -- "LM358/NOPB" -- which a file name cannot, so those become
+    underscores.
+    """
+    return re.sub(r"[^A-Za-z0-9._+#()-]", "_", mpn.strip())
+
+
 @dataclass(frozen=True)
 class Category:
     code: str
@@ -172,7 +182,7 @@ class _Loader:
                 continue
 
             mpn = str(data["mpn"])
-            if mpn != path.stem:
+            if mpn_file_stem(mpn) != path.stem:
                 self.report(
                     Issue.warning(
                         "name-mismatch", f"mpn {mpn!r} is in file {path.stem!r}", relative

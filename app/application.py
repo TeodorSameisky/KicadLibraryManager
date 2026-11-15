@@ -21,12 +21,14 @@ from app.auth.oidc import OidcClient
 from app.auth.sessions import SessionStore
 from app.boms.store import BomStore
 from app.config import Settings
+from app.library.publish import Identity, Publisher
 from app.library.service import LibraryService
 from app.observability import RequestContextMiddleware
 from app.security import SecurityHeadersMiddleware
 from app.web.errors import http_error
 from app.web.routes import boms as bom_routes
 from app.web.routes import catalog, pages, provider, session, system
+from app.web.routes import editing as editing_routes
 from app.web.routes import library as library_routes
 from app.web.templating import STATIC_DIR
 
@@ -46,6 +48,14 @@ def create_app(
         settings.library_sources,
         Path(settings.library_workdir),
         refresh_interval_seconds=settings.library_refresh_minutes * 60,
+        # Only with a token: without one a push would be refused anyway, and
+        # the pages should not offer what cannot be done.
+        publisher=Publisher(
+            committer=Identity(settings.provider_name, f"noreply@{settings.hostname}"),
+            token=settings.library_write_token,
+        )
+        if settings.library_write_token
+        else None,
     )
     identity = identity or OidcClient(
         metadata_url=settings.oidc_metadata_url,
@@ -96,7 +106,16 @@ def create_app(
     app.add_exception_handler(StarletteHTTPException, http_error)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-    for module in (provider, system, session, catalog, library_routes, bom_routes, pages):
+    for module in (
+        provider,
+        system,
+        session,
+        catalog,
+        library_routes,
+        bom_routes,
+        editing_routes,
+        pages,
+    ):
         app.include_router(module.router)
 
     return app

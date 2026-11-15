@@ -28,6 +28,9 @@ _SOURCE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 class SourceError(Exception):
     """A source is misconfigured, or could not be cloned or updated."""
 
+    # Everything git printed, for a caller that needs more than its last line.
+    output: str = ""
+
 
 @dataclass(frozen=True)
 class Source:
@@ -94,7 +97,12 @@ def parse_sources(text: str | None) -> tuple[Source, ...]:
 # -- git -------------------------------------------------------------------
 
 
-def _git(*args: str, cwd: Path | None = None) -> str:
+def _git(*args: str, cwd: Path | None = None, env: Mapping[str, str] | None = None) -> str:
+    """Run git, returning what it printed or raising with its own verdict.
+
+    `env` adds to the environment. It is how a credential reaches git without
+    appearing in its arguments, where any process on the machine could read it.
+    """
     try:
         done = subprocess.run(
             ["git", *args],
@@ -103,6 +111,8 @@ def _git(*args: str, cwd: Path | None = None) -> str:
             text=True,
             timeout=GIT_TIMEOUT_SECONDS,
             check=False,
+            # Never stop to ask for a password: there is nobody to type one.
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})},
         )
     except FileNotFoundError as exc:
         raise SourceError("git is not installed") from exc
@@ -111,8 +121,11 @@ def _git(*args: str, cwd: Path | None = None) -> str:
 
     if done.returncode != 0:
         # The last line is git's own verdict; what precedes it is progress.
-        lines = (done.stderr or done.stdout or "").strip().splitlines()
-        raise SourceError(f"git {args[0]} failed: {lines[-1] if lines else 'unknown error'}")
+        output = (done.stderr or done.stdout or "").strip()
+        lines = output.splitlines()
+        error = SourceError(f"git {args[0]} failed: {lines[-1] if lines else 'unknown error'}")
+        error.output = output
+        raise error
     return done.stdout.strip()
 
 

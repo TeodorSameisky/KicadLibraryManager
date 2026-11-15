@@ -20,6 +20,7 @@
     const detail = typeof body.detail === "string" ? body.detail : null;
     const error = new Error(detail || `Request failed (${response.status})`);
     error.status = response.status;
+    if (Array.isArray(body.problems)) error.problems = body.problems;
     error.unauthorized = response.status === 401;
     throw error;
   }

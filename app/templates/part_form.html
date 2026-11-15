@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% set heading = ("Edit " ~ part.ipn) if part else "Request a part" %}
+
+{% block title %}{{ heading }} &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  {% if part %}
+    <a class="back" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}">&larr; {{ part.ipn }}</a>
+  {% else %}
+    <a class="back" href="{{ root_path }}/panel">&larr; Catalog</a>
+  {% endif %}
+
+  <header>
+    <div class="title"><h1 class="title--plain">{{ heading }}</h1></div>
+    <p class="byline">
+      {% if part %}
+        Saving commits the change to the library's repository in your name.
+      {% else %}
+        The part is added as a draft under the next number in its category, in
+        your name. A librarian approves it.
+      {% endif %}
+    </p>
+  </header>
+
+  {% if not writable %}
+    <div class="notice">
+      <p class="notice__title">This deployment cannot change the library</p>
+      <p>It has no token that may push to the library's repository. Parts are added there directly.</p>
+    </div>
+  {% else %}
+    {# Built by part-form.js from what the page was given and what the library
+       offers. The data rides in as JSON, never as markup. #}
+    <form class="stack" id="part-form" novalidate>
+      <div class="form">
+        {% if not part %}
+          <div class="field">
+            <label for="part-category">Category</label>
+            <span class="select select--field"><select id="part-category" required></select></span>
+          </div>
+        {% endif %}
+        <div class="field field--wide">
+          <label for="part-description">Description</label>
+          <input type="text" id="part-description" maxlength="300" autocomplete="off" required
+                 placeholder="Resistor 10k 1% 0.1W 0603" />
+        </div>
+      </div>
+
+      <div class="form">
+        <div class="field">
+          <label for="part-symbol">Symbol</label>
+          <input type="text" id="part-symbol" list="symbols" maxlength="200" autocomplete="off" required
+                 placeholder="Library:Name" />
+          <datalist id="symbols"></datalist>
+        </div>
+        <div class="field">
+          <label for="part-footprint">Footprint</label>
+          <input type="text" id="part-footprint" list="footprints" maxlength="200" autocomplete="off"
+                 placeholder="Library:Name" />
+          <datalist id="footprints"></datalist>
+        </div>
+      </div>
+
+      <fieldset class="group">
+        <legend>Fields</legend>
+        <p class="hint">What the placed symbol carries besides its number: value, tolerance, voltage.</p>
+        <div id="part-fields"></div>
+        <button type="button" class="button" id="add-field">Add a field</button>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Manufacturer parts</legend>
+        <p class="hint">
+          What may be bought for this part. One the library already has is used as it is;
+          a new one is added with what you enter here.
+        </p>
+        <div id="part-sources"></div>
+        <datalist id="mpns"></datalist>
+        <button type="button" class="button" id="add-source">Add a manufacturer part</button>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" class="button button--primary" id="part-submit">
+          {{- "Save" if part else "Request the part" -}}
+        </button>
+      </div>
+      <div id="part-result" aria-live="polite"></div>
+    </form>
+
+    <script type="application/json" id="part-data">{{ data | tojson }}</script>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if writable %}
+    <script src="{{ root_path }}/static/js/part-form.js"></script>
+  {% endif %}
+{% endblock %}
