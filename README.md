@@ -287,6 +287,25 @@ name is kept for screen readers and for hovering.
 A change to KiCad would be needed to do better: a command that opens an address
 in the system browser. That is worth asking its developers for.
 
+### Placing from a part's page
+
+Inside KiCad's panel a part's page has a **Place in KiCad** button, as the
+catalog's rows do; in an ordinary browser it is not shown, as there is nothing
+to place into. Both send the same thing, from `static/js/place.js`: the
+footprint and 3D model are saved first and the symbol is placed last. Warnings
+(a footprint that could not be found, a model too large to send) are shown
+before anything is sent.
+
+KiCad opens its session once, when the panel loads the provider, and not again
+for every page the panel then shows. So the page script remembers the session
+in `sessionStorage` (the id, and the count of messages sent) and the pages that
+follow carry on with it. Without that, going from the catalog to a part and
+back left the catalog with no session to place with.
+
+The scripts that talk to KiCad are tested against a pretend KiCad in
+`tests/js/bridge_tests.js`, run from `tests/test_bridge_js.py` when Node is
+installed.
+
 ### Part history
 
 Each part's page links to its history at `/ipn/{ipn}/history`: every commit

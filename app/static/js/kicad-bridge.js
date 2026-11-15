@@ -26,8 +26,43 @@
     server_version: (script && script.dataset.serverVersion) || "0",
   };
 
+  /* KiCad opens a session once, when the panel first loads this provider --
+     not on every page the panel then shows. A page reached by following a
+     link, the catalog's links to a part and back, is never told the session
+     id, and without it every message is refused as belonging to no session.
+     So the id is kept for the pages that follow. sessionStorage is the
+     browsing session's own, shared by pages of one origin in one WebView and
+     gone when it closes, which is the lifetime of KiCad's session too. */
+  const STORAGE_KEY = "klm.kicad-session";
+
   let sessionId = null;
   let lastMessageId = 0;
+
+  function remember() {
+    try {
+      window.sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ id: sessionId, counter: lastMessageId })
+      );
+    } catch {
+      // Storage can be refused. The page then has a session only if KiCad
+      // opens one for it, which is how it worked before.
+    }
+  }
+
+  function restore() {
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) || "null");
+      if (saved && typeof saved.id === "string" && saved.id) {
+        sessionId = saved.id;
+        lastMessageId = Number(saved.counter) || 0;
+      }
+    } catch {
+      // Nothing usable there.
+    }
+  }
+
+  restore();
   const pending = new Map(); // message id, as a string -> {resolve, reject, timer}
   const sessionWaiters = new Set(); // {resolve, timer}
   const listeners = new Set();
@@ -74,6 +109,7 @@
       status: "OK",
       parameters: server,
     });
+    remember();
 
     for (const waiter of sessionWaiters) {
       clearTimeout(waiter.timer);
@@ -146,6 +182,7 @@
         return;
       }
       const id = ++lastMessageId;
+      remember();
       if (!post({ message_id: id, command, parameters, data })) {
         reject(new Error("This page is not running inside KiCad"));
         return;

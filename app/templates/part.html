@@ -8,6 +8,15 @@
 {% block title %}{{ part.ipn }} &middot; {{ provider_name }}{% endblock %}
 {% block page_class %}page--narrow{% endblock %}
 
+{% block head %}
+  {# For placing the part from here, which is only offered inside KiCad's panel.
+     In the head and not deferred, as on the catalog: it has to be listening
+     before KiCad speaks. #}
+  <script src="{{ root_path }}/static/js/kicad-bridge.js"
+          data-server-name="{{ provider_name }}"
+          data-server-version="{{ version }}"></script>
+{% endblock %}
+
 {% block content %}
   <a class="back" href="{{ root_path }}/panel">&larr; Catalog</a>
 
@@ -30,9 +39,15 @@
 
   {# A draft is anyone's to correct. Once approved, a part is the librarians'
      -- and so is deciding that it is approved, or that it is finished. Each
-     of these is a commit to the library; the routes decide who may. #}
-  {% if writable and (librarian or part.status == "draft") %}
-    <div class="actions">
+     of these is a commit to the library; the routes decide who may.
+
+     The row is also where Place goes, which is offered only inside KiCad's
+     panel and revealed by the script there, so without these edit actions the
+     row starts out hidden: empty, it would only be a gap. #}
+  {% set can_change = writable and (librarian or part.status == "draft") %}
+  <div class="actions" id="part-actions"{% if not can_change %} hidden{% endif %}>
+    <button type="button" class="button button--primary" id="place-button" data-ipn="{{ part.ipn }}" hidden>Place in KiCad</button>
+    {% if can_change %}
       <a class="button" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/edit">Edit</a>
       {% if librarian %}
         {% if part.status == "draft" %}
@@ -43,9 +58,10 @@
           <button type="button" class="button" data-set-status="approved" data-ipn="{{ part.ipn }}">Reinstate</button>
         {% endif %}
       {% endif %}
-    </div>
-    <div id="status-result" aria-live="polite"></div>
-  {% endif %}
+    {% endif %}
+  </div>
+  <div id="place-result" aria-live="polite"></div>
+  {% if can_change %}<div id="status-result" aria-live="polite"></div>{% endif %}
 
   {% if symbol_svg or footprint_svg or has_model %}
     <div class="sheet" id="previews">
@@ -196,6 +212,8 @@
 {% endblock %}
 
 {% block scripts %}
+  <script src="{{ root_path }}/static/js/place.js"></script>
+  <script src="{{ root_path }}/static/js/part-place.js"></script>
   {% if writable and (librarian or part.status == "draft") %}
     <script src="{{ root_path }}/static/js/part-form.js"></script>
   {% endif %}

@@ -310,24 +310,11 @@
     setNote(note, null, "");
 
     try {
-      if (!bridge.isEmbedded()) throw new Error("Parts can only be placed from inside KiCad.");
+      await window.Place.place(ipn, {
+        log,
+        onWarnings: (found) => setNote(note, "warn", found.join(" ")),
+      });
 
-      log(`Fetching ${ipn}`);
-      const bundle = await api(`/api/v1/parts/${encodeURIComponent(ipn)}/assets`);
-
-      for (const warning of bundle.warnings) log(`Warning: ${warning}`);
-      if (bundle.warnings.length) setNote(note, "warn", bundle.warnings.join(" "));
-
-      // One at a time, in the order the server gives them: the footprint and
-      // 3D model are saved first, and the symbol is placed last, so that what
-      // it refers to is already there when it lands.
-      await bridge.whenReady();
-      for (const asset of bundle.assets) {
-        log(`Sending ${asset.filename}`);
-        await bridge.send(asset.command, asset.parameters, asset.data);
-      }
-
-      log(`Placed ${ipn}`);
       place.textContent = "Placed";
       setTimeout(() => { place.textContent = "Place"; }, 1500);
     } catch (error) {
