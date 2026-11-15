@@ -48,8 +48,9 @@
     colour.setRGB(r, g, b, THREE.LinearSRGBColorSpace);
     return new THREE.MeshStandardMaterial({
       color: colour,
-      metalness: 0.2,
-      roughness: 0.55,
+      // Little metal: with nothing around it to reflect, a metal is just dark.
+      metalness: 0.05,
+      roughness: 0.6,
       side: THREE.DoubleSide,
     });
   }
@@ -61,14 +62,19 @@
       new THREE.Float32BufferAttribute(source.attributes.position.array, 3)
     );
     if (source.index) geometry.setIndex(Array.from(source.index.array));
-    if (source.attributes.normal) {
-      geometry.setAttribute(
-        "normal",
-        new THREE.Float32BufferAttribute(source.attributes.normal.array, 3)
-      );
-    } else {
-      geometry.computeVertexNormals();
-    }
+
+    /* Shaded from the triangles themselves, not from the normals the kernel
+       supplies. Those describe the CAD surface, and on a face the kernel
+       built the other way round they point inwards while the triangles still
+       face out. The material is two-sided, so three.js then takes the side
+       you are looking at for a back face and turns the shading away from the
+       light: from some angles a face goes dark whatever lights there are.
+       Normals worked out from the triangles always agree with how they are
+       wound, so the side facing the viewer is always the one that is lit.
+
+       Smoothing stays within a face. The kernel gives each face vertices of
+       its own, so an edge between two faces is still sharp. */
+    geometry.computeVertexNormals();
 
     /* A KiCad model has no single colour. Each face carries its own, which is
        what tells a resistor's black body from its terminations. So the faces
@@ -102,15 +108,32 @@
     const scene = new THREE.Scene();
     scene.add(model);
 
-    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    scene.add(new THREE.HemisphereLight(0xffffff, dark ? 0x202430 : 0xb0b4bc, 1.6));
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
-    key.position.set(1, 2, 1.5);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.7);
-    fill.position.set(-1.5, 0.5, -1);
-    scene.add(key, fill);
+    /* Lit from where it is looked at. Lights fixed in the scene light one
+       side of the model, and turning it round -- or tipping it over -- shows
+       the other, which none of them reach: a flat silhouette with its detail
+       gone. So the two main lights ride on the camera and swing round with it,
+       and what faces the viewer is always the lit side.
 
-    return { scene, centre, radius };
+       A directional light shines from its position towards its target. Both
+       are given in the camera's own terms and travel with it, so the angle
+       between the light and the line of sight is the same at any distance and
+       for any size of part. The camera's x is to the right, y up, and it looks
+       down its negative z. */
+    // Intensities chosen by measuring: across a sweep of viewpoints, this keeps
+    // the darkest view well clear of black without washing the lightest
+    // surfaces out to white, where their shading is lost.
+    const key = new THREE.DirectionalLight(0xffffff, 2.0);
+    key.position.set(-1, 1.5, 2); // above, to the left, and behind the viewer
+    key.target.position.set(0, 0, -1);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.8);
+    fill.position.set(2, -1, 1.5); // from the other side and below, to lift the shadows
+    fill.target.position.set(0, 0, -1);
+
+    // The same in every theme, like the grey the model is drawn on.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x6f737b, 0.9));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4)); // so no face is ever black
+
+    return { scene, centre, radius, headlights: [key, fill] };
   }
 
   // -------------------------------------------------------------- control
@@ -180,11 +203,14 @@
       throw new Error("the model could not be read");
     }
 
-    const { scene, centre, radius } = buildScene(THREE, result.meshes);
+    const { scene, centre, radius, headlights } = buildScene(THREE, result.meshes);
     const size = () => [mount.clientWidth || 320, mount.clientHeight || 240];
     const [width, height] = size();
 
     const camera = new THREE.PerspectiveCamera(40, width / height, radius / 100, radius * 100);
+    // In the scene, so that what is attached to it is carried with it.
+    scene.add(camera);
+    for (const light of headlights) camera.add(light, light.target);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
