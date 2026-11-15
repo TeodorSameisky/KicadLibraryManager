@@ -16,13 +16,15 @@
       <span class="tag {{ status_tag }}">{{ part.status }}</span>
     </div>
     <p class="subtitle">{{ part.description or "No description" }}</p>
-    {% if part.category %}
-      {# To the catalog, narrowed to this category: "what else is in here" is
-         the question that follows "what is this". #}
-      <p class="byline">
+    <p class="byline">
+      {% if part.category %}
+        {# To the catalog, narrowed to this category: "what else is in here" is
+           the question that follows "what is this". #}
         <a href="{{ root_path }}/panel?category={{ part.category | urlencode }}">{{ category_name }}</a>
-      </p>
-    {% endif %}
+        &middot;
+      {% endif %}
+      <a href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/history">History</a>
+    </p>
   </header>
 
   {# A draft is anyone's to correct. Once approved, a part is the librarians'

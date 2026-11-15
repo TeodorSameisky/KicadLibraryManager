@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}History of {{ part.ipn }} &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}">&larr; {{ part.ipn }}</a>
+
+  <header>
+    <div class="title">
+      <h1 class="title--plain">History of {{ part.ipn }}</h1>
+    </div>
+    <p class="subtitle">{{ part.description or "No description" }}</p>
+    <p class="byline">Every change made to this part in the library's repository, newest first.</p>
+  </header>
+
+  {% if unavailable %}
+    <div class="notice">
+      <p class="notice__title">The history cannot be shown right now</p>
+      <p>{{ unavailable | capitalize }}.</p>
+    </div>
+  {% elif not history.changes %}
+    <p class="muted">Nothing has been recorded for this part yet.</p>
+  {% else %}
+    <ol class="history">
+      {% for change in history.changes %}
+        <li>
+          <div class="history__head">
+            <strong>{{ change.author }}</strong>
+            <span class="muted">{{ change.when | moment }}</span>
+            {% if links[change.commit] %}
+              <a class="mono small" href="{{ links[change.commit] }}" rel="noopener noreferrer"
+                 target="_blank">{{ change.commit[:7] }}</a>
+            {% else %}
+              <span class="mono small muted">{{ change.commit[:7] }}</span>
+            {% endif %}
+          </div>
+          <p class="history__subject">{{ change.subject }}</p>
+          {% if change.what %}
+            <ul class="history__what">
+              {% for line in change.what %}<li>{{ line }}</li>{% endfor %}
+            </ul>
+          {% else %}
+            <p class="small muted">Nothing the part says was changed (the file was reformatted).</p>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+    {% if history.more %}
+      <p class="small muted">Older changes than these {{ limit }} are in the repository.</p>
+    {% endif %}
+  {% endif %}
+{% endblock %}

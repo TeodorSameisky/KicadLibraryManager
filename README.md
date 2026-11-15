@@ -247,6 +247,33 @@ the library, and the pages do not offer to change it. Parts are written to the
 source the parts are read from. Files this app writes are laid out its own
 way; a comment in a hand-written part file does not survive an edit made here.
 
+### Part history
+
+Each part's page links to its history at `/ipn/{ipn}/history`: every commit
+that touched the part's file, newest first, with who made it, when, and what
+changed in the part, put into words — `Status: "draft" → "approved"`,
+`Tolerance: "1%" → "5%"`, `Added source ERJ-3EKF3300V` — not as a diff of YAML
+lines. A commit that only reformatted the file says so. Each links to the
+commit on the git host, for a GitHub or Gitea source.
+
+There is no second record behind this. The history is the repository's, so it
+covers changes made in the app and changes pushed by hand alike, under the names
+git has for them. It shows the part's own file; a change to a manufacturer part
+it lists is in that part's file and not shown here.
+
+Reading old versions needs the history, so the library is cloned **with its
+history but without the contents of old files**
+(`git clone --filter=blob:none`). That keeps the clone about the size of the
+current files, which is what matters for a repository carrying 3D models. The
+contents of an old version are fetched from the git host when a history page is
+opened, which is why the first view of a part with a long history can take a
+moment; the result is then kept until the library moves on. A host that cannot
+filter sends everything, which is slower but works.
+
+A clone made before this existed has no history, and shows no history rather
+than claiming every part was created at once. It is replaced, in full, the next
+time the library is refreshed: expect one fresh clone after upgrading.
+
 ## BOMs and where used
 
 Export a project's BOM from KiCad's schematic editor (Tools → Generate Bill of
@@ -492,6 +519,7 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/api/v1/boms/{id}/export.csv`, `/source.csv` | The BOM with library columns added; the file as uploaded | |
 | `/api/v1/parts/{ipn}/where-used` | The stored BOMs a part is on | |
 | `/ipn/{ipn}` | The part's page; where `Datasheet` points | |
+| `/ipn/{ipn}/history`, `/api/v1/parts/{ipn}/history` | What was changed in the part, by whom, and when | |
 | `/boms`, `/boms/{id}` | Uploading BOMs; one BOM against the library | |
 | `/issues` | The issue list | |
 | `/docs` | Interactive API reference | ✓ |

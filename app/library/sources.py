@@ -4,8 +4,12 @@ A source is one git repository. Several are supported because a company
 library, the official KiCad libraries and a vendor's are separate repositories
 with separate owners and lifecycles.
 
-Clones are shallow. Only the working tree is ever read, so history would be
-dead weight -- and for a repository carrying 3D models, most of its size.
+Clones keep the whole history of commits but not the contents of the files
+in it. Only the working tree is read when indexing, and for a repository
+carrying 3D models the old versions of those files would be most of its size.
+The history itself -- who changed which part, and when -- is small, and is
+what a part's history page reads. The contents of an old version are fetched
+from the git host only when somebody asks for one.
 """
 
 from __future__ import annotations
@@ -130,14 +134,25 @@ def _git(*args: str, cwd: Path | None = None, env: Mapping[str, str] | None = No
 
 
 def _clone(source: Source, target: Path) -> None:
-    _git("clone", "--depth", "1", "--branch", source.ref, source.url, str(target))
+    # A host that does not support filtering sends everything, which is only
+    # slower: git says so and carries on.
+    _git(
+        "clone", "--filter=blob:none", "--no-tags", "--branch", source.ref,
+        source.url, str(target),
+    )  # fmt: skip
 
 
 def _update(source: Source, target: Path) -> None:
+    # A clone made before history was kept has one commit and no past. It is
+    # replaced, not deepened: deepening would download every old version of
+    # every file, which is the cost the filter exists to avoid.
+    if _git("rev-parse", "--is-shallow-repository", cwd=target) == "true":
+        raise SourceError("the clone has no history")
+
     # The configured URL may have changed since this clone was made. Without
     # this the fetch quietly keeps pulling from the old repository.
     _git("remote", "set-url", "origin", source.url, cwd=target)
-    _git("fetch", "--depth", "1", "origin", source.ref, cwd=target)
+    _git("fetch", "--no-tags", "origin", source.ref, cwd=target)
     _git("reset", "--hard", "FETCH_HEAD", cwd=target)
     # A reset leaves behind files that were deleted upstream but untracked here.
     _git("clean", "-fd", cwd=target)

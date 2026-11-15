@@ -21,6 +21,7 @@ from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
+from app.library.history import DEFAULT_LIMIT, History, HistoryUnavailable, read_history
 from app.library.publish import Identity, Publisher, PublishError, PushRejected
 from app.library.snapshot import Snapshot, SyncFailure, build_snapshot
 from app.library.sources import Checkout, Source, SourceError, sync
@@ -62,6 +63,11 @@ class LibraryService:
         self._state = State.SYNCING if self._sources else State.EMPTY
         self._error: str | None = None
         self._checked_at: float | None = None
+        # Where each source's checkout is on disk. Kept here, and not in the
+        # snapshot, because the snapshot is shown to people and a server path
+        # is not for them.
+        self._checkouts: dict[str, Path] = {}
+        self._histories: dict[tuple[str | None, str, int], History] = {}
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._requested: asyncio.Task[None] | None = None
@@ -88,6 +94,28 @@ class LibraryService:
     def writable(self) -> bool:
         """Whether this deployment can change the library, not only read it."""
         return self._publisher is not None and bool(self._sources)
+
+    def history(self, relative: str, limit: int = DEFAULT_LIMIT) -> History:
+        """The changes made to one file of the library, newest first.
+
+        Blocking: it runs git. Remembered per commit of the source, so asking
+        again costs nothing until the library moves on.
+        """
+        snapshot = self._snapshot
+        source = snapshot.parts_source
+        root = self._checkouts.get(source or "")
+        if root is None:
+            raise HistoryUnavailable("the library has not been indexed yet")
+
+        commit = next((s.commit for s in snapshot.sources if s.id == source), None)
+        key = (commit, relative, limit)
+        remembered = self._histories.get(key)
+        if remembered is None:
+            remembered = read_history(root, relative, limit)
+            if len(self._histories) >= 512:
+                self._histories.clear()  # a cache; losing it only costs a re-read
+            self._histories[key] = remembered
+        return remembered
 
     # -- lifecycle
 
@@ -226,6 +254,8 @@ class LibraryService:
             except SourceError as exc:
                 log.warning("source %s failed to sync: %s", source.id, exc)
                 outcomes.append(SyncFailure(source, str(exc)))
+
+        self._checkouts = {o.source.id: o.path for o in outcomes if isinstance(o, Checkout)}
 
         # Every source at the commit that is already indexed: there is nothing
         # new to read. A failure anywhere is always worth a fresh look.

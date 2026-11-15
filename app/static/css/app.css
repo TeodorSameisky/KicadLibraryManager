@@ -738,6 +738,23 @@ a.figure:hover .figure__label { text-decoration: underline; }
 .figure.is-bad .figure__value { color: var(--bad); }
 .figure.is-warn .figure__value { color: var(--warn); }
 
+/* ============================================================ 9. History */
+
+.history { margin: 1.25rem 0 0; padding: 0; list-style: none; border-top: 1px solid var(--rule-2); }
+.history > li { padding: 0.75rem 0; border-bottom: 1px solid var(--rule); }
+.history__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.history__subject { margin: 0.125rem 0 0; color: var(--ink-2); }
+
+/* What changed, one line each, set in from the commit it belongs to. */
+.history__what {
+  margin: 0.375rem 0 0;
+  padding: 0 0 0 0.75rem;
+  border-left: 2px solid var(--rule-2);
+  list-style: none;
+}
+
+.history__what li { padding: 0.0625rem 0; overflow-wrap: anywhere; }
+
 /* ========================================================= 8. Issues page */
 
 .issue-group { border-bottom: 1px solid var(--rule); }
