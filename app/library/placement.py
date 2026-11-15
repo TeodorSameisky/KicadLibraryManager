@@ -129,6 +129,15 @@ def placed_symbol(part: Part, snapshot: Snapshot, options: PlacementOptions) -> 
     # The library's own field values go on top of the platform's.
     fields.update(part.fields)
 
+    # KiCad shows a symbol's Value on the sheet. A part that carries its
+    # resistance as "Resistance" has none, and would show the symbol's name --
+    # so its category's template may say how to build one.
+    template = snapshot.parts.templates.get(part.category)
+    if "Value" not in part.fields and template is not None:
+        value = template.value_for(part.fields)
+        if value:
+            fields["Value"] = value
+
     # Where KiCad will file the footprint, not where the library keeps it: a
     # symbol naming the source library points at one the user does not have.
     footprint = LibraryRef.parse(part.footprint)

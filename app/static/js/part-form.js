@@ -51,12 +51,14 @@
     description: document.getElementById("part-description"),
     symbol: document.getElementById("part-symbol"),
     footprint: document.getElementById("part-footprint"),
+    template: document.getElementById("part-template"),
     fields: document.getElementById("part-fields"),
     sources: document.getElementById("part-sources"),
     submit: document.getElementById("part-submit"),
     result: document.getElementById("part-result"),
   };
   let known = new Map(); // manufacturer parts the library already has, by number
+  let templates = {}; // by category code: the fields a part there carries
 
   function input(placeholder, value, maxLength) {
     const node = el("input");
@@ -77,9 +79,72 @@
 
   function addField(name = "", value = "") {
     const row = el("div", "row");
-    row.append(input("Name", name, 60), input("Value", value, 200), removeButton(row));
+    const nameInput = input("Name", name, 60);
+    const valueInput = input("Value", value, 200);
+    row.append(nameInput, valueInput, removeButton(row));
+    row.read = () => [nameInput.value.trim(), valueInput.value.trim()];
     dom.fields.append(row);
     return row;
+  }
+
+  /* A field the category's template names. Its name is given, not typed, and
+     where the template lists the values it may take, those are the choices. */
+  function addTemplateField(expected, value) {
+    const row = el("div", "row row--template");
+    const label = el("label", `row__label${expected.required ? " is-required" : ""}`, expected.name);
+
+    let control;
+    if (expected.options.length) {
+      control = el("select");
+      control.append(new Option("", ""));
+      for (const option of expected.options) control.append(new Option(option, option));
+      /* A value the template no longer allows is shown rather than silently
+         dropped; the server will say that it has to change. */
+      if (value && !expected.options.includes(value)) control.append(new Option(value, value));
+    } else {
+      control = input(expected.example || expected.name, "", 200);
+      control.removeAttribute("aria-label"); // it has a real label
+    }
+    control.value = value || "";
+    control.id = `template-field-${dom.template.children.length}`;
+    control.required = expected.required;
+    label.htmlFor = control.id;
+
+    row.append(label, control);
+    row.read = () => [expected.name, control.value.trim()];
+    dom.template.append(row);
+  }
+
+  const currentCategory = () => (dom.category ? dom.category.value : initial.category) || "";
+
+  /* Every field with a name and something in it. One left empty is not a
+     field the part carries. */
+  function readFields() {
+    const fields = {};
+    for (const row of [...dom.template.children, ...dom.fields.children]) {
+      const [name, value] = row.read();
+      if (name && value) fields[name] = value;
+    }
+    return fields;
+  }
+
+  /* Lay the fields out for the chosen category: what its template names
+     first, then whatever else was entered. Nothing typed is lost when the
+     category changes -- a value keeps its name, wherever that now belongs. */
+  function layOutFields(values) {
+    const template = templates[currentCategory()];
+    const rest = { ...values };
+    dom.template.replaceChildren();
+    dom.fields.replaceChildren();
+
+    for (const expected of template ? template.fields : []) {
+      addTemplateField(expected, expected.name in rest ? rest[expected.name] : expected.default);
+      delete rest[expected.name];
+    }
+    for (const [name, value] of Object.entries(rest)) addField(name, value);
+
+    // With no template to say what a part carries, Value is the usual start.
+    if (!template && !dom.fields.children.length) addField("Value", "");
   }
 
   /* A manufacturer part. If the library already has it, that is all there is
@@ -141,6 +206,7 @@
     fill("footprints", offered.footprints);
     fill("mpns", offered.mpns.map((mpn) => mpn.mpn));
     known = new Map(offered.mpns.map((mpn) => [mpn.mpn, mpn]));
+    templates = offered.templates || {};
 
     if (dom.category) {
       dom.category.append(new Option("Choose a category", ""));
@@ -148,22 +214,19 @@
         dom.category.append(new Option(`${category.code}  ${category.name}`, category.code));
       }
       dom.category.value = new URLSearchParams(window.location.search).get("category") || "";
+      dom.category.addEventListener("change", () => layOutFields(readFields()));
     }
+    layOutFields(readFields());
     for (const row of dom.sources.children) row.describe();
   }
 
   function read() {
-    const fields = {};
-    for (const row of dom.fields.children) {
-      const [name, value] = row.querySelectorAll("input");
-      if (name.value.trim() || value.value.trim()) fields[name.value.trim()] = value.value.trim();
-    }
     return {
       category: dom.category ? dom.category.value : "",
       description: dom.description.value.trim(),
       symbol: dom.symbol.value.trim(),
       footprint: dom.footprint.value.trim(),
-      fields,
+      fields: readFields(),
       sources: [...dom.sources.children].map((row) => row.read()).filter((s) => s.mpn),
     };
   }
@@ -192,7 +255,7 @@
   dom.description.value = initial.description || "";
   dom.symbol.value = initial.symbol || "";
   dom.footprint.value = initial.footprint || "";
-  for (const [name, value] of Object.entries(initial.fields || {})) addField(name, value);
+  layOutFields(initial.fields || {});
   for (const source of initial.sources || []) addSource(source);
   if (!dom.sources.children.length) addSource();
 

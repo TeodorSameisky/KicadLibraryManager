@@ -277,6 +277,11 @@ a.masthead__status { text-decoration: underline; }
 .row input[type="text"]:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .row input::placeholder { color: var(--ink-3); }
 
+/* A field the template names: its name is given, not typed. */
+.row__label { flex: 0 0 9rem; color: var(--ink); }
+.row__label.is-required::after { content: " *"; color: var(--bad); }
+.row--template select { flex: 1 1 9rem; }
+
 .row__about { flex: 1 1 8rem; color: var(--ink-2); font-size: var(--size-s); }
 /* What is only asked when the library does not have the part yet: on a line
    of its own under the number, set in from it. */

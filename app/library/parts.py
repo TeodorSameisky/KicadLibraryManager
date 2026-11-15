@@ -10,6 +10,7 @@ answerable: a lifecycle change is one edit, and the reverse lookup says which
 parts it reaches.
 
     categories.yaml              the category codes an IPN may start with
+    templates/<category>.yaml    the fields a part in that category carries
     mpns/<MPN>.yaml              one manufacturer part
     parts/<category>/<IPN>.yaml  one internal part
 """
@@ -50,6 +51,54 @@ def mpn_file_stem(mpn: str) -> str:
 class Category:
     code: str
     name: str
+
+
+@dataclass(frozen=True)
+class TemplateField:
+    name: str
+    required: bool = False
+    options: tuple[str, ...] = ()  # the only values allowed, if any are given
+    example: str = ""  # shown in the empty field, to say what belongs there
+    default: str = ""  # what the field starts out holding
+
+
+_PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
+
+
+@dataclass(frozen=True)
+class Template:
+    """What every part in a category is expected to say about itself.
+
+    A resistor without a resistance is not a part anyone can choose. The
+    template is where a category says so, once, instead of each part being
+    left to remember it.
+    """
+
+    category: str
+    fields: tuple[TemplateField, ...] = ()
+    # What KiCad's own Value field should show, built from the part's fields:
+    # "{Resistance}". Only used for a part that sets no Value of its own.
+    value: str = ""
+
+    def problems(self, fields: Mapping[str, str]) -> list[str]:
+        """What a part's fields are missing or have wrong, as sentences."""
+        found = []
+        for expected in self.fields:
+            given = fields.get(expected.name, "").strip()
+            if not given:
+                if expected.required:
+                    found.append(f"{expected.name} is required.")
+            elif expected.options and given not in expected.options:
+                found.append(
+                    f"{expected.name} must be one of {', '.join(expected.options)}; "
+                    f"it is {given!r}."
+                )
+        return found
+
+    def value_for(self, fields: Mapping[str, str]) -> str:
+        """The Value this template builds from a part's fields, or ""."""
+        built = _PLACEHOLDER.sub(lambda match: fields.get(match.group(1).strip(), ""), self.value)
+        return " ".join(built.split())
 
 
 @dataclass(frozen=True)
@@ -106,6 +155,7 @@ class Part:
 @dataclass
 class PartsIndex:
     categories: dict[str, Category] = field(default_factory=dict)
+    templates: dict[str, Template] = field(default_factory=dict)  # by category code
     mpns: dict[str, Mpn] = field(default_factory=dict)
     parts: dict[str, Part] = field(default_factory=dict)
     issues: list[Issue] = field(default_factory=list)
@@ -169,6 +219,85 @@ class _Loader:
                 continue
             code = str(entry["code"])
             self.index.categories[code] = Category(code, str(entry.get("name") or code))
+
+    # -- templates/
+
+    def load_templates(self) -> None:
+        for path in sorted((self.root / "templates").glob("*.yaml")):
+            data, relative = self.read(path)
+            if data is _UNREADABLE:
+                continue
+            if not isinstance(data, dict):
+                self.report(Issue.error("bad-template", "expected a mapping", relative))
+                continue
+
+            # The file is named after the category it is for.
+            category = path.stem
+            stated = data.get("category")
+            if stated is not None and str(stated) != category:
+                self.report(
+                    Issue.warning(
+                        "name-mismatch",
+                        f"template for category {str(stated)!r} is in file {path.stem!r}; "
+                        "the file name is what is used",
+                        relative,
+                    )
+                )
+            if self.index.categories and category not in self.index.categories:
+                self.report(
+                    Issue.error(
+                        "unknown-category",
+                        f"category {category!r} is not declared in categories.yaml",
+                        relative,
+                    )
+                )
+
+            self.index.templates[category] = Template(
+                category=category,
+                fields=self._template_fields(data.get("fields"), relative),
+                value=str(data.get("value") or ""),
+            )
+
+    def _template_fields(self, raw: Any, relative: str) -> tuple[TemplateField, ...]:
+        if raw is None:
+            return ()
+        if not isinstance(raw, list):
+            self.report(Issue.error("bad-template", "'fields' must be a list", relative))
+            return ()
+
+        fields: list[TemplateField] = []
+        for entry in raw:
+            if isinstance(entry, str):  # the shorthand: a name, and nothing demanded of it
+                entry = {"name": entry}
+            if not isinstance(entry, dict) or not entry.get("name"):
+                self.report(Issue.error("bad-template", f"malformed field: {entry!r}", relative))
+                continue
+
+            options = entry.get("options") or []
+            if not isinstance(options, list):
+                self.report(
+                    Issue.error(
+                        "bad-template", f"{entry['name']}: 'options' must be a list", relative
+                    )
+                )
+                options = []
+
+            name = str(entry["name"])
+            if any(existing.name == name for existing in fields):
+                self.report(
+                    Issue.error("bad-template", f"field {name!r} is listed twice", relative)
+                )
+                continue
+            fields.append(
+                TemplateField(
+                    name=name,
+                    required=bool(entry.get("required")),
+                    options=tuple(str(option) for option in options),
+                    example=str(entry.get("example") or ""),
+                    default=str(entry.get("default") or ""),
+                )
+            )
+        return tuple(fields)
 
     # -- mpns/
 
@@ -328,6 +457,10 @@ class _Loader:
                     )
                 )
 
+            template = self.index.templates.get(part.category)
+            for problem in template.problems(part.fields) if template else ():
+                self.report(Issue.warning("template", f"{part.ipn}: {problem}", part.path))
+
             approved = part.status == "approved"
             if approved and not part.mpns:
                 self.report(
@@ -370,6 +503,7 @@ def load_parts(root: Path) -> PartsIndex:
     """
     loader = _Loader(root)
     loader.load_categories()
+    loader.load_templates()
     loader.load_mpns()
     loader.load_parts()
     loader.check()

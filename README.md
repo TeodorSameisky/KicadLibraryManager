@@ -83,6 +83,7 @@ in another.
 
 ```
 categories.yaml                              the category codes an IPN may start with
+templates/<category>.yaml                    the fields a part in that category carries
 parts/<category>/<IPN>.yaml                  an internal part: 1102-0001
 mpns/<MPN>.yaml                              a manufacturer part
 symbols/<Library>.kicad_symdir/<Name>.kicad_sym
@@ -114,6 +115,48 @@ manufacturer: Yageo
 datasheet: https://example.com/datasheet.pdf
 lifecycle: active           # active | nrnd | obsolete | unknown
 ```
+
+### Templates
+
+A resistor without a resistance is not a part anyone can choose. A category's
+template says what every part in it has to say about itself, once, instead of
+each part being left to remember it. It is a file in the library, next to the
+parts it describes, so it is reviewed and versioned the same way:
+
+```yaml
+# templates/1102.yaml
+category: "1102"          # optional; the file name is what counts
+value: "{Resistance}"     # what KiCad's Value field shows, built from the fields
+fields:
+  - name: Resistance
+    required: true
+    example: 10k          # shown in the empty field
+  - name: Tolerance
+    required: true
+    options: [0.1%, 1%, 5%]   # the only values allowed
+    default: 1%               # what a new part starts with
+  - name: Power
+    example: 0.1W
+  - Package               # the shorthand: offered, nothing demanded
+```
+
+- **The request form lays the template out.** Choosing a category shows its
+  fields, required ones marked, with a dropdown wherever `options` are given.
+  The server holds a request to the template too, so a script is held to it
+  as well, and says everything that is missing at once.
+- **Fields the template does not name are still allowed.** A template says
+  what a part must have, not everything it may.
+- **`value` fills the placed symbol's Value.** A part that carries its
+  resistance as `Resistance` has no `Value` of its own, and would show the
+  symbol's name on the sheet. The pattern is names in braces and nothing more.
+  A part that sets its own `Value` keeps it.
+- **Existing parts are checked too.** One that falls short of its category's
+  template is listed on the issues page as a warning, which is the worklist
+  when a template is added to a library that already has parts. It still
+  places: a part that predates a rule is not unusable.
+
+A category with no template asks nothing, so templates can be introduced one
+category at a time.
 
 Only IPNs are placed. An IPN is `<category>-<number>`, names a symbol and a
 footprint, and lists the manufacturer parts approved for it. MPNs are documents

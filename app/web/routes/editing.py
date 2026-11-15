@@ -175,6 +175,23 @@ async def choices(
                 for lib, name in index.footprints
             }
         ),
+        # By category: the fields a part there carries, for the form to lay out.
+        "templates": {
+            code: {
+                "value": template.value,
+                "fields": [
+                    {
+                        "name": expected.name,
+                        "required": expected.required,
+                        "options": list(expected.options),
+                        "example": expected.example,
+                        "default": expected.default,
+                    }
+                    for expected in template.fields
+                ],
+            }
+            for code, template in sorted(snapshot.parts.templates.items())
+        },
         "mpns": [
             {"mpn": mpn.mpn, "manufacturer": mpn.manufacturer, "lifecycle": mpn.lifecycle}
             for mpn in sorted(snapshot.parts.mpns.values(), key=lambda m: m.mpn)
@@ -223,7 +240,7 @@ async def edit_part(
 
     form = body.form()
     try:
-        editing.check(form, snapshot, new=False)
+        editing.check(form, snapshot, new=False, category=part.category)
     except EditError as exc:
         return _refused(exc)
 
@@ -256,7 +273,7 @@ async def set_status(
 def _form_data(part: Part | None, snapshot: Snapshot) -> dict[str, Any]:
     """What the form starts out holding."""
     if part is None:
-        return {"ipn": None, "fields": {"Value": ""}, "sources": []}
+        return {"ipn": None, "fields": {}, "sources": []}
     return {
         "ipn": part.ipn,
         "category": part.category,

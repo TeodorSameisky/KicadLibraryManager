@@ -58,9 +58,14 @@ class PartForm:
 # -- checking ---------------------------------------------------------------
 
 
-def check(form: PartForm, snapshot: Snapshot, *, new: bool) -> None:
-    """Raise EditError with everything that is wrong, not just the first."""
+def check(form: PartForm, snapshot: Snapshot, *, new: bool, category: str | None = None) -> None:
+    """Raise EditError with everything that is wrong, not just the first.
+
+    `category` is the category of the part being edited. A new part says its
+    own.
+    """
     problems: list[str] = []
+    category = form.category if new else category
 
     if new and form.category not in snapshot.parts.categories:
         problems.append("Choose a category.")
@@ -87,6 +92,11 @@ def check(form: PartForm, snapshot: Snapshot, *, new: bool) -> None:
         problems.append(f"A part can carry at most {MAX_FIELDS} fields.")
     if any(not name.strip() for name in form.fields):
         problems.append("Every field needs a name.")
+
+    # What every part in this category has to say about itself.
+    template = snapshot.parts.templates.get(category or "")
+    if template is not None:
+        problems.extend(template.problems(form.fields))
 
     if len(form.sources) > MAX_SOURCES:
         problems.append(f"A part can list at most {MAX_SOURCES} manufacturer parts.")
@@ -168,7 +178,11 @@ def _apply(data: dict[str, Any], form: PartForm, root: Path) -> None:
     data["description"] = form.description.strip()
     data["symbol"] = form.symbol
     data["footprint"] = form.footprint
-    data["fields"] = {name.strip(): value.strip() for name, value in form.fields.items()}
+    # A field left empty is not one the part carries. Written as "", it would
+    # blank the symbol's own value on the sheet.
+    data["fields"] = {
+        name.strip(): value.strip() for name, value in form.fields.items() if value.strip()
+    }
     data["mpns"] = [
         {"mpn": entry.mpn, "preferred": True} if entry.preferred else {"mpn": entry.mpn}
         for entry in form.sources
