@@ -237,6 +237,32 @@ a.masthead__status { text-decoration: underline; }
 .field input[type="text"]:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .field input::placeholder { color: var(--ink-3); }
 
+/* A note: several lines, so it grows downwards and no other way. */
+.field textarea,
+.note-box textarea {
+  display: block;
+  width: 100%;
+  min-height: 4.25rem;
+  padding: 0.4rem 0.625rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.field textarea:focus,
+.note-box textarea:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.field textarea::placeholder,
+.note-box textarea::placeholder { color: var(--ink-3); }
+
+/* Asking for a reason before approving or retiring a part. */
+.note-box { display: flex; flex-direction: column; gap: 0.5rem; max-width: 36rem; margin-top: 0.75rem; }
+.note-box label { color: var(--ink-2); font-size: var(--size-s); }
+.note-box .actions { margin: 0; }
+
 .field input[type="file"] { width: 100%; max-width: 100%; color: var(--ink-2); font: inherit; font-size: var(--size-s); }
 
 /* The browser's own button, dressed like the others. */
@@ -822,6 +848,8 @@ a.figure:hover .figure__label { text-decoration: underline; }
 .history > li { padding: 0.75rem 0; border-bottom: 1px solid var(--rule); }
 .history__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
 .history__subject { margin: 0.125rem 0 0; color: var(--ink-2); }
+/* What the person wrote: as they wrote it, line breaks and all. */
+.history__note { margin: 0.25rem 0 0; white-space: pre-line; overflow-wrap: anywhere; }
 
 /* What changed, one line each, set in from the commit it belongs to. */
 .history__what {

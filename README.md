@@ -253,6 +253,17 @@ committer is this app, so the history shows both who wanted the change and
 that it came through here. That history is the audit trail: there is no
 second record of who approved what.
 
+**Saying why.** The subject of the commit is written by the app —
+`Request 1102-0002: Resistor 330R 1% 0.1W 0603`, `Approve …`, `Retire …`. Every
+form has an optional note for the person's own words, which goes under the
+subject as the body of the commit: why the part is needed, what was checked,
+what the change is for. Approving or retiring a part asks for one first, since
+that is the decision someone will want the reason for later; changing or
+removing a template has one too. A note is at most 1000 characters and is kept as
+written, except that characters that cannot be printed are dropped. The part's
+history page shows it under the change, and so does `git log`. Commits made by
+hand in git are read the same way: their message body is the note.
+
 A manufacturer part the library already has is used as it is. A new one is
 added with what the form says about it. One manufacturer part can serve
 several internal parts, so a part's form never rewrites one that exists.

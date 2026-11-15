@@ -83,6 +83,18 @@
         <button type="button" class="button" id="add-source">Add a manufacturer part</button>
       </fieldset>
 
+      <div class="form">
+        <div class="field field--wide">
+          <label for="part-note">
+            {{- "What did you change, and why?" if part else "Anything the librarian should know?" }}
+            <span class="muted">(optional)</span>
+          </label>
+          <textarea id="part-note" rows="3" maxlength="1000"
+                    placeholder="{{ 'Tolerance tightened for the new amplifier' if part else 'Needed for the new amplifier board; 0.1 W is enough' }}"></textarea>
+          <p class="hint">Kept with the change in the library's history, next to your name.</p>
+        </div>
+      </div>
+
       <div class="actions">
         <button type="submit" class="button button--primary" id="part-submit">
           {{- "Save" if part else "Request the part" -}}

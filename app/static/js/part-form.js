@@ -21,22 +21,48 @@
 
   // ----------------------------------------------- approving and retiring
 
+  /* Approving or retiring a part is a decision someone will want the reason
+     for later, so the button asks first, and the reason -- if there is one --
+     goes into the library's history with the change. */
   for (const control of document.querySelectorAll("[data-set-status]")) {
     const result = document.getElementById("status-result");
-    control.addEventListener("click", async () => {
-      control.disabled = true;
+
+    async function submit(note, confirm) {
+      confirm.disabled = true;
       notice(result, null, "Saving");
       try {
         await api(`/api/v1/parts/${encodeURIComponent(control.dataset.ipn)}/status`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: control.dataset.setStatus }),
+          body: JSON.stringify({ status: control.dataset.setStatus, note: note.value }),
         });
         window.location.reload();
       } catch (error) {
         notice(result, "bad", error.message);
-        control.disabled = false;
       }
+    }
+
+    control.addEventListener("click", () => {
+      const verb = control.textContent.trim();
+      const note = el("textarea");
+      note.id = "status-note";
+      note.rows = 3;
+      note.maxLength = 1000;
+      note.placeholder = "Optional. Kept with the change in the library's history.";
+      const label = el("label", null, `${verb} ${control.dataset.ipn}? Say why, if you like.`);
+      label.htmlFor = note.id;
+
+      const danger = control.classList.contains("button--danger");
+      const confirm = button(`button ${danger ? "button--danger" : "button--primary"}`, verb, () =>
+        submit(note, confirm)
+      );
+      const actions = el("div", "actions");
+      actions.append(confirm, button("button", "Cancel", () => result.replaceChildren()));
+
+      const box = el("div", "note-box");
+      box.append(label, note, actions);
+      result.replaceChildren(box);
+      note.focus();
     });
   }
 
@@ -54,6 +80,7 @@
     template: document.getElementById("part-template"),
     fields: document.getElementById("part-fields"),
     sources: document.getElementById("part-sources"),
+    note: document.getElementById("part-note"),
     submit: document.getElementById("part-submit"),
     result: document.getElementById("part-result"),
   };
@@ -228,6 +255,7 @@
       footprint: dom.footprint.value.trim(),
       fields: readFields(),
       sources: [...dom.sources.children].map((row) => row.read()).filter((s) => s.mpn),
+      note: dom.note.value,
     };
   }
 

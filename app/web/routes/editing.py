@@ -103,6 +103,8 @@ class PartBody(BaseModel):
     footprint: str = Field("", max_length=200)
     fields: dict[str, str] = Field(default_factory=dict)
     sources: list[SourceBody] = Field(default_factory=list)
+    # Said by the person, for the library's history: what this is and why.
+    note: str = Field("", max_length=editing.MAX_NOTE)
 
     def form(self) -> PartForm:
         return PartForm(
@@ -126,6 +128,7 @@ class PartBody(BaseModel):
 
 class StatusBody(BaseModel):
     status: str = Field(pattern=f"^({'|'.join(PART_STATUSES)})$")
+    note: str = Field("", max_length=editing.MAX_NOTE)
 
 
 def _refused(error: EditError) -> JSONResponse:
@@ -229,7 +232,7 @@ async def request_part(
 
     def write(root):
         given["ipn"], message = editing.write_new_part(root, form)
-        return message
+        return editing.with_note(message, body.note)
 
     failed = await _publish(library, write, _author(session, settings))
     return failed or {"ipn": given["ipn"], "status": "draft"}
@@ -256,7 +259,9 @@ async def edit_part(
         return _refused(exc)
 
     failed = await _publish(
-        library, lambda root: editing.write_part(root, part.ipn, form), _author(session, settings)
+        library,
+        lambda root: editing.with_note(editing.write_part(root, part.ipn, form), body.note),
+        _author(session, settings),
     )
     return failed or {"ipn": part.ipn, "status": part.status}
 
@@ -272,7 +277,9 @@ async def set_status(
     """Approve a part, retire it, or send it back to being a draft."""
     failed = await _publish(
         library,
-        lambda root: editing.write_status(root, part.ipn, body.status),
+        lambda root: editing.with_note(
+            editing.write_status(root, part.ipn, body.status), body.note
+        ),
         _author(session, settings),
     )
     return failed or {"ipn": part.ipn, "status": body.status}

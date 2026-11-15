@@ -19,6 +19,7 @@
   const dom = {
     fields: document.getElementById("template-fields"),
     value: document.getElementById("template-value"),
+    note: document.getElementById("template-note"),
     submit: document.getElementById("template-submit"),
     remove: document.getElementById("template-remove"),
     result: document.getElementById("template-result"),
@@ -94,6 +95,7 @@
   const read = () => ({
     value: dom.value.value.trim(),
     fields: [...dom.fields.children].map((row) => row.read()).filter((spec) => spec.name),
+    note: dom.note.value,
   });
 
   async function save() {
@@ -131,7 +133,12 @@
 
   async function destroy() {
     try {
-      await api(endpoint, { method: "DELETE" });
+      // The note above the buttons goes with the removal, as with a save.
+      await api(endpoint, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: dom.note.value }),
+      });
       window.location.assign(`${base}/templates`);
     } catch (error) {
       notice("bad", error.problems || error.message);
@@ -152,7 +159,7 @@
     dom.remove.addEventListener("click", () => {
       notice(
         "warn",
-        `Remove the template for ${category}? Its parts are then asked for nothing.`,
+        `Remove the template for ${category}? Its parts are then asked for nothing. What is written in the note above is kept with the removal.`,
         [
           button("button button--danger", "Remove it", destroy),
           button("button", "Keep it", () => dom.result.replaceChildren()),

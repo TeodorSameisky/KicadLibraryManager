@@ -11,6 +11,7 @@ the commit and the push.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,23 @@ def _apply(data: dict[str, Any], form: PartForm, root: Path) -> None:
             document["datasheet"] = entry.datasheet.strip()
         document["lifecycle"] = entry.lifecycle
         path.write_text(_block(document), encoding="utf-8", newline="\n")
+
+
+MAX_NOTE = 1000
+
+
+def with_note(subject: str, note: str = "") -> str:
+    """A commit message: the subject the app wrote, then what the person said.
+
+    The note is theirs and goes in as written, except that what could not be
+    printed is dropped and the lines are tidied. It is the body of the message,
+    where git shows it under the subject and the history page shows it under
+    the change.
+    """
+    lines = note.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    text = "\n".join("".join(c for c in line if c.isprintable()).rstrip() for line in lines)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return f"{subject}\n\n{text}" if text else subject
 
 
 def write_new_part(root: Path, form: PartForm) -> tuple[str, str]:

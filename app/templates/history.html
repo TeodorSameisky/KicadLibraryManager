@@ -36,6 +36,7 @@
             {% endif %}
           </div>
           <p class="history__subject">{{ change.subject }}</p>
+          {% if change.note %}<p class="history__note">{{ change.note }}</p>{% endif %}
           {% if change.what %}
             <ul class="history__what">
               {% for line in change.what %}<li>{{ line }}</li>{% endfor %}

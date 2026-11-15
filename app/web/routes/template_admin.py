@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.auth.sessions import Session
 from app.config import Settings
+from app.library import editing as part_editing
 from app.library import template_editing as editing
 from app.library.editing import EditError
 from app.library.service import LibraryService
@@ -48,6 +49,7 @@ class FieldBody(BaseModel):
 class TemplateBody(BaseModel):
     value: str = Field("", max_length=200)
     fields: list[FieldBody] = Field(default_factory=list, max_length=editing.MAX_FIELDS + 1)
+    note: str = Field("", max_length=part_editing.MAX_NOTE)
 
     def form(self) -> TemplateForm:
         return TemplateForm(
@@ -94,14 +96,21 @@ async def save_template(
     name = snapshot.category_name(category)
     after, failed = await _publish_snapshot(
         library,
-        lambda root: editing.write_template(root, category, name, form),
+        lambda root: part_editing.with_note(
+            editing.write_template(root, category, name, form), body.note
+        ),
         _author(session, settings),
     )
     return failed or _outcome(after, category)
 
 
+class NoteBody(BaseModel):
+    note: str = Field("", max_length=part_editing.MAX_NOTE)
+
+
 @api.delete("/{category}", dependencies=[Depends(require_librarian)])
 async def remove_template(
+    body: NoteBody | None = None,
     category: str = Depends(_require_category),
     settings: Settings = Depends(get_settings),
     snapshot: Snapshot = Depends(get_snapshot),
@@ -112,7 +121,9 @@ async def remove_template(
     name = snapshot.category_name(category)
     after, failed = await _publish_snapshot(
         library,
-        lambda root: editing.delete_template(root, category, name),
+        lambda root: part_editing.with_note(
+            editing.delete_template(root, category, name), body.note if body else ""
+        ),
         _author(session, settings),
     )
     return failed or _outcome(after, category)

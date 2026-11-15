@@ -47,6 +47,13 @@
         </p>
       </div>
 
+      <div class="field field--wide">
+        <label for="template-note">What did you change, and why? <span class="muted">(optional)</span></label>
+        <textarea id="template-note" rows="3" maxlength="1000"
+                  placeholder="Tolerance is now required for every resistor"></textarea>
+        <p class="hint">Kept with the change in the library's history, next to your name.</p>
+      </div>
+
       <div class="actions">
         <button type="submit" class="button button--primary" id="template-submit">Save the template</button>
         {% if has_template %}

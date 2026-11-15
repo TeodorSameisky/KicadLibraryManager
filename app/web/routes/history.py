@@ -53,6 +53,7 @@ def part_history(
                 "when": change.when,
                 "author": change.author,
                 "subject": change.subject,
+                "note": change.note,
                 "what": list(change.what),
                 "url": _commit_link(library, settings, change.commit),
             }

@@ -45,6 +45,7 @@ class Change:
     author: str
     subject: str
     what: tuple[str, ...]  # what changed in the part, one sentence each
+    note: str = ""  # what the person said about it, if they did: the message's body
 
 
 @dataclass(frozen=True)
@@ -204,7 +205,9 @@ def read_history(
         )  # fmt: skip
         listing = _git(
             "log",
-            f"--format={_RECORD}%H{_FIELD}%at{_FIELD}%an{_FIELD}%s",
+            # The body can run to several lines, so it is closed with a separator
+            # of its own, and the file list that follows is told apart from it.
+            f"--format={_RECORD}%H{_FIELD}%at{_FIELD}%an{_FIELD}%s{_FIELD}%b{_FIELD}",
             "--name-status",
             f"--max-count={limit + 1}",
             "--",
@@ -217,8 +220,7 @@ def read_history(
     entries = [record for record in listing.split(_RECORD) if record.strip()]
     changes: list[Change] = []
     for record in entries[:limit]:
-        header, _, status = record.partition("\n")
-        sha, when, author, subject = header.split(_FIELD, 3)
+        sha, when, author, subject, note, status = record.split(_FIELD, 5)
         kind = status.strip()[:1]  # A added, M modified, D deleted
 
         try:
@@ -228,7 +230,7 @@ def read_history(
             raise HistoryUnavailable(f"git could not read an earlier version: {exc}") from exc
 
         what = describe(old, new)
-        changes.append(Change(sha, float(when), author, subject, what))
+        changes.append(Change(sha, float(when), author, subject, what, note.strip()))
 
     return History(changes=tuple(changes), more=len(entries) > limit)
 
