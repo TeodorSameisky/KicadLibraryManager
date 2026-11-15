@@ -341,12 +341,13 @@ async def test_without_a_publisher_the_library_is_read_only(repository, tmp_path
 def test_a_token_reaches_git_through_the_environment_only():
     """Not in the remote's address and not in an argument, where other
     processes could read it and git would quote it back in an error."""
-    credentials = Publisher(committer=APP, token="s3cret-token")._credentials()
+    url = "https://github.com/acme/library.git"
+    credentials = Publisher(committer=APP, token="s3cret-token")._credentials(url)
 
-    assert credentials["GIT_CONFIG_KEY_0"] == "http.extraHeader"
+    assert credentials["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraHeader"
     assert credentials["GIT_CONFIG_VALUE_0"].startswith("Authorization: Basic ")
     assert "s3cret-token" not in credentials["GIT_CONFIG_VALUE_0"], "and encoded, not bare"
-    assert Publisher(committer=APP)._credentials() == {}
+    assert Publisher(committer=APP)._credentials(url) == {}
 
 
 # -- through the web --------------------------------------------------------

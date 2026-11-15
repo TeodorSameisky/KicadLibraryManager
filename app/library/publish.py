@@ -11,11 +11,10 @@ shows both who wanted the change and that it came through here.
 
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.library.sources import Source, SourceError, _git
+from app.library.sources import Source, SourceError, _git, credentials
 
 
 class PublishError(Exception):
@@ -80,20 +79,10 @@ class Publisher:
     # Gitea both accept this one.
     token_user: str = "x-access-token"
 
-    def _credentials(self) -> dict[str, str]:
-        """The token as git configuration held in the environment.
-
-        Not in the remote's URL and not in an argument: both are readable by
-        other processes, and a URL is quoted back in git's error messages.
-        """
-        if not self.token:
-            return {}
-        basic = base64.b64encode(f"{self.token_user}:{self.token}".encode()).decode()
-        return {
-            "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": "http.extraHeader",
-            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
-        }
+    def _credentials(self, url: str) -> dict[str, str]:
+        """The token as git configuration held in the environment, for the
+        host this repository is on and no other."""
+        return credentials(url, self.token, self.token_user)
 
     def publish(self, checkout: Path, source: Source, message: str, author: Identity) -> str:
         """Commit everything changed in `checkout` and push it.
@@ -120,7 +109,7 @@ class Publisher:
             try:
                 _git(
                     "push", "--quiet", "origin", f"HEAD:refs/heads/{source.ref}",
-                    cwd=checkout, env=self._credentials(),
+                    cwd=checkout, env=self._credentials(source.url),
                 )  # fmt: skip
             except SourceError as exc:
                 # Git says why in the middle of what it prints, not at the end.

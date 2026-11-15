@@ -183,6 +183,28 @@
         {% endif %}
       </dd>
     </div>
+    <div>
+      <dt>Backups</dt>
+      <dd>
+        {% if not backups.enabled %}
+          <span class="tag tag--warn">off</span>
+          <span class="muted">the BOM database is not being copied</span>
+        {% elif latest_backup %}
+          {{ latest_backup.made_at | moment }}
+          <span class="muted">&middot; {{ backups.list() | length }} kept, one a day</span>
+          {% if backup_overdue %}<span class="tag tag--bad">overdue</span>{% endif %}
+        {% else %}
+          none yet
+          {% if backup_overdue %}<span class="tag tag--bad">overdue</span>{% endif %}
+        {% endif %}
+        {% if librarian %}
+          <span class="small block">
+            <a href="{{ root_path }}/api/v1/backup">Download a copy</a>
+            <span class="muted">to keep somewhere that is not this server</span>
+          </span>
+        {% endif %}
+      </dd>
+    </div>
     <div><dt>API reference</dt><dd><a href="{{ root_path }}/docs">{{ root_path }}/docs</a></dd></div>
   </dl>
 {% endblock %}

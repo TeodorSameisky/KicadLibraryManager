@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from app import __version__
@@ -120,11 +121,19 @@ class Settings:
     # A token that may push to the library's repository. Without one the app
     # reads the library and cannot add to it.
     library_write_token: str | None = None
+    # A token that may read a private repository, for the sources marked
+    # `"private": true`. Without one the write token is used, which can read
+    # whatever it can write; this is for a deployment that only reads.
+    library_read_token: str | None = None
 
     # -- bills of materials
     # One SQLite file. It is the only thing here that cannot be rebuilt from
     # somewhere else, so it is the thing to back up.
     database_path: str = "/data/library-manager.db"
+    # Daily copies of it, kept beside it unless said otherwise. How many to
+    # keep; 0 switches them off.
+    backup_keep: int = 14
+    backup_directory: str = ""
 
     # -- what the discovery document advertises
     allow_insecure_localhost: bool = True
@@ -181,7 +190,10 @@ class Settings:
             library_refresh_minutes=max(0, env.integer("LIBRARY_REFRESH_MINUTES", 15)),
             webhook_secret=env.optional("WEBHOOK_SECRET"),
             library_write_token=env.optional("LIBRARY_WRITE_TOKEN"),
+            library_read_token=env.optional("LIBRARY_READ_TOKEN"),
             database_path=env.text("DATABASE_PATH", "/data/library-manager.db"),
+            backup_keep=max(0, env.integer("BACKUP_KEEP", 14)),
+            backup_directory=env.text("BACKUP_DIRECTORY"),
             allow_insecure_localhost=env.flag("ALLOW_INSECURE_LOCALHOST", True),
             max_download_bytes=env.integer("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
             supported_asset_types=env.words(
@@ -201,6 +213,17 @@ class Settings:
     def origin(self) -> str:
         parts = urlsplit(self.public_url)
         return f"{parts.scheme}://{parts.netloc}"
+
+    @property
+    def backup_path(self) -> Path:
+        if self.backup_directory:
+            return Path(self.backup_directory)
+        return Path(self.database_path).parent / "backups"
+
+    @property
+    def library_token(self) -> str | None:
+        """The token to read private sources with: a read-only one if there is one."""
+        return self.library_read_token or self.library_write_token
 
     @property
     def hostname(self) -> str:
@@ -287,6 +310,14 @@ class Settings:
             found.append(
                 f"AUTH_ENABLED is on but {' and '.join(missing)} "
                 f"{'is' if len(missing) == 1 else 'are'} not set, so the library is open"
+            )
+
+        private = [source.id for source in self.library_sources if source.private]
+        if private and not self.library_token:
+            found.append(
+                f"the source{'s' if len(private) > 1 else ''} {', '.join(private)} "
+                f"{'are' if len(private) > 1 else 'is'} marked private, but neither "
+                "LIBRARY_READ_TOKEN nor LIBRARY_WRITE_TOKEN is set, so it cannot be read"
             )
 
         if self.auth_configured and not self.librarians:

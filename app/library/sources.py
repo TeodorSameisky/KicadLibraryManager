@@ -14,6 +14,7 @@ from the git host only when somebody asks for one.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -23,6 +24,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 GIT_TIMEOUT_SECONDS = 600
 
@@ -42,6 +44,11 @@ class Source:
     name: str
     url: str
     ref: str = "main"
+    # Whether the repository needs a token to be read. Said per source, and
+    # false unless said otherwise, so that a token for one host is never sent
+    # to another: a deployment may read the official KiCad libraries from
+    # one host and its own library from another.
+    private: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +80,7 @@ def _source(raw: object) -> Source:
         name=str(raw.get("name") or source_id),
         url=str(raw["url"]),
         ref=str(raw.get("ref") or "main"),
+        private=bool(raw.get("private")),
     )
 
 
@@ -133,16 +141,68 @@ def _git(*args: str, cwd: Path | None = None, env: Mapping[str, str] | None = No
     return done.stdout.strip()
 
 
-def _clone(source: Source, target: Path) -> None:
+def credentials(url: str, token: str | None, user: str = "x-access-token") -> dict[str, str]:
+    """git configuration, in the environment, that sends a token to one host.
+
+    In the environment and not in the remote's address or an argument, where
+    other processes could read it and git would quote it back in an error.
+    Scoped to the host the address names, so it is not sent to a different
+    host if the repository redirects there. Only ever sent over https: over
+    anything else it would cross the network where anyone could read it.
+
+    GitHub and Gitea both accept `x-access-token` as the user beside a token.
+    """
+    if not token:
+        return {}
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        return {}
+
+    scope = f"https://{parts.hostname}{f':{parts.port}' if parts.port else ''}/"
+    basic = base64.b64encode(f"{user}:{token}".encode()).decode()
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": f"http.{scope}.extraHeader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+    }
+
+
+def _hint(error: SourceError, source: Source, token: str | None) -> SourceError:
+    """Add to a failed clone or fetch what is likely to be wrong, when git's
+    own words would send the reader looking in the wrong place."""
+    said = error.output.lower()
+    refused = "terminal prompts disabled" in said or "authentication failed" in said
+    missing = "repository not found" in said or "returned error: 404" in said
+
+    if source.private and token and (refused or missing or "error: 403" in said):
+        advice = "the token was not accepted, or may not read this repository"
+    elif not source.private and (refused or missing):
+        advice = (
+            'if the repository is private, mark the source "private": true in '
+            "LIBRARY_SOURCES and set LIBRARY_READ_TOKEN"
+        )
+    elif source.private and not token and (refused or missing):
+        advice = (
+            "the source is private, but neither LIBRARY_READ_TOKEN nor LIBRARY_WRITE_TOKEN is set"
+        )
+    else:
+        return error
+
+    hinted = SourceError(f"{error} ({advice})")
+    hinted.output = error.output
+    return hinted
+
+
+def _clone(source: Source, target: Path, env: Mapping[str, str] | None = None) -> None:
     # A host that does not support filtering sends everything, which is only
     # slower: git says so and carries on.
     _git(
         "clone", "--filter=blob:none", "--no-tags", "--branch", source.ref,
-        source.url, str(target),
+        source.url, str(target), env=env,
     )  # fmt: skip
 
 
-def _update(source: Source, target: Path) -> None:
+def _update(source: Source, target: Path, env: Mapping[str, str] | None = None) -> None:
     # A clone made before history was kept has one commit and no past. It is
     # replaced, not deepened: deepening would download every old version of
     # every file, which is the cost the filter exists to avoid.
@@ -152,8 +212,10 @@ def _update(source: Source, target: Path) -> None:
     # The configured URL may have changed since this clone was made. Without
     # this the fetch quietly keeps pulling from the old repository.
     _git("remote", "set-url", "origin", source.url, cwd=target)
-    _git("fetch", "--no-tags", "origin", source.ref, cwd=target)
-    _git("reset", "--hard", "FETCH_HEAD", cwd=target)
+    _git("fetch", "--no-tags", "origin", source.ref, cwd=target, env=env)
+    # Brings in any file contents the working tree now needs, which with the
+    # filter above are fetched here and not in the fetch.
+    _git("reset", "--hard", "FETCH_HEAD", cwd=target, env=env)
     # A reset leaves behind files that were deleted upstream but untracked here.
     _git("clean", "-fd", cwd=target)
 
@@ -169,8 +231,10 @@ def _remove(path: Path) -> None:
         shutil.rmtree(path, onexc=retry_writable)
 
 
-def sync(source: Source, workdir: Path) -> Checkout:
+def sync(source: Source, workdir: Path, token: str | None = None) -> Checkout:
     """Clone `source` under `workdir`, or bring an existing clone up to date.
+
+    `token` is used only if the source is marked private.
 
     A clone that cannot be updated is replaced rather than repaired: an
     interrupted clone would otherwise leave the platform broken until someone
@@ -180,10 +244,11 @@ def sync(source: Source, workdir: Path) -> Checkout:
     """
     target = workdir / source.id
     workdir.mkdir(parents=True, exist_ok=True)
+    env = credentials(source.url, token) if source.private else {}
 
     if (target / ".git").is_dir():
         try:
-            _update(source, target)
+            _update(source, target, env)
         except SourceError:
             pass  # fall through to a fresh clone
         else:
@@ -192,10 +257,10 @@ def sync(source: Source, workdir: Path) -> Checkout:
     incoming = workdir / f".{source.id}.incoming"
     _remove(incoming)
     try:
-        _clone(source, incoming)
-    except SourceError:
+        _clone(source, incoming, env)
+    except SourceError as exc:
         _remove(incoming)
-        raise
+        raise _hint(exc, source, token) from exc
 
     _remove(target)
     incoming.rename(target)

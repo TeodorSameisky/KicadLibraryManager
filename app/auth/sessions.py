@@ -6,19 +6,33 @@ nonce bridges the two: single-use, short-lived, tied to the person the token
 belonged to, and exchanged for a session cookie when the WebView loads the
 address containing it.
 
-Everything is held in memory, which is right for one container and wrong for
-several. Putting it in Redis means reimplementing this class and nothing else.
+Sessions are also written to the database, so that a restart -- which is
+what every deployment is -- does not sign everyone out. Nonces and pending
+sign-ins are not: they live for seconds or minutes, and one lost to a restart
+costs the person a second attempt. Memory stays the first place a session is
+looked for; the database is asked only for one memory does not have.
+
+Held in memory and one SQLite file, which is right for one container and wrong
+for several. Putting it in Redis means reimplementing this class and nothing
+else.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import secrets
+import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Generic, TypeVar
 
 from app.auth.identity import Principal
+
+log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -64,6 +78,10 @@ class _Expiring(Generic[T]):
         if token:
             self._entries.pop(token, None)
 
+    def restore(self, token: str, value: T, expires_at: float) -> None:
+        """Put back something that was kept elsewhere, with its own expiry."""
+        self._entries[token] = (expires_at, value)
+
     def _evict(self) -> None:
         now = self._clock()
         for token in [t for t, (expires, _) in self._entries.items() if expires <= now]:
@@ -104,6 +122,98 @@ class PendingLogin:
     next_url: str
 
 
+class _SessionTable:
+    """Sessions in the database, found by the hash of their id.
+
+    Only the hash is kept. A copy of the database -- a backup, a download --
+    then holds no cookie that could be put in a browser and used.
+
+    If the database cannot be used, sessions carry on in memory alone, which
+    is how they worked before there was one. That is said once in the log and
+    not at every request: signing in must not depend on it.
+    """
+
+    def __init__(self, path: Path, clock: Callable[[], float]) -> None:
+        self._path = path
+        self._clock = clock
+        self._ready = False
+        self._warned = False
+
+    @staticmethod
+    def _key(session_id: str) -> str:
+        return hashlib.sha256(session_id.encode()).hexdigest()
+
+    def _connect(self) -> sqlite3.Connection:
+        if not self._path.parent.is_dir():
+            raise OSError(f"the directory {self._path.parent} does not exist")
+        connection = sqlite3.connect(self._path, timeout=10)
+        if not self._ready:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS sessions ("
+                " key TEXT PRIMARY KEY, subject TEXT NOT NULL,"
+                " claims TEXT NOT NULL, expires REAL NOT NULL)"
+            )
+            self._ready = True
+        return connection
+
+    def _run(self, action: Callable[[sqlite3.Connection], T], default: T) -> T:
+        try:
+            connection = self._connect()
+            try:
+                with connection:
+                    return action(connection)
+            finally:
+                connection.close()
+        except (OSError, sqlite3.Error) as exc:
+            if not self._warned:
+                self._warned = True
+                log.warning(
+                    "sessions cannot be kept in the database, so a restart will sign "
+                    "everyone out: %s",
+                    exc,
+                )
+            return default
+
+    def put(self, session_id: str, principal: Principal, expires_at: float) -> None:
+        claims = json.dumps(dict(principal.claims), default=str)
+
+        def write(connection: sqlite3.Connection) -> None:
+            # Whatever has expired goes now, so the table stays as long as the
+            # people signed in and no longer.
+            connection.execute("DELETE FROM sessions WHERE expires <= ?", (self._clock(),))
+            connection.execute(
+                "INSERT OR REPLACE INTO sessions (key, subject, claims, expires)"
+                " VALUES (?, ?, ?, ?)",
+                (self._key(session_id), principal.subject, claims, expires_at),
+            )
+
+        self._run(write, None)
+
+    def get(self, session_id: str) -> tuple[Principal, float] | None:
+        def read(connection: sqlite3.Connection) -> tuple[Principal, float] | None:
+            row = connection.execute(
+                "SELECT subject, claims, expires FROM sessions WHERE key = ? AND expires > ?",
+                (self._key(session_id), self._clock()),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                claims = json.loads(row[1])
+            except ValueError:
+                return None
+            return Principal(row[0], claims if isinstance(claims, dict) else {}), row[2]
+
+        return self._run(read, None)
+
+    def delete(self, session_id: str) -> None:
+        self._run(
+            lambda connection: connection.execute(
+                "DELETE FROM sessions WHERE key = ?", (self._key(session_id),)
+            ),
+            None,
+        )
+
+
 class SessionStore:
     def __init__(
         self,
@@ -112,10 +222,14 @@ class SessionStore:
         login_ttl_seconds: float,
         session_ttl_seconds: float,
         clock: Callable[[], float] = time.time,
+        database: Path | None = None,
     ) -> None:
+        self._clock = clock
+        self._session_ttl = session_ttl_seconds
         self._nonces: _Expiring[_Nonce] = _Expiring(nonce_ttl_seconds, clock)
         self._logins: _Expiring[PendingLogin] = _Expiring(login_ttl_seconds, clock)
         self._sessions: _Expiring[Session] = _Expiring(session_ttl_seconds, clock)
+        self._table = _SessionTable(database, clock) if database is not None else None
 
     # -- KiCad's handshake
 
@@ -143,10 +257,31 @@ class SessionStore:
     # -- sessions
 
     def create(self, principal: Principal) -> str:
-        return self._sessions.add(Session(principal))
+        session_id = self._sessions.add(Session(principal))
+        if self._table is not None:
+            self._table.put(session_id, principal, self._clock() + self._session_ttl)
+        return session_id
 
     def get(self, session_id: str | None) -> Session | None:
-        return self._sessions.get(session_id)
+        if not session_id:
+            return None
+        session = self._sessions.get(session_id)
+        if session is not None or self._table is None:
+            return session
+
+        # Not in memory: either not a session at all, or one that was signed in
+        # before the last restart.
+        found = self._table.get(session_id)
+        if found is None:
+            return None
+        principal, expires_at = found
+        session = Session(principal)
+        self._sessions.restore(session_id, session, expires_at)
+        return session
 
     def revoke(self, session_id: str | None) -> None:
+        if not session_id:
+            return
         self._sessions.discard(session_id)
+        if self._table is not None:
+            self._table.delete(session_id)

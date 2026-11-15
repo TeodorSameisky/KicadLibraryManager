@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.application import create_app
 from app.auth.identity import Principal
+from app.boms.backup import Backups
 from app.boms.store import BomStore
 from app.config import Settings
 from app.library.service import LibraryService
@@ -108,6 +109,7 @@ def make_client(provider, tmp_path):
                 library=library,
                 identity=provider.client(),
                 boms=BomStore(tmp_path / "boms.db"),
+                backups=Backups(tmp_path / "boms.db", tmp_path / "backups", settings.backup_keep),
             )
             # https, or the Secure session cookie would never be sent back.
             client = stack.enter_context(TestClient(app, base_url=settings.origin))

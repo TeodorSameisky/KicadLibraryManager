@@ -51,6 +51,12 @@
   </p>
 
   <h2 class="section">Stored</h2>
+  {% if librarian and not problem %}
+    <p class="small">
+      <a href="{{ root_path }}/api/v1/backup">Download a backup of every BOM</a>
+      <span class="muted">&middot; a copy to keep somewhere that is not this server</span>
+    </p>
+  {% endif %}
   {% if boms %}
     <div class="table-scroll">
       <table class="table">

@@ -160,10 +160,10 @@ def _load(text: str) -> Any:
     return data if isinstance(data, dict) else _UNREADABLE
 
 
-def _version(repository: Path, revision: str, path: str) -> Any:
+def _version(repository: Path, revision: str, path: str, env: Mapping[str, str] | None) -> Any:
     """The part's data as of a commit, or None if the file was not there."""
     try:
-        return _load(_git("show", f"{revision}:{path}", cwd=repository))
+        return _load(_git("show", f"{revision}:{path}", cwd=repository, env=env))
     except SourceError as exc:
         said = exc.output.lower()
         if "does not exist" in said or "exists on disk, but not in" in said:
@@ -171,11 +171,18 @@ def _version(repository: Path, revision: str, path: str) -> Any:
         raise
 
 
-def read_history(repository: Path, path: str, limit: int = DEFAULT_LIMIT) -> History:
+def read_history(
+    repository: Path,
+    path: str,
+    limit: int = DEFAULT_LIMIT,
+    env: Mapping[str, str] | None = None,
+) -> History:
     """The changes to one file, newest first, each put into words.
 
     `path` is relative to the repository. Raises HistoryUnavailable if the
-    repository cannot give a history.
+    repository cannot give a history. `env` carries the credentials of a
+    private repository: the contents of an old version are fetched from the
+    git host, and the host wants to know who is asking.
     """
     try:
         shallow = _git("rev-parse", "--is-shallow-repository", cwd=repository)
@@ -191,7 +198,10 @@ def read_history(repository: Path, path: str, limit: int = DEFAULT_LIMIT) -> His
         # Asked for first and the answer thrown away: with the file contents
         # left on the git host, this is what fetches the versions the diffs
         # need in one request, instead of one request for each below.
-        _git("log", "-p", "--format=%H", f"--max-count={limit + 1}", "--", path, cwd=repository)
+        _git(
+            "log", "-p", "--format=%H", f"--max-count={limit + 1}", "--", path,
+            cwd=repository, env=env,
+        )  # fmt: skip
         listing = _git(
             "log",
             f"--format={_RECORD}%H{_FIELD}%at{_FIELD}%an{_FIELD}%s",
@@ -212,8 +222,8 @@ def read_history(repository: Path, path: str, limit: int = DEFAULT_LIMIT) -> His
         kind = status.strip()[:1]  # A added, M modified, D deleted
 
         try:
-            old = None if kind == "A" else _version(repository, f"{sha}^", path)
-            new = None if kind == "D" else _version(repository, sha, path)
+            old = None if kind == "A" else _version(repository, f"{sha}^", path, env)
+            new = None if kind == "D" else _version(repository, sha, path, env)
         except SourceError as exc:
             raise HistoryUnavailable(f"git could not read an earlier version: {exc}") from exc
 

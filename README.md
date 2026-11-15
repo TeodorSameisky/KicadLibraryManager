@@ -181,6 +181,26 @@ does this discontinuation reach?" answerable.
 IPNs are one numbering scheme, so they are read from one repository: the first
 source that has a `parts/` directory.
 
+### Private repositories
+
+A source that needs a token to be read is marked `"private": true` in
+`LIBRARY_SOURCES`, and `LIBRARY_READ_TOKEN` is set to a token that may read it
+(on GitHub, a fine-grained token with "Contents: read-only" on that
+repository). Without a read token the write token is used, which can read what
+it can write.
+
+The mark is per source because the token is for one host. A deployment may read
+its own library from one host and the official KiCad libraries from another,
+and a token must not go to a host it was not made for. It is sent only to the
+sources marked private, only over https, and scoped to that source's host, so
+that if the repository redirects somewhere else the token does not follow. It
+travels in git's environment, not in the repository's address or an argument,
+so it is in neither a process listing nor an error message.
+
+The old versions of files that a part's history page reads are fetched from the
+git host when asked for, with the same token. A source that wants a login and
+has none says so, and says what to set.
+
 ### Indexing
 
 The index is built in the background at startup. Cloning takes long enough
@@ -313,11 +333,36 @@ the library's clones.
 
 **That file is the one thing here that cannot be rebuilt from somewhere else.**
 The clones can be cloned again; the BOMs cannot be uploaded again by anyone who
-no longer has them. Back up the data volume. The original upload is stored
-whole beside the lines read from it.
+no longer has them. The original upload is stored whole beside the lines read
+from it. The signed-in sessions are kept in the same file, so that a restart
+does not sign everyone out; only a hash of each session's cookie is stored, so
+a copy of the file holds nothing that could be put in a browser.
 
 The file is created on first use. The directory it is in is not: a path that
-points somewhere that does not exist is reported on the status page instead.
+points somewhere that does not exist is reported on the status page instead,
+and sessions then carry on in memory alone, as they did before there was a
+database.
+
+### Backups
+
+The app copies the database **once a day** to `backups/` beside it
+(`BACKUP_DIRECTORY` to put them elsewhere), keeping the last `BACKUP_KEEP`
+(14; 0 switches them off). A copy is made with SQLite's own backup, which is
+consistent while the app is writing, and leaves out the sessions. The first
+one is made when the app starts if none is less than a day old, so a
+deployment that is restarted often still has one. The status page shows when
+the last one was made, and calls it out as overdue after three days.
+
+Those copies are on the same disk as the database. They protect against a bad
+deploy or an upload deleted by mistake, **not against losing the volume**. So a
+librarian can also **download a copy** — from the status page or the BOMs page,
+or `GET /api/v1/backup` — to keep somewhere that is not this server. Doing that
+now and then is worth it; if the host offers volume backups, switch those on
+too.
+
+To restore, stop the app, replace the database file with a backup (or a
+download), and start it again. Sessions are not in a copy, so everyone signs in
+once more.
 
 ## Configuration
 
@@ -327,7 +372,9 @@ lists them all with their reasons. The ones a deployment needs:
 | Variable | |
 | --- | --- |
 | `PUBLIC_URL` | The externally reachable address, including any path prefix. Every URL the app hands out is derived from it. |
-| `LIBRARY_SOURCES` | JSON array of `{id, name, url, ref}` git repositories. |
+| `LIBRARY_SOURCES` | JSON array of `{id, name, url, ref, private}` git repositories. Add `"private": true` to one that needs a token to be read. |
+| `LIBRARY_READ_TOKEN` | A token that may read the sources marked private. The write token is used if this is not set. |
+| `BACKUP_KEEP`, `BACKUP_DIRECTORY` | How many daily copies of the database to keep (14; 0 for none), and where. |
 | `LIBRARY_WORKDIR` | Where the clones are kept. A volume. |
 | `DATABASE_PATH` | The SQLite file that holds the BOMs. On the same volume, and the thing to back up. |
 | `AUTH_ENABLED`, `OIDC_METADATA_URL`, `OIDC_CLIENT_ID` | Sign-in; see below. |
@@ -470,8 +517,9 @@ docker compose up --build
   cookies do not work over plain http.
 - The app sets `Strict-Transport-Security` itself, on HTTPS requests only
   (`X-Forwarded-Proto` is honoured behind a proxy that terminates TLS).
-- Sessions are held in memory: run one instance, and expect a restart to sign
-  everyone out.
+- Run one instance. Sessions are kept in the database file, so a restart does
+  not sign anyone out, but two instances would not share what each has in
+  memory, and the library's index and the BOM store are not built for it.
 
 On Coolify: use the Dockerfile build pack, set the port to 8000 and the health
 check to `/healthz`, add a volume at `/data`, and set the environment

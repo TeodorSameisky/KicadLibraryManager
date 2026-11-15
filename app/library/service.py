@@ -24,7 +24,7 @@ from pathlib import Path
 from app.library.history import DEFAULT_LIMIT, History, HistoryUnavailable, read_history
 from app.library.publish import Identity, Publisher, PublishError, PushRejected
 from app.library.snapshot import Snapshot, SyncFailure, build_snapshot
-from app.library.sources import Checkout, Source, SourceError, sync
+from app.library.sources import Checkout, Source, SourceError, credentials, sync
 
 log = logging.getLogger(__name__)
 
@@ -53,12 +53,16 @@ class LibraryService:
         sync: Sync = sync,
         refresh_interval_seconds: float = 0,
         publisher: Publisher | None = None,
+        token: str | None = None,
     ) -> None:
         self._sources = tuple(sources)
         self._workdir = workdir
         self._sync = sync
         self._interval = refresh_interval_seconds
         self._publisher = publisher
+        # For reading the old versions of files in a private repository. The
+        # clones themselves are made by `sync`, which is given the same token.
+        self._token = token
         self._snapshot = Snapshot()
         self._state = State.SYNCING if self._sources else State.EMPTY
         self._error: str | None = None
@@ -111,7 +115,9 @@ class LibraryService:
         key = (commit, relative, limit)
         remembered = self._histories.get(key)
         if remembered is None:
-            remembered = read_history(root, relative, limit)
+            origin = next((s for s in self._sources if s.id == source), None)
+            env = credentials(origin.url, self._token) if origin and origin.private else {}
+            remembered = read_history(root, relative, limit, env)
             if len(self._histories) >= 512:
                 self._histories.clear()  # a cache; losing it only costs a re-read
             self._histories[key] = remembered

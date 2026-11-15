@@ -7,9 +7,11 @@ so that a test can build one around its own settings and library.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -19,13 +21,16 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import __version__
 from app.auth.oidc import OidcClient
 from app.auth.sessions import SessionStore
+from app.boms.backup import Backups, keep_backups
 from app.boms.store import BomStore
 from app.config import Settings
 from app.library.publish import Identity, Publisher
 from app.library.service import LibraryService
+from app.library.sources import sync as sync_source
 from app.observability import RequestContextMiddleware
 from app.security import SecurityHeadersMiddleware
 from app.web.errors import http_error
+from app.web.routes import backup as backup_routes
 from app.web.routes import boms as bom_routes
 from app.web.routes import catalog, pages, provider, session, system, template_admin
 from app.web.routes import editing as editing_routes
@@ -42,6 +47,7 @@ def create_app(
     library: LibraryService | None = None,
     identity: OidcClient | None = None,
     boms: BomStore | None = None,
+    backups: Backups | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
 
@@ -49,6 +55,9 @@ def create_app(
         settings.library_sources,
         Path(settings.library_workdir),
         refresh_interval_seconds=settings.library_refresh_minutes * 60,
+        # The token goes to the sources marked private and to no others.
+        sync=partial(sync_source, token=settings.library_token),
+        token=settings.library_token,
         # Only with a token: without one a push would be refused anyway, and
         # the pages should not offer what cannot be done.
         publisher=Publisher(
@@ -67,6 +76,7 @@ def create_app(
     )
 
     boms = boms or BomStore(Path(settings.database_path))
+    backups = backups or Backups(boms.path, settings.backup_path, settings.backup_keep)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -78,7 +88,12 @@ def create_app(
         # In the background: cloning a library takes longer than a container
         # is given to become healthy.
         library.start()
+        # Copies of the database, a day apart: the one thing here that cannot
+        # be rebuilt from somewhere else.
+        copying = asyncio.create_task(keep_backups(backups))
         yield
+        copying.cancel()
+        await asyncio.gather(copying, return_exceptions=True)
         await library.stop()
 
     app = FastAPI(
@@ -93,10 +108,14 @@ def create_app(
     app.state.library = library
     app.state.identity = identity
     app.state.boms = boms
+    app.state.backups = backups
     app.state.sessions = SessionStore(
         nonce_ttl_seconds=settings.nonce_ttl_seconds,
         login_ttl_seconds=settings.login_ttl_seconds,
         session_ttl_seconds=settings.session_ttl_seconds,
+        # The same file as the BOMs: one place to back up, and one place for
+        # the storage check at startup to look at.
+        database=boms.path,
     )
 
     # The last one added is the outermost, so the hardening headers also land
@@ -114,6 +133,7 @@ def create_app(
         catalog,
         library_routes,
         bom_routes,
+        backup_routes,
         editing_routes,
         template_admin,
         history_routes,

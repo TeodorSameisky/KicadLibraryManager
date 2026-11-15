@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from fastapi import APIRouter, Depends, Request
 from starlette.responses import Response
@@ -29,6 +30,17 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["pages"], include_in_schema=False)
 
+# A copy this old means they have stopped being made, which nobody would
+# otherwise notice until they were needed.
+_OVERDUE_AFTER_SECONDS = 3 * 24 * 3600
+
+
+def _backup_overdue(backups) -> bool:
+    latest = backups.latest()
+    if not backups.enabled or not backups.database.is_file():
+        return False
+    return latest is None or time.time() - latest.made_at > _OVERDUE_AFTER_SECONDS
+
 
 @router.get("/")
 def status_page(
@@ -54,6 +66,9 @@ def status_page(
         callback_url=settings.web_callback_url,
         client_id=settings.oidc_client_id,
         boms_available=request.app.state.boms.problem() is None,
+        backups=request.app.state.backups,
+        latest_backup=request.app.state.backups.latest(),
+        backup_overdue=_backup_overdue(request.app.state.backups),
         checked_at=library.checked_at,
         refresh_minutes=settings.library_refresh_minutes,
         webhook=bool(settings.webhook_secret),
