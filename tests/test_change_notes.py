@@ -270,3 +270,19 @@ def test_the_button_is_for_a_browser_not_the_panel(serve):  # noqa: F811
 
     (button,) = [t for t in re.findall(r"<button\b[^>]*>", html) if 'data-set-status="draft"' in t]
     assert "web-only" in button
+
+
+def test_the_status_buttons_are_plain_buttons_that_follow_the_theme(serve):  # noqa: F811
+    """The filled style swaps the page's colours, bright in the dark theme and
+    dark in the light one; only Retire is coloured, as the one that ends a part."""
+    librarian = sign_in_librarian(serve())
+    librarian.post("/api/v1/parts", json=REQUEST)
+
+    draft = librarian.get("/ipn/1102-0002").text
+    (approve,) = [
+        t for t in re.findall(r"<button\b[^>]*>", draft) if 'data-set-status="approved"' in t
+    ]
+    assert 'class="button web-only"' in approve
+
+    script = librarian.get("/static/js/part-form.js").text
+    assert "button--primary" not in script, "nor the confirmation that follows"

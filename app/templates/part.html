@@ -51,7 +51,7 @@
       <a class="button web-only" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/edit">Edit</a>
       {% if librarian %}
         {% if part.status == "draft" %}
-          <button type="button" class="button button--primary web-only" data-set-status="approved" data-ipn="{{ part.ipn }}">Approve</button>
+          <button type="button" class="button web-only" data-set-status="approved" data-ipn="{{ part.ipn }}">Approve</button>
         {% elif part.status == "approved" %}
           <button type="button" class="button button--danger web-only" data-set-status="obsolete" data-ipn="{{ part.ipn }}">Retire</button>
         {% else %}

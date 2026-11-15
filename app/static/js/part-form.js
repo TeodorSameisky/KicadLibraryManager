@@ -53,7 +53,7 @@
       label.htmlFor = note.id;
 
       const danger = control.classList.contains("button--danger");
-      const confirm = button(`button ${danger ? "button--danger" : "button--primary"}`, verb, () =>
+      const confirm = button(`button${danger ? " button--danger" : ""}`, verb, () =>
         submit(note, confirm)
       );
       const actions = el("div", "actions");
