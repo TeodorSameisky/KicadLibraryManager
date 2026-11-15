@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_products.html" import device_options %}
 
 {% block title %}BOMs &middot; {{ provider_name }}{% endblock %}
 
@@ -28,6 +29,14 @@
       <label for="bom-file">BOM file</label>
       <input type="file" id="bom-file" accept=".csv,.tsv,.txt,text/csv" required />
     </div>
+    {% if products %}
+      <div class="field">
+        <label for="bom-device">Device <span class="muted">(optional)</span></label>
+        <span class="select select--field">
+          <select id="bom-device">{{ device_options(products) }}</select>
+        </span>
+      </div>
+    {% endif %}
     <div class="field">
       <label for="bom-project">Project</label>
       <input type="text" id="bom-project" maxlength="200" autocomplete="off" required />
@@ -63,6 +72,7 @@
         <thead>
           <tr>
             <th scope="col">Project</th>
+            <th scope="col">Device</th>
             <th scope="col">Revision</th>
             <th scope="col" class="num">Lines</th>
             <th scope="col" class="num">Components</th>
@@ -74,6 +84,12 @@
           {% for bom in boms %}
             <tr>
               <td><a href="{{ root_path }}/boms/{{ bom.id }}"><strong>{{ bom.project }}</strong></a></td>
+              {% set device = products.device(bom.device) if bom.device else none %}
+              <td>
+                {% if device %}
+                  <a href="{{ root_path }}/products#device-{{ device.family }}-{{ device.id }}">{{ device.name }}</a>
+                {% else %}<span class="muted">—</span>{% endif %}
+              </td>
               <td>{{ bom.revision or "—" }}</td>
               <td class="num">{{ bom.line_count }}</td>
               <td class="num">{{ bom.component_count }}</td>

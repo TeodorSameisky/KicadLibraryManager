@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_products.html" import device_options %}
 
 {% block title %}{{ bom.label }} &middot; {{ provider_name }}{% endblock %}
 
@@ -14,6 +15,14 @@
       Uploaded {{ bom.uploaded_at | day }}{% if bom.uploaded_by %} by {{ bom.uploaded_by }}{% endif %}
       {%- if bom.filename %} &middot; <span class="mono">{{ bom.filename }}</span>{% endif %}
     </p>
+    {% if device %}
+      <p class="byline">
+        Device
+        <a href="{{ root_path }}/products#device-{{ family.id }}-{{ device.id }}">{{ family.name }} &middot; {{ device.name }}</a>
+      </p>
+    {% elif bom.device %}
+      <p class="byline muted">Made for {{ bom.device }}, which is no longer in the products.</p>
+    {% endif %}
     {% if bom.note %}<p class="subtitle">{{ bom.note }}</p>{% endif %}
   </header>
 
@@ -50,6 +59,22 @@
     {% endif %}
   </div>
   <div id="delete-result" aria-live="polite"></div>
+
+  {# Anyone who can upload a BOM can say what it is the BOM of. #}
+  {% if products %}
+    <form class="form" id="device-form" data-bom-id="{{ bom.id }}" novalidate>
+      <div class="field">
+        <label for="bom-device">Device</label>
+        <span class="select select--field">
+          <select id="bom-device">{{ device_options(products, bom.device) }}</select>
+        </span>
+      </div>
+      <div class="field field--action">
+        <button type="submit" class="button" id="device-save">Save</button>
+      </div>
+    </form>
+    <div id="device-result" aria-live="polite"></div>
+  {% endif %}
 
   {# Every line is looked up in the library as it stands now, not as it stood
      when the BOM was uploaded: that is the point of keeping it here. #}

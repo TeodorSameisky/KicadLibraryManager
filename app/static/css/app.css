@@ -854,3 +854,33 @@ a.figure:hover .figure__label { text-decoration: underline; }
   .issue-group .table td { display: block; width: auto; }
   .issue-group .table td.issue__path { padding-top: 0; border-top: 0; }
 }
+
+/* ====================================================== 9. Products page */
+
+.filter { margin-top: 1.25rem; }
+
+.family { border-bottom: 1px solid var(--rule); }
+.family:first-of-type { border-top: 1px solid var(--rule); }
+
+.family__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  padding: 0.625rem 0;
+  list-style: none;
+  cursor: pointer;
+}
+
+.family__head::-webkit-details-marker { display: none; }
+.family__head:hover { background: var(--paper-2); }
+
+/* The marker the browser would have drawn, as plain as the rest. */
+.family__name::before { content: "+"; display: inline-block; width: 1.25rem; color: var(--ink-3); font-weight: 400; }
+.family[open] > .family__head .family__name::before { content: "\2212"; }
+
+.family__body { padding: 0 0 0.75rem 1.25rem; }
+.family__about { margin: 0 0 0.5rem; max-width: 44rem; color: var(--ink-2); }
+
+.table--devices { margin-top: 0.25rem; }
+.repo { overflow-wrap: anywhere; }

@@ -1,0 +1,13 @@
+{# The devices of the product tree, as the options of a select. #}
+{% macro device_options(products, selected="") %}
+  <option value="">Not for a device</option>
+  {% for family in products.families %}
+    {% if family.devices %}
+      <optgroup label="{{ family.name }}">
+        {% for device in family.devices %}
+          <option value="{{ device.key }}"{% if device.key == selected %} selected{% endif %}>{{ device.name }}</option>
+        {% endfor %}
+      </optgroup>
+    {% endif %}
+  {% endfor %}
+{% endmacro %}

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS boms (
     uploaded_at REAL NOT NULL,
     uploaded_by TEXT NOT NULL DEFAULT '',
     source      TEXT NOT NULL,
+    device      TEXT NOT NULL DEFAULT '',
     UNIQUE (project, revision)
 );
 
@@ -52,9 +53,13 @@ CREATE TABLE IF NOT EXISTS bom_lines (
 CREATE INDEX IF NOT EXISTS bom_lines_by_ipn ON bom_lines (ipn);
 """
 
+# Added after the first BOMs were stored. A file made before this has no such
+# column, and `CREATE TABLE IF NOT EXISTS` leaves it that way.
+_ADDED_COLUMNS = (("boms", "device", "TEXT NOT NULL DEFAULT ''"),)
+
 # The same columns wherever a BOM is listed, with its totals worked out.
 _SUMMARY = """
-SELECT b.id, b.project, b.revision, b.filename, b.note, b.uploaded_at, b.uploaded_by,
+SELECT b.id, b.project, b.revision, b.filename, b.note, b.uploaded_at, b.uploaded_by, b.device,
        COUNT(l.position) AS line_count,
        COALESCE(SUM(CASE WHEN l.dnp THEN 0 ELSE l.quantity END), 0) AS component_count
 FROM boms b LEFT JOIN bom_lines l ON l.bom_id = b.id
@@ -84,6 +89,10 @@ class Bom:
     uploaded_by: str
     line_count: int
     component_count: int  # fitted; DNP lines are not counted
+    # The device this is the BOM of, as "family/device" -- or "" when it was
+    # never attached to one. What the product tree says about the key is not
+    # kept here: the tree is in git and can change under a stored BOM.
+    device: str = ""
     lines: tuple[BomLine, ...] = ()  # only filled in by `get`
 
     @property
@@ -131,6 +140,13 @@ class BomStore:
                     # block them.
                     connection.execute("PRAGMA journal_mode = WAL")
                     connection.executescript(_SCHEMA)
+                    for table, column, definition in _ADDED_COLUMNS:
+                        info = connection.execute(f"PRAGMA table_info({table})")
+                        have = {row["name"] for row in info}
+                        if column not in have:
+                            connection.execute(
+                                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                            )
                     self._prepared = True
             with connection:  # one transaction: commits, or rolls back on error
                 yield connection
@@ -160,6 +176,7 @@ class BomStore:
         note: str = "",
         uploaded_by: str = "",
         source: str = "",
+        device: str = "",
         replace_existing: bool = False,
     ) -> Bom:
         """Keep a BOM. One per project and revision.
@@ -179,8 +196,8 @@ class BomStore:
 
             cursor = connection.execute(
                 "INSERT INTO boms (project, revision, filename, note, uploaded_at, uploaded_by,"
-                " source) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (project, revision, filename, note, time.time(), uploaded_by, source),
+                " source, device) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (project, revision, filename, note, time.time(), uploaded_by, source, device),
             )
             bom_id = cursor.lastrowid
             connection.executemany(
@@ -204,6 +221,16 @@ class BomStore:
                 _SUMMARY + " WHERE b.id = ? GROUP BY b.id", (bom_id,)
             ).fetchone()
         return replace(_bom(row), lines=parsed.lines)
+
+    def attach(self, bom_id: int, device: str) -> bool:
+        """Say which device a BOM belongs to, or "" for none. False if there is no such BOM."""
+        with self._connect() as connection:
+            return (
+                connection.execute(
+                    "UPDATE boms SET device = ? WHERE id = ?", (device, bom_id)
+                ).rowcount
+                > 0
+            )
 
     def delete(self, bom_id: int) -> bool:
         with self._connect() as connection:

@@ -22,6 +22,7 @@
   const form = document.getElementById("upload");
   if (form) {
     const file = document.getElementById("bom-file");
+    const device = document.getElementById("bom-device");
     const project = document.getElementById("bom-project");
     const revision = document.getElementById("bom-revision");
     const note = document.getElementById("bom-note");
@@ -39,6 +40,19 @@
         .replace(/[-_ ]?bom$/i, "");
     });
 
+    /* A BOM for a device is, in the way people name them, a project called
+       after it. So choosing one fills the project in -- unless something else
+       was typed there, which stays. */
+    let suggested = "";
+    if (device) {
+      device.addEventListener("change", () => {
+        if (project.value.trim() && project.value !== suggested) return;
+        const chosen = device.selectedOptions[0];
+        suggested = device.value ? chosen.textContent.trim() : "";
+        project.value = suggested;
+      });
+    }
+
     async function upload(replace) {
       const chosen = file.files[0];
       if (!chosen) return notice(result, "bad", "Choose the BOM file to upload.");
@@ -52,6 +66,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             project: project.value,
+            device: device ? device.value : "",
             revision: revision.value,
             note: note.value,
             filename: chosen.name,
@@ -82,6 +97,32 @@
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       upload(false);
+    });
+  }
+
+  // --------------------------------------------------------------- device
+
+  const attach = document.getElementById("device-form");
+  if (attach) {
+    const choice = document.getElementById("bom-device");
+    const save = document.getElementById("device-save");
+    const result = document.getElementById("device-result");
+
+    attach.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      save.disabled = true;
+      try {
+        await api(`/api/v1/boms/${attach.dataset.bomId}/device`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device: choice.value }),
+        });
+        // Reloaded rather than patched, so the page says what is now stored.
+        window.location.reload();
+      } catch (error) {
+        notice(result, "bad", error.message);
+        save.disabled = false;
+      }
     });
   }
 

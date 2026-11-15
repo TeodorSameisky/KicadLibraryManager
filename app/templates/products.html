@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}Products &middot; {{ provider_name }}{% endblock %}
+
+{% macro repository(text, url, what) %}
+  {%- if url -%}
+    <a href="{{ url }}" target="_blank" rel="noopener noreferrer" data-external="{{ what }}"
+       class="repo">{{ url | replace("https://", "") | replace("http://", "") | trim("/") }}</a>
+  {%- else -%}
+    <span class="repo">{{ text }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+{% block content %}
+  <header class="masthead">
+    <div class="masthead__title">
+      <h1>Products</h1>
+      {% with here = "Products" %}{% include "_nav.html" %}{% endwith %}
+    </div>
+  </header>
+
+  <p class="lede">
+    Each product family, the devices in it, the repository each device is
+    designed in, and the BOMs that have been uploaded for it.
+  </p>
+
+  {% if problem %}
+    <div class="notice">
+      <p class="notice__title">BOMs cannot be read right now</p>
+      <p>The products are shown without them. The server's log says why.</p>
+    </div>
+  {% endif %}
+
+  {% if tree.empty %}
+    <div class="notice">
+      <p class="notice__title">No products are written down yet</p>
+      <p>
+        A product family is a file in the library's repository, such as
+        <span class="mono">products/akd.yaml</span>: a name, an optional
+        repository and tags, and the devices in it, each with its own
+        repository. The README shows one.
+      </p>
+    </div>
+  {% else %}
+    <form class="form filter" id="product-filter" role="search" novalidate>
+      <div class="field">
+        <label for="product-search">Search</label>
+        <input type="text" id="product-search" autocomplete="off"
+               placeholder="Family, device, tag or BOM revision" />
+      </div>
+      {% if tree.tags %}
+        <div class="field field--short">
+          <label for="product-tag">Tag</label>
+          <span class="select select--field">
+            <select id="product-tag">
+              <option value="">All</option>
+              {% for tag in tree.tags %}<option value="{{ tag | lower }}">{{ tag }}</option>{% endfor %}
+            </select>
+          </span>
+        </div>
+      {% endif %}
+    </form>
+    <p class="small muted" id="product-count" aria-live="polite">
+      {{ tree.device_count }} device{{ "" if tree.device_count == 1 else "s" }}
+      in {{ tree.families | length }} famil{{ "y" if tree.families | length == 1 else "ies" }}
+    </p>
+
+    <div id="products" data-total="{{ tree.device_count }}">
+      {% for node in tree.families %}
+        {% set family = node.family %}
+        <details class="family" data-family{% if tree.device_count <= 30 %} open{% endif %}>
+          <summary class="family__head">
+            <strong class="family__name">{{ family.name }}</strong>
+            <span class="muted small">
+              {{ node.devices | length }} device{{ "" if node.devices | length == 1 else "s" }}
+              {%- if family.tags %} &middot; {{ family.tags | join(", ") }}{% endif %}
+            </span>
+          </summary>
+
+          <div class="family__body">
+            {% if family.description %}<p class="family__about">{{ family.description }}</p>{% endif %}
+            {% if family.repository %}
+              <p class="small family__about">
+                <span class="muted">Family repository</span>
+                {{ repository(family.repository, family.repository_url, "The repository") }}
+              </p>
+            {% endif %}
+
+            {% if node.devices %}
+              <div class="table-scroll">
+                <table class="table table--devices">
+                  <thead>
+                    <tr>
+                      <th scope="col">Device</th>
+                      <th scope="col">Tags</th>
+                      <th scope="col">Repository</th>
+                      <th scope="col">BOM revisions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for entry in node.devices %}
+                      {% set device = entry.device %}
+                      {% set every_tag = family.tags + device.tags %}
+                      {# Everything a search is matched against, and the tags the
+                         family gives all its devices along with the device's own. #}
+                      <tr class="device" id="device-{{ family.id }}-{{ device.id }}"
+                          data-tags="{{ every_tag | join('|') | lower }}"
+                          data-search="{{ [family.name, family.id, family.description, device.name, device.id, device.description, every_tag | join(' '), entry.boms | map(attribute='revision') | join(' ')] | join(' ') | lower }}">
+                        <td>
+                          <strong>{{ device.name }}</strong>
+                          {% if device.description %}<div class="muted small">{{ device.description }}</div>{% endif %}
+                        </td>
+                        <td class="muted">{{ device.tags | join(", ") or "—" }}</td>
+                        <td>
+                          {% if device.repository %}
+                            {{ repository(device.repository, device.repository_url, "The repository") }}
+                          {% elif family.repository %}
+                            <span class="muted">the family's</span>
+                          {% else %}
+                            <span class="muted">—</span>
+                          {% endif %}
+                        </td>
+                        <td>
+                          {% for bom in entry.boms %}
+                            <a href="{{ root_path }}/boms/{{ bom.id }}"
+                               title="{{ bom.project }}, uploaded {{ bom.uploaded_at | day }}{% if bom.uploaded_by %} by {{ bom.uploaded_by }}{% endif %}">
+                              {{- bom.revision or "no revision" -}}
+                            </a>{% if not loop.last %}<span class="muted"> &middot; </span>{% endif %}
+                          {% else %}
+                            <span class="muted">none yet</span>
+                          {% endfor %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <p class="muted small family__about">No devices are listed in this family yet.</p>
+            {% endif %}
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+    <p class="muted" id="product-none" hidden>Nothing matches.</p>
+  {% endif %}
+
+  {% if tree.unassigned %}
+    <h2 class="section">Not on a device</h2>
+    <p class="small muted">
+      These BOMs were uploaded for no device, or for one that is no longer in the
+      products. Open one to say which device it belongs to.
+    </p>
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Project</th>
+            <th scope="col">Revision</th>
+            <th scope="col">Uploaded</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for bom in tree.unassigned %}
+            <tr>
+              <td><a href="{{ root_path }}/boms/{{ bom.id }}"><strong>{{ bom.project }}</strong></a></td>
+              <td>{{ bom.revision or "—" }}</td>
+              <td>
+                {{ bom.uploaded_at | day }}
+                {% if bom.uploaded_by %}<span class="muted">by {{ bom.uploaded_by }}</span>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ root_path }}/static/js/products.js"></script>
+{% endblock %}

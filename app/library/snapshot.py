@@ -16,6 +16,7 @@ from app.library.assets import index_repository
 from app.library.catalog import Catalog, asset_issues, part_issues
 from app.library.issues import Issue, Severity, errors, warnings
 from app.library.parts import PART_STATUSES, Mpn, Part, PartsIndex, has_parts, load_parts
+from app.library.products import Products, load_products
 from app.library.sources import Checkout, Source
 
 
@@ -52,6 +53,8 @@ class Facet:
 class Snapshot:
     catalog: Catalog = field(default_factory=Catalog)
     parts: PartsIndex = field(default_factory=PartsIndex)
+    # The product families, read from the same repository as the parts.
+    products: Products = field(default_factory=Products)
     sources: tuple[SourceStatus, ...] = ()
     issues: tuple[Issue, ...] = ()
     # The source the parts were read from, and so the one a new part goes to.
@@ -182,6 +185,7 @@ def build_snapshot(outcomes: Sequence[Checkout | SyncFailure]) -> Snapshot:
 
     issues = asset_issues(catalog)
     parts = PartsIndex()
+    products = Products()
     parts_source = None
 
     # IPNs are one numbering scheme, so they come from one repository: the
@@ -192,6 +196,8 @@ def build_snapshot(outcomes: Sequence[Checkout | SyncFailure]) -> Snapshot:
         parts_source = provider.id
         parts = load_parts(providers[0].path)
         issues.extend(part_issues(parts, catalog, provider.id))
+        products, product_issues = load_products(providers[0].path)
+        issues.extend(issue.from_source(provider.id) for issue in product_issues)
 
         statuses[provider.id] = replace(statuses[provider.id], parts=len(parts.parts))
         for ignored in providers[1:]:
@@ -211,6 +217,7 @@ def build_snapshot(outcomes: Sequence[Checkout | SyncFailure]) -> Snapshot:
     return Snapshot(
         catalog=catalog,
         parts=parts,
+        products=products,
         sources=tuple(statuses[outcome.source.id] for outcome in outcomes),
         issues=tuple(issues),
         parts_source=parts_source,

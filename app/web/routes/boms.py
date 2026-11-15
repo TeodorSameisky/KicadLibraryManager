@@ -56,6 +56,14 @@ def _require_report(
     return build_report(bom, snapshot)
 
 
+def _require_device(key: str, snapshot: Snapshot) -> str:
+    """A device key that is in the product tree, or "" for none."""
+    key = key.strip()
+    if key and snapshot.products.device(key) is None:
+        raise HTTPException(status_code=422, detail=f"There is no device {key!r} in the products.")
+    return key
+
+
 # -- as JSON ----------------------------------------------------------------
 
 
@@ -68,6 +76,7 @@ def _summary(bom: Bom) -> dict[str, Any]:
         "note": bom.note,
         "uploaded_at": bom.uploaded_at,
         "uploaded_by": bom.uploaded_by,
+        "device": bom.device,
         "lines": bom.line_count,
         "components": bom.component_count,
     }
@@ -94,6 +103,9 @@ class Upload(BaseModel):
     note: str = Field("", max_length=2000)
     filename: str = Field("", max_length=255)
     content: str = Field(min_length=1, max_length=MAX_BOM_CHARACTERS)
+    # The device this is the BOM of, as "family/device" in the product tree;
+    # empty when it is not for one of them.
+    device: str = Field("", max_length=200)
     # Uploading a project's revision a second time replaces the first only
     # when this is set: overwriting a record should be chosen, not stumbled into.
     replace: bool = False
@@ -111,8 +123,10 @@ def list_boms(boms: BomStore = Depends(get_boms)) -> dict[str, Any]:
 def upload_bom(
     upload: Upload,
     boms: BomStore = Depends(get_boms),
+    snapshot: Snapshot = Depends(get_snapshot),
     session: Session | None = Depends(require_access),
 ) -> Any:
+    device = _require_device(upload.device, snapshot)
     project, revision = " ".join(upload.project.split()), " ".join(upload.revision.split())
     if not project:
         raise HTTPException(status_code=422, detail="The project needs a name.")
@@ -131,6 +145,7 @@ def upload_bom(
             note=upload.note.strip(),
             uploaded_by=session.display_name if session else "",
             source=upload.content,
+            device=device,
             replace_existing=upload.replace,
         )
     except BomExists as exc:
@@ -145,6 +160,26 @@ def upload_bom(
         raise _unavailable(exc) from exc
 
     return {**_summary(bom), "warnings": list(parsed.warnings)}
+
+
+class DeviceChoice(BaseModel):
+    device: str = Field("", max_length=200)
+
+
+@api.put("/boms/{bom_id}/device")
+def attach_bom(
+    choice: DeviceChoice,
+    bom: Bom = Depends(_require_bom),
+    boms: BomStore = Depends(get_boms),
+    snapshot: Snapshot = Depends(get_snapshot),
+) -> dict[str, Any]:
+    """Say which device a stored BOM is the BOM of, or take it off one."""
+    device = _require_device(choice.device, snapshot)
+    try:
+        boms.attach(bom.id, device)
+    except StoreUnavailable as exc:
+        raise _unavailable(exc) from exc
+    return {"id": bom.id, "device": device}
 
 
 @api.get("/boms/{bom_id}")
@@ -230,17 +265,34 @@ def where_used(
 
 
 @pages.get("/boms")
-def boms_page(request: Request, boms: BomStore = Depends(get_boms)) -> Response:
+def boms_page(
+    request: Request,
+    boms: BomStore = Depends(get_boms),
+    snapshot: Snapshot = Depends(get_snapshot),
+) -> Response:
     try:
         stored, problem = boms.list(), None
     except StoreUnavailable as exc:
         stored, problem = [], str(exc)
-    return render(request, "boms.html", boms=stored, problem=problem)
+    return render(request, "boms.html", boms=stored, problem=problem, products=snapshot.products)
 
 
 @pages.get("/boms/{bom_id}")
-def bom_page(request: Request, report: BomReport = Depends(_require_report)) -> Response:
-    return render(request, "bom.html", bom=report.bom, report=report)
+def bom_page(
+    request: Request,
+    report: BomReport = Depends(_require_report),
+    snapshot: Snapshot = Depends(get_snapshot),
+) -> Response:
+    products = snapshot.products
+    return render(
+        request,
+        "bom.html",
+        bom=report.bom,
+        report=report,
+        products=products,
+        device=products.device(report.bom.device),
+        family=products.family(report.bom.device.partition("/")[0]),
+    )
 
 
 # Everything here reads or writes what the library's users have built, so one

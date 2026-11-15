@@ -1,6 +1,6 @@
 {# The sections of the app. `here` names the one being shown. #}
 <nav class="nav" aria-label="Sections">
-  {% for name, path in (("Catalog", "/panel"), ("BOMs", "/boms"), ("Issues", "/issues")) %}
+  {% for name, path in (("Catalog", "/panel"), ("Products", "/products"), ("BOMs", "/boms"), ("Issues", "/issues")) %}
     <a href="{{ root_path }}{{ path }}"{% if here == name %} aria-current="page"{% endif %}>{{ name }}</a>
   {% endfor %}
   {# Offered only where the app can write to the library's repository. #}

@@ -84,6 +84,7 @@ in another.
 ```
 categories.yaml                              the category codes an IPN may start with
 templates/<category>.yaml                    the fields a part in that category carries
+products/<family>.yaml                       a product family and the devices in it
 parts/<category>/<IPN>.yaml                  an internal part: 1102-0001
 mpns/<MPN>.yaml                              a manufacturer part
 symbols/<Library>.kicad_symdir/<Name>.kicad_sym
@@ -363,6 +364,52 @@ part can be changed or retired.
 One BOM is kept per project and revision. Uploading the same revision again
 replaces it, after asking.
 
+### Products
+
+A company makes families of products, and each family is several devices: an
+AKD servo drive in MV and HV versions of 3, 6 and 12 A is six devices, each
+designed in a repository of its own. `/products` shows that as a tree, with
+each device's repository linked and the BOM revisions uploaded for it. A
+family is a file in the library's repository, so it is reviewed and has a
+history like a part does:
+
+```yaml
+# products/akd.yaml     the file's name is the family's id
+name: AKD Servodrive
+description: Digital servo drives
+repository: https://github.com/acme/akd       # optional: what the whole family shares
+tags: [servo, drive]                          # optional
+devices:
+  - id: mv-3                                  # unique within the family
+    name: AKD MV 3
+    repository: https://github.com/acme/akd-mv-3
+    tags: [mv, 3A]
+  - id: hv-6
+    name: AKD HV 6
+    tags: [hv, 6A]
+```
+
+A device is named by its family and id, `akd/mv-3`. The same id may be used in
+another family. Devices are independent: each has its own BOM, and nothing is
+shared between the MV and HV versions of a drive.
+
+**Attaching BOMs.** Upload form: choose the device, and the project is filled
+in with its name unless something else was typed. A BOM already stored is
+attached, or moved, on its own page. Anyone who may upload may do this; the
+BOMs are not changed by it. A BOM on no device, or on one that has since been
+taken out of the files, is listed under *Not on a device*, not lost.
+
+**Searching.** The page has a search box and a tag filter. A family's tags
+count for each of its devices, tags that differ only in case are one tag, and
+the search looks at names, descriptions, tags and BOM revisions.
+
+A repository that is not a web address is shown as text and reported on the
+issues page, and is not linked. Mistakes in a file are issues like any other
+in the library; the other families still load.
+
+Defining products is, for now, editing these files; there is no form for it
+yet.
+
 ### Where BOMs are kept
 
 The library is in git because it is authored and reviewed. BOMs are records of
@@ -601,13 +648,16 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/templates`, `/templates/{category}/edit` | Listing and editing templates; librarians | |
 | `POST /api/v1/library/refresh` | Fetch the sources now and index what changed; librarians | |
 | `POST /api/v1/library/webhook` | The same, for the git host; let in by its signature | ✓ |
-| `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, replace}` | |
+| `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, device, replace}` | |
 | `/api/v1/boms/{id}` | `GET` a BOM against the library; `DELETE` it (librarians) | |
 | `/api/v1/boms/{id}/export.csv`, `/source.csv` | The BOM with library columns added; the file as uploaded | |
+| `PUT /api/v1/boms/{id}/device` | Say which device a stored BOM is the BOM of: `{device: "akd/mv-3"}`, or `""` for none | |
+| `/api/v1/products` | The product tree, each device with its BOMs, and those on none | |
 | `/api/v1/parts/{ipn}/where-used` | The stored BOMs a part is on | |
 | `/ipn/{ipn}` | The part's page; where `Datasheet` points | |
 | `/ipn/{ipn}/history`, `/api/v1/parts/{ipn}/history` | What was changed in the part, by whom, and when | |
 | `/boms`, `/boms/{id}` | Uploading BOMs; one BOM against the library | |
+| `/products` | Families, devices, their repositories and BOMs; searchable | |
 | `/issues` | The issue list | |
 | `/docs` | Interactive API reference | ✓ |
 
