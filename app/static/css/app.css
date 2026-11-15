@@ -636,19 +636,31 @@ a.masthead__status { text-decoration: underline; }
 .byline { margin-top: 0.125rem; color: var(--ink-2); font-size: var(--size-s); }
 .byline .button { margin: 0 0.5rem; }
 
-/* The drawings, side by side on one sheet. The gaps between the cells show
-   the sheet's own colour, which is what draws the rules -- so they come out
-   right however the cells wrap. */
+/* The drawings, side by side on one sheet. They wrap when the page is narrow,
+   and each takes its share of the row it ends up on, so a cell left alone on
+   the last row spans it and nothing is left over. The rules are the cells' own
+   -- the sheet has the top and left edge, each cell the right and bottom --
+   because rules drawn by the sheet behind the cells show up as a block of its
+   colour wherever there is no cell. */
 .sheet {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 1px;
+  display: flex;
+  flex-wrap: wrap;
   margin-top: 1.25rem;
-  border: 1px solid var(--rule-2);
-  background: var(--rule-2);
+  border-top: 1px solid var(--rule-2);
+  border-left: 1px solid var(--rule-2);
 }
 
-.sheet__cell { display: flex; flex-direction: column; min-height: 13rem; margin: 0; background: var(--paper); }
+.sheet__cell {
+  flex: 1 1 11rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 13rem;
+  margin: 0;
+  border-right: 1px solid var(--rule-2);
+  border-bottom: 1px solid var(--rule-2);
+  background: var(--paper);
+}
 
 .sheet__cell figcaption {
   display: flex;
@@ -692,6 +704,8 @@ a.masthead__status { text-decoration: underline; }
      vanishes on a light one. */
   background: #7c8086;
   touch-action: none; /* the canvas handles its own drag */
+  min-width: 0;
+  overflow: hidden; /* a canvas sized for a wider cell must not stretch this one */
 }
 
 .model canvas { display: block; cursor: grab; }
