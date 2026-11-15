@@ -52,7 +52,6 @@ def test_a_part_page_keeps_place_and_hides_what_leads_to_a_browser_s_work(serve)
     assert "web-only" in tag("/edit")
     assert "web-only" in tag('data-set-status="obsolete"')
     assert "web-only" in tag('id="status-result"')
-    assert '<div class="web-only">\n    <h2 class="section">Where used</h2>' in html
 
 
 def test_the_parts_themselves_are_not_hidden(library_client):
@@ -62,3 +61,48 @@ def test_the_parts_themselves_are_not_hidden(library_client):
 
     for shown in ("Properties", "Approved sources", "Tolerance"):
         assert shown in visible
+
+
+# -- where used stays, without links the panel cannot follow ----------------------
+
+
+def used_on_a_bom(client):
+    from tests.test_boms import KICAD_DEFAULT
+
+    client.post(
+        "/api/v1/boms",
+        json={"project": "Amplifier", "revision": "A", "content": KICAD_DEFAULT},
+    )
+    return client.get("/ipn/1102-0001").text
+
+
+def test_where_used_is_shown_in_the_panel(library_client):
+    html = used_on_a_bom(library_client)
+    section = html.split("Where used", 1)[1].split("</table>", 1)[0]
+
+    assert "Where used" in html
+    heading = html.split("Where used", 1)[0].rsplit("<h2", 1)[1]
+    assert "web-only" not in heading, "the heading is not hidden"
+    assert "Amplifier" in section and "Qty" in section
+
+
+def test_each_project_is_a_link_in_a_browser_and_only_a_name_in_the_panel(library_client):
+    html = used_on_a_bom(library_client)
+    cell = html.split("Where used", 1)[1].split("<td>", 1)[1].split("</td>", 1)[0]
+
+    assert re.search(r'<a class="web-only" href="/boms/\d+"><strong>Amplifier</strong></a>', cell)
+    assert '<strong class="kicad-only">Amplifier</strong>' in cell
+
+
+def test_the_invitation_to_upload_a_bom_is_web_only(library_client):
+    html = library_client.get("/ipn/1102-0001").text
+    note = html.split("Not on any stored BOM.", 1)[1].split("</p>", 1)[0]
+
+    assert 'class="web-only"' in note and "/boms" in note
+
+
+def test_the_panel_only_style_is_the_opposite_of_the_web_only_one(library_client):
+    css = library_client.get("/static/css/app.css").text
+
+    assert ".kicad-only { display: none; }" in css
+    assert ".in-kicad .kicad-only { display: inline; }" in css

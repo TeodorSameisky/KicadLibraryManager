@@ -86,6 +86,10 @@ a:hover { text-decoration-color: currentColor; }
    is not offered: the panel has no way back from a page like that. */
 .in-kicad .web-only { display: none !important; }
 
+/* The other way round: what only the panel shows, in place of a link it cannot follow. */
+.kicad-only { display: none; }
+.in-kicad .kicad-only { display: inline; }
+
 :where(a, button, input, select, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
