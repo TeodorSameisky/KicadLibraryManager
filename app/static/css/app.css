@@ -203,10 +203,6 @@ a.masthead__status { text-decoration: underline; }
 .button:hover:not(:disabled) { border-color: var(--ink); }
 .button:disabled { color: var(--ink-3); cursor: default; }
 
-.button--primary { border-color: var(--ink); background: var(--ink); color: var(--paper); }
-.button--primary:hover:not(:disabled) { background: var(--ink-2); border-color: var(--ink-2); }
-.button--primary:disabled { border-color: var(--ink-3); background: var(--ink-3); color: var(--paper); }
-
 /* For the one action on a page that destroys something. */
 .button--danger { color: var(--bad); }
 .button--danger:hover:not(:disabled) { border-color: var(--bad); }

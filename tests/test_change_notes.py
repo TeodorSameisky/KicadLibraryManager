@@ -286,3 +286,12 @@ def test_the_status_buttons_are_plain_buttons_that_follow_the_theme(serve):  # n
 
     script = librarian.get("/static/js/part-form.js").text
     assert "button--primary" not in script, "nor the confirmation that follows"
+
+
+@pytest.mark.parametrize("path", ["/boms", "/parts/new", "/templates/1102/edit", "/ipn/1102-0002"])
+def test_no_button_anywhere_swaps_the_page_s_colours(serve, path):  # noqa: F811
+    librarian = sign_in_librarian(serve())
+    librarian.post("/api/v1/parts", json=REQUEST)
+
+    assert "button--primary" not in librarian.get(path).text
+    assert "button--primary" not in librarian.get("/static/css/app.css").text
