@@ -34,6 +34,33 @@ class NothingToPublish(PublishError):
     """The change left every file as it was."""
 
 
+def _why_refused(error: SourceError) -> str:
+    """What to tell the person whose change was not pushed.
+
+    Git's last line only says that it failed. What the git host said -- the
+    lines it prefixes with "remote:" -- is the part that says why, and what an
+    HTTP status means for a token is worth spelling out, because the status
+    alone sends people looking in the wrong place.
+    """
+    said = [
+        line.removeprefix("remote:").strip()
+        for line in error.output.splitlines()
+        if line.startswith("remote:") and line.removeprefix("remote:").strip()
+    ]
+    reason = f"{error} ({' '.join(said)})" if said else str(error)
+
+    if "error: 403" in error.output:
+        # The host knew the token and refused the push: a matter of what the
+        # token is allowed to do, not of whether it is right.
+        return (
+            f"{reason}. The token was recognised but may not push to this repository: "
+            "it needs write access to the repository's contents"
+        )
+    if "error: 401" in error.output or "Authentication failed" in error.output:
+        return f"{reason}. The token was not accepted: it may be mistyped, expired or revoked"
+    return reason
+
+
 @dataclass(frozen=True)
 class Identity:
     name: str
@@ -100,7 +127,7 @@ class Publisher:
                 said = exc.output.lower()
                 if "[rejected]" in said or "fetch first" in said or "non-fast-forward" in said:
                     raise PushRejected("the repository changed while this was being saved") from exc
-                raise PublishError(str(exc)) from exc
+                raise PublishError(_why_refused(exc)) from exc
 
             return _git("rev-parse", "HEAD", cwd=checkout)
         except SourceError as exc:

@@ -543,3 +543,45 @@ def test_with_sign_in_off_changes_are_made_in_nobody_s_name(serve, repository):
         == 200
     )
     assert repository.last("%an <%ae>") == "Someone <nobody@users.noreply.library.example.com>"
+
+
+# -- when the git host says no ----------------------------------------------
+
+
+def refusal(output):
+    from app.library.publish import _why_refused
+    from app.library.sources import SourceError
+
+    error = SourceError("git push failed: " + output.strip().splitlines()[-1])
+    error.output = output
+    return _why_refused(error)
+
+
+def test_a_403_says_the_token_may_not_write():
+    """The status alone sends people to check whether the token is right. It
+    is: what it lacks is permission."""
+    told = refusal(
+        "remote: Permission to acme/library.git denied to ada.\n"
+        'fatal: unable to access "https://github.com/acme/library.git/": '
+        "The requested URL returned error: 403\n"
+    )
+
+    assert "Permission to acme/library.git denied to ada." in told, "what the host itself said"
+    assert "recognised but may not push" in told
+    assert "write access to the repository" in told
+
+
+def test_a_401_says_the_token_was_not_accepted():
+    told = refusal(
+        "remote: Invalid username or password.\n"
+        'fatal: Authentication failed for "https://github.com/acme/library.git/"\n'
+    )
+
+    assert "Invalid username or password." in told
+    assert "mistyped, expired or revoked" in told
+
+
+def test_any_other_failure_is_passed_on_as_git_put_it():
+    assert refusal("fatal: unable to access: Could not resolve host: github.com\n") == (
+        "git push failed: fatal: unable to access: Could not resolve host: github.com"
+    )
