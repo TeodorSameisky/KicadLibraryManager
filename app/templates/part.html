@@ -57,6 +57,11 @@
         {% else %}
           <button type="button" class="button web-only" data-set-status="approved" data-ipn="{{ part.ipn }}">Reinstate</button>
         {% endif %}
+        {# Back to being worked on, from approved or retired: a part found to be
+           wrong after approval is not retired, it is reopened. #}
+        {% if part.status != "draft" %}
+          <button type="button" class="button web-only" data-set-status="draft" data-ipn="{{ part.ipn }}">Return to draft</button>
+        {% endif %}
       {% endif %}
     {% endif %}
   </div>

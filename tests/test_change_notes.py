@@ -4,6 +4,8 @@ The subject of a commit is written by the app -- "Request 1102-0002: ...". What
 the person adds goes under it, so the history says why as well as what.
 """
 
+import re
+
 import pytest
 
 from app.library.editing import MAX_NOTE, with_note
@@ -207,3 +209,64 @@ def test_approving_asks_for_a_reason_first(web):  # noqa: F811
 
     assert "Say why, if you like." in script
     assert "note: note.value" in script
+
+
+# -- returning a part to draft ------------------------------------------------------
+
+
+def draft_button(html):
+    return 'data-set-status="draft"' in html
+
+
+def test_a_librarian_can_return_an_approved_or_retired_part_to_draft(serve, repository):  # noqa: F811
+    librarian = sign_in_librarian(serve())
+    librarian.post("/api/v1/parts", json=REQUEST)
+    librarian.post("/api/v1/parts/1102-0002/status", json={"status": "approved"})
+
+    back = librarian.post(
+        "/api/v1/parts/1102-0002/status", json={"status": "draft", "note": "Wrong footprint"}
+    )
+
+    assert back.json() == {"ipn": "1102-0002", "status": "draft"}
+    assert message(repository) == (
+        "Return to draft 1102-0002: Resistor 330R 1% 0.1W 0603\n\nWrong footprint"
+    )
+
+    librarian.post("/api/v1/parts/1102-0002/status", json={"status": "obsolete"})
+    assert (
+        librarian.post("/api/v1/parts/1102-0002/status", json={"status": "draft"}).status_code
+        == 200
+    )
+
+
+def test_the_part_page_offers_return_to_draft_to_a_librarian_when_it_is_not_one(serve):  # noqa: F811
+    librarian = sign_in_librarian(serve())
+    librarian.post("/api/v1/parts", json=REQUEST)
+
+    assert not draft_button(librarian.get("/ipn/1102-0002").text), "it is a draft already"
+
+    librarian.post("/api/v1/parts/1102-0002/status", json={"status": "approved"})
+    approved = librarian.get("/ipn/1102-0002").text
+    assert draft_button(approved) and "Return to draft" in approved
+    assert 'data-set-status="obsolete"' in approved, "alongside Retire"
+
+    librarian.post("/api/v1/parts/1102-0002/status", json={"status": "obsolete"})
+    retired = librarian.get("/ipn/1102-0002").text
+    assert draft_button(retired) and 'data-set-status="approved"' in retired, "with Reinstate"
+
+
+def test_a_designer_is_not_offered_it(web):  # noqa: F811
+    web.post("/api/v1/parts", json=REQUEST)
+
+    assert not draft_button(web.get("/ipn/1102-0002").text)
+    assert not draft_button(web.get("/ipn/1102-0001").text), "not on an approved part either"
+    refused = web.post("/api/v1/parts/1102-0001/status", json={"status": "draft"})
+    assert refused.status_code == 403
+
+
+def test_the_button_is_for_a_browser_not_the_panel(serve):  # noqa: F811
+    librarian = sign_in_librarian(serve())
+    html = librarian.get("/ipn/1102-0001").text
+
+    (button,) = [t for t in re.findall(r"<button\b[^>]*>", html) if 'data-set-status="draft"' in t]
+    assert "web-only" in button
