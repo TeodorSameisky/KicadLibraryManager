@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import datasheet_icon %}
 
 {# An approved part is the ordinary case and is tagged quietly; the other two
    are what a reader needs to notice. #}
@@ -95,7 +96,9 @@
             <th scope="col">Manufacturer part</th>
             <th scope="col">Manufacturer</th>
             <th scope="col">Lifecycle</th>
-            <th scope="col">Datasheet</th>
+            {# The word is for screen readers; each row has an icon, which a heading
+               over it would only repeat in a column wider than the icon needs. #}
+            <th scope="col" class="icon-col"><span class="visually-hidden">Datasheet</span></th>
           </tr>
         </thead>
         <tbody>
@@ -117,13 +120,18 @@
                   </span>
                 {% endif %}
               </td>
-              <td>
+              <td class="icon-col">
                 {# Only a web address becomes a link; the value is whatever a
                    repository file says it is. #}
                 {% if mpn and mpn.datasheet_url %}
-                  <a href="{{ mpn.datasheet_url }}" rel="noopener noreferrer" target="_blank">Datasheet</a>
+                  {# data-external: inside KiCad's panel this offers the address to copy
+                     instead of navigating the panel away, with no way back. #}
+                  <a class="icon-link" href="{{ mpn.datasheet_url }}" rel="noopener noreferrer"
+                     target="_blank" data-external="The datasheet" title="Datasheet"
+                     aria-label="Datasheet for {{ ref.mpn }} (external link)">{{ datasheet_icon() }}</a>
                 {% elif mpn and mpn.datasheet %}
-                  <span class="small muted">{{ mpn.datasheet }}</span>
+                  {# Not an address, so not a link: what the file says, as text. #}
+                  <span class="small muted" title="Datasheet">{{ datasheet_icon() }} {{ mpn.datasheet }}</span>
                 {% else %}—{% endif %}
               </td>
             </tr>

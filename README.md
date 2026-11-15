@@ -267,6 +267,26 @@ the library, and the pages do not offer to change it. Parts are written to the
 source the parts are read from. Files this app writes are laid out its own
 way; a comment in a hand-written part file does not survive an edit made here.
 
+### Links to other sites
+
+A datasheet, or a commit on the git host, is a link to another site. In a
+browser it opens in a new tab. **Inside KiCad's panel it cannot, and that is
+KiCad's doing, not a setting here.** The Remote Symbols panel keeps web links
+in the panel: it loads them in the same view, and treats a request for a new
+window the same way. The panel has no back button, so following a datasheet
+there would leave the part page for a manufacturer's PDF with no way back. And
+a page cannot ask KiCad to use the system browser instead, because the commands
+KiCad accepts from a page are for signing in and for downloading and placing
+parts, and none opens an address.
+
+So inside the panel such a link does not navigate. It shows the address,
+selected and copied if the WebView allows it, to paste into a browser, and the
+panel stays where it was. A datasheet is shown as a small document icon; its
+name is kept for screen readers and for hovering.
+
+A change to KiCad would be needed to do better: a command that opens an address
+in the system browser. That is worth asking its developers for.
+
 ### Part history
 
 Each part's page links to its history at `/ipn/{ipn}/history`: every commit

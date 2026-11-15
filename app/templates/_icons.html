@@ -1,0 +1,12 @@
+{# Icons, drawn with the text colour so they follow the theme. Each is
+   decoration: whatever links or names it says in words what it is, and the
+   drawing is hidden from screen readers. #}
+
+{% macro datasheet_icon() -%}
+  <svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"
+       fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 1.75h5.5L13 5.25v9H4z"/>
+    <path d="M9.5 1.75v3.5H13"/>
+    <path d="M6.25 8.5h4.5M6.25 11h4.5"/>
+  </svg>
+{%- endmacro %}

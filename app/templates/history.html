@@ -30,7 +30,7 @@
             <span class="muted">{{ change.when | moment }}</span>
             {% if links[change.commit] %}
               <a class="mono small" href="{{ links[change.commit] }}" rel="noopener noreferrer"
-                 target="_blank">{{ change.commit[:7] }}</a>
+                 target="_blank" data-external="The commit">{{ change.commit[:7] }}</a>
             {% else %}
               <span class="mono small muted">{{ change.commit[:7] }}</span>
             {% endif %}

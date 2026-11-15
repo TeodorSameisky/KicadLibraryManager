@@ -16,6 +16,8 @@
       {% block content %}{% endblock %}
     </main>
     <script src="{{ root_path }}/static/js/app.js"></script>
+    {# Inside KiCad, a link that leaves the app must not navigate the panel. #}
+    <script src="{{ root_path }}/static/js/external-links.js"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

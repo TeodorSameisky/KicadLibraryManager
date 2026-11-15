@@ -474,6 +474,28 @@ a.masthead__status { text-decoration: underline; }
 /* Reference designators: many, and best broken between rather than inside. */
 .table .refs { min-width: 7rem; max-width: 16rem; font-family: var(--font-mono); font-size: var(--size-xs); line-height: 1.6; }
 
+/* A column that holds only an icon is as wide as the icon. */
+.table .icon-col { width: 1%; white-space: nowrap; }
+
+/* A link that is a drawing. Large enough to hit with a finger though the
+   drawing is not, and no underline, which would run under the whole box. */
+.icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: -0.25rem 0;
+  border-radius: 3px;
+  color: var(--ink-2);
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+.icon-link:hover { color: var(--ink); background: var(--paper-2); }
+
+.icon { display: block; flex: none; }
+
 .table--bom { margin-top: 1.25rem; }
 .table--bom td:nth-child(5) { min-width: 12rem; }
 
@@ -751,6 +773,39 @@ a.figure:hover .figure__label { text-decoration: underline; }
    reader to ignore the colour. */
 .figure.is-bad .figure__value { color: var(--bad); }
 .figure.is-warn .figure__value { color: var(--warn); }
+
+/* The address of a link that cannot be followed from inside KiCad's panel,
+   offered for copying. Fixed to the bottom of the window so it is there
+   wherever the link was on a long page. */
+.external-note {
+  position: fixed;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 10;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
+}
+
+.external-note__text { margin-bottom: 0.5rem; font-size: var(--size-s); }
+.external-note__row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.external-note__address {
+  flex: 1 1 14rem;
+  min-width: 0;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font: var(--size-xs) var(--font-mono);
+}
 
 /* ============================================================ 9. History */
 

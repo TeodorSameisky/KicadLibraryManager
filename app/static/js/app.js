@@ -58,5 +58,17 @@
 
   const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
-  window.App = { base, api, el, link, button, stateBox, plural };
+  /* Whether this page is inside KiCad's panel and not an ordinary browser.
+     KiCad's WebView hands the page a way to send it messages, and which one
+     depends on the platform: the same three the bridge looks for. */
+  function inKicad() {
+    const { webkit, chrome, external } = window;
+    return Boolean(
+      (webkit && webkit.messageHandlers && webkit.messageHandlers.kicad) ||
+        (chrome && chrome.webview) ||
+        (external && typeof external.invoke === "function")
+    );
+  }
+
+  window.App = { base, api, el, link, button, stateBox, plural, inKicad };
 })();
