@@ -86,13 +86,16 @@ def test_every_page_has_the_script_that_handles_them(library_client, path):
     assert library_client.get("/static/js/external-links.js").status_code == 200
 
 
-def test_the_script_can_tell_whether_it_is_inside_kicad(library_client):
+def test_the_page_can_tell_whether_it_is_inside_kicad(library_client):
     """The three ways KiCad's WebView lets a page message it, one per platform."""
-    app = library_client.get("/static/js/app.js").text
+    detect = library_client.get("/static/js/in-kicad.js").text
 
-    assert "function inKicad()" in app
     for bridge in ("webkit.messageHandlers.kicad", "chrome.webview", "external.invoke"):
-        assert bridge in app, bridge
+        assert bridge in detect, bridge
+    assert 'classList.add("in-kicad")' in detect
+
+    app = library_client.get("/static/js/app.js").text
+    assert "function inKicad()" in app
     assert "inKicad" in app.split("window.App =")[1], "and it is offered to the other scripts"
 
 

@@ -240,13 +240,23 @@ test("place-needs-kicad", async () => {
 // -- telling whether this is KiCad ----------------------------------------
 
 test("in-kicad-detection", async () => {
+  /* The head script decides, and says so on the page; the other scripts ask
+     the page. */
   const inside = (host) => {
+    const classes = new Set();
+    const document = {
+      body: { dataset: {} },
+      documentElement: { classList: { add: (name) => classes.add(name), contains: (name) => classes.has(name) } },
+    };
     const win = { ...host };
     win.window = win;
+    vm.runInNewContext(read("in-kicad.js"), { window: win, document, Boolean });
     vm.runInNewContext(read("app.js"), {
-      window: win, document: { body: { dataset: {} } }, fetch: () => {}, Promise, Object, Array, Error, String, Boolean,
+      window: win, document, fetch: () => {}, Promise, Object, Array, Error, String, Boolean,
     });
-    return win.App.inKicad();
+    const marked = classes.has("in-kicad");
+    assert(win.App.inKicad() === marked, "the page and the scripts agree");
+    return marked;
   };
 
   equal(inside({}), false, "an ordinary browser");

@@ -81,6 +81,11 @@ a:hover { text-decoration-color: currentColor; }
 /* The `hidden` attribute has to win over any display a class sets. */
 [hidden] { display: none !important; }
 
+/* Inside KiCad's panel -- in-kicad.js says so -- only the catalog and the
+   parts are shown. Everything else is done in a browser, and what leads to it
+   is not offered: the panel has no way back from a page like that. */
+.in-kicad .web-only { display: none !important; }
+
 :where(a, button, input, select, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;

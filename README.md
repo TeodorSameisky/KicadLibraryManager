@@ -288,6 +288,17 @@ name is kept for screen readers and for hovering.
 A change to KiCad would be needed to do better: a command that opens an address
 in the system browser. That is worth asking its developers for.
 
+### What the panel shows
+
+Inside KiCad's panel only the catalog and the parts are shown. Managing the
+library -- BOMs, products, templates, requesting or approving a part, the
+issues, a part's history and where it is used -- is done in a browser, and what
+leads to it is not offered in the panel, which has no way back from such a page.
+`static/js/in-kicad.js`, in the head of every page, marks the page when it is
+in KiCad's panel, and anything with the class `web-only` is then hidden before
+it is drawn. The pages themselves are still served to the panel if their
+address is opened: this is a choice about what to show, not a barrier.
+
 ### Placing from a part's page
 
 Inside KiCad's panel a part's page has a **Place in KiCad** button, as the

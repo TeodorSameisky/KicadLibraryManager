@@ -31,9 +31,9 @@
         {# To the catalog, narrowed to this category: "what else is in here" is
            the question that follows "what is this". #}
         <a href="{{ root_path }}/panel?category={{ part.category | urlencode }}">{{ category_name }}</a>
-        &middot;
+        <span class="web-only">&middot;</span>
       {% endif %}
-      <a href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/history">History</a>
+      <a class="web-only" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/history">History</a>
     </p>
   </header>
 
@@ -48,20 +48,20 @@
   <div class="actions" id="part-actions"{% if not can_change %} hidden{% endif %}>
     <button type="button" class="button" id="place-button" data-ipn="{{ part.ipn }}" hidden>Place in KiCad</button>
     {% if can_change %}
-      <a class="button" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/edit">Edit</a>
+      <a class="button web-only" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/edit">Edit</a>
       {% if librarian %}
         {% if part.status == "draft" %}
-          <button type="button" class="button button--primary" data-set-status="approved" data-ipn="{{ part.ipn }}">Approve</button>
+          <button type="button" class="button button--primary web-only" data-set-status="approved" data-ipn="{{ part.ipn }}">Approve</button>
         {% elif part.status == "approved" %}
-          <button type="button" class="button button--danger" data-set-status="obsolete" data-ipn="{{ part.ipn }}">Retire</button>
+          <button type="button" class="button button--danger web-only" data-set-status="obsolete" data-ipn="{{ part.ipn }}">Retire</button>
         {% else %}
-          <button type="button" class="button" data-set-status="approved" data-ipn="{{ part.ipn }}">Reinstate</button>
+          <button type="button" class="button web-only" data-set-status="approved" data-ipn="{{ part.ipn }}">Reinstate</button>
         {% endif %}
       {% endif %}
     {% endif %}
   </div>
   <div id="place-result" aria-live="polite"></div>
-  {% if can_change %}<div id="status-result" aria-live="polite"></div>{% endif %}
+  {% if can_change %}<div id="status-result" class="web-only" aria-live="polite"></div>{% endif %}
 
   {% if symbol_svg or footprint_svg or has_model %}
     <div class="sheet" id="previews">
@@ -161,7 +161,9 @@
 
   {# None means the list could not be read, which is not the same as empty
      and must not be shown as "used nowhere". #}
+  {# Which projects use it is read in a browser, where those projects are. #}
   {% if usages is not none %}
+    <div class="web-only">
     <h2 class="section">Where used</h2>
     {% if usages %}
       <div class="table-scroll">
@@ -194,6 +196,7 @@
         Not on any stored BOM. <a href="{{ root_path }}/boms">Upload a project's BOM</a> to have it listed here.
       </p>
     {% endif %}
+    </div>
   {% endif %}
 
   {% if related %}

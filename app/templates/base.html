@@ -7,6 +7,9 @@
     <title>{% block title %}{{ provider_name }}{% endblock %}</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="{{ root_path }}/static/css/app.css" />
+    {# Inside KiCad's panel only the catalog and the parts are shown. Decided
+       here, before the page is drawn, so nothing flashes and goes. #}
+    <script src="{{ root_path }}/static/js/in-kicad.js"></script>
     {% block head %}{% endblock %}
   </head>
   {# Each script reads its configuration from data attributes on <body>, so
