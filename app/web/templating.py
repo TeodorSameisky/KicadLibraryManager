@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
@@ -18,6 +19,25 @@ _APP_DIR = Path(__file__).resolve().parent.parent
 
 STATIC_DIR = _APP_DIR / "static"
 templates = Jinja2Templates(directory=_APP_DIR / "templates")
+
+
+class RevalidatedStaticFiles(StaticFiles):
+    """Static files that a browser checks are current each time it uses them.
+
+    With no instruction at all, a browser decides for itself how long to keep
+    a script, and a script from before a deploy can be kept for hours after
+    it, running against pages that have changed. `no-cache` does not mean
+    "do not keep": the browser keeps the file but asks first, and the answer
+    is a bodiless 304 while the file is unchanged -- the file's ETag is what
+    it asks with. That costs a round trip for each file and nothing else, even
+    for the 7 MB CAD kernel.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
 
 # A date, from the epoch seconds things are stamped with. In UTC and without a
 # time: which day a BOM was uploaded is what gets asked, and a clock time

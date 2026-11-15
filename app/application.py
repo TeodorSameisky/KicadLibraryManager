@@ -15,7 +15,6 @@ from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__
@@ -36,7 +35,7 @@ from app.web.routes import catalog, pages, provider, session, system, template_a
 from app.web.routes import editing as editing_routes
 from app.web.routes import history as history_routes
 from app.web.routes import library as library_routes
-from app.web.templating import STATIC_DIR
+from app.web.templating import STATIC_DIR, RevalidatedStaticFiles
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +124,7 @@ def create_app(
 
     app.add_exception_handler(StarletteHTTPException, http_error)
 
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
     for module in (
         provider,
         system,
