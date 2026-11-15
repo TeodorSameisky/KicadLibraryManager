@@ -46,7 +46,7 @@
      row starts out hidden: empty, it would only be a gap. #}
   {% set can_change = writable and (librarian or part.status == "draft") %}
   <div class="actions" id="part-actions"{% if not can_change %} hidden{% endif %}>
-    <button type="button" class="button button--primary" id="place-button" data-ipn="{{ part.ipn }}" hidden>Place in KiCad</button>
+    <button type="button" class="button" id="place-button" data-ipn="{{ part.ipn }}" hidden>Place in KiCad</button>
     {% if can_change %}
       <a class="button" href="{{ root_path }}/ipn/{{ part.ipn | urlencode }}/edit">Edit</a>
       {% if librarian %}

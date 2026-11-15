@@ -18,6 +18,9 @@ def test_the_page_has_a_place_button_that_starts_out_hidden(library_client):
 
     (button,) = [t for t in tags(html, "button") if 'id="place-button"' in t]
     assert 'data-ipn="1102-0001"' in button and " hidden" in button
+    # The same plain button as the catalog's Place. The filled one swaps the
+    # page's colours, so it is bright in the dark theme and dark in the light.
+    assert 'class="button"' in button
     assert 'id="place-result"' in html
 
 
