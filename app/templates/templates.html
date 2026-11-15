@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Templates &middot; {{ provider_name }}{% endblock %}
+
+{% block content %}
+  <header class="masthead">
+    <div class="masthead__title">
+      <h1>Part templates</h1>
+      {% with here = "Templates" %}{% include "_nav.html" %}{% endwith %}
+    </div>
+  </header>
+
+  <p class="lede">
+    A template says what every part in a category has to say about itself: which
+    fields it carries, which are required, which take only certain values. It is a
+    file in the library's repository, and changing it is a commit in your name.
+  </p>
+
+  {% if not writable %}
+    <div class="notice">
+      <p class="notice__title">This deployment cannot change the library</p>
+      <p>It has no token that may push to the library's repository.</p>
+    </div>
+  {% endif %}
+
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Category</th>
+          <th scope="col" class="num">Parts</th>
+          <th scope="col">Template</th>
+          <th scope="col"><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>
+              <span class="mono"><strong>{{ row.code }}</strong></span>
+              {{ row.name }}
+            </td>
+            <td class="num">{{ row.parts }}</td>
+            <td>
+              {% if row.template %}
+                {{ row.template.fields | length }} field{{ "" if row.template.fields | length == 1 else "s" }}
+                {%- if row.required %}, {{ row.required }} required{% endif %}
+                {% if row.falling_short %}
+                  <a class="tag tag--warn" href="{{ root_path }}/issues?severity=warning">
+                    {{- row.falling_short }} of {{ row.parts }} parts fall short
+                  </a>
+                {% endif %}
+              {% else %}
+                <span class="muted">none: asks nothing of its parts</span>
+              {% endif %}
+            </td>
+            <td class="num">
+              {% if writable %}
+                <a class="button" href="{{ root_path }}/templates/{{ row.code | urlencode }}/edit">
+                  {{- "Edit" if row.template else "Create" -}}
+                </a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

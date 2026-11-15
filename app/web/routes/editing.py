@@ -132,22 +132,33 @@ def _refused(error: EditError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(error), "problems": error.problems})
 
 
-async def _publish(library: LibraryService, write: Any, author: Identity) -> JSONResponse | None:
+async def _publish_snapshot(
+    library: LibraryService, write: Any, author: Identity
+) -> tuple[Snapshot, None] | tuple[None, JSONResponse]:
     """Make a change, turning what can go wrong into an answer.
 
-    Returns None when it worked.
+    Returns the library as indexed after the change, or the response to send
+    instead.
     """
     try:
-        await library.change(write, author)
+        return await library.change(write, author), None
     except EditError as exc:
-        return _refused(exc)
+        return None, _refused(exc)
     except PublishError as exc:
         log.warning("a change to the library could not be published: %s", exc)
-        return JSONResponse(
+        return None, JSONResponse(
             status_code=502,
             content={"detail": f"The change could not be saved to the repository: {exc}"},
         )
-    return None
+
+
+async def _publish(library: LibraryService, write: Any, author: Identity) -> JSONResponse | None:
+    """As `_publish_snapshot`, for a caller with no use for the new index.
+
+    Returns None when it worked.
+    """
+    _, failed = await _publish_snapshot(library, write, author)
+    return failed
 
 
 # -- as JSON ----------------------------------------------------------------

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% set heading = ("Template for " ~ category) %}
+
+{% block title %}{{ heading }} &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/templates">&larr; Templates</a>
+
+  <header>
+    <div class="title">
+      <h1 class="title--plain">{{ heading }}</h1>
+      <span class="muted">{{ category_name }}</span>
+    </div>
+    <p class="byline">
+      Saving commits the template to the library's repository in your name. It
+      applies to every part in this category, new and existing.
+    </p>
+  </header>
+
+  {% if not writable %}
+    <div class="notice">
+      <p class="notice__title">This deployment cannot change the library</p>
+      <p>It has no token that may push to the library's repository.</p>
+    </div>
+  {% else %}
+    <form class="stack" id="template-form" novalidate data-category="{{ category }}">
+      <fieldset class="group">
+        <legend>Fields</legend>
+        <p class="hint">
+          In the order the request form shows them. A field a part carries that is not
+          listed here is still allowed. {{ reserved | join(", ") }} are set from the part
+          itself and cannot be listed.
+        </p>
+        <div id="template-fields"></div>
+        <button type="button" class="button" id="add-template-field">Add a field</button>
+      </fieldset>
+
+      <div class="field field--wide">
+        <label for="template-value">Value pattern <span class="muted">(optional)</span></label>
+        <input type="text" id="template-value" maxlength="200" autocomplete="off"
+               placeholder="{Resistance} {Tolerance}" />
+        <p class="hint">
+          What KiCad shows as the symbol's value, built from the fields in braces. A part
+          that sets its own Value keeps it.
+        </p>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="button button--primary" id="template-submit">Save the template</button>
+        {% if has_template %}
+          <button type="button" class="button button--danger" id="template-remove">Remove the template</button>
+        {% endif %}
+      </div>
+      <div id="template-result" aria-live="polite"></div>
+    </form>
+
+    <script type="application/json" id="template-data">{{ data | tojson }}</script>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if writable %}
+    <script src="{{ root_path }}/static/js/template-form.js"></script>
+  {% endif %}
+{% endblock %}

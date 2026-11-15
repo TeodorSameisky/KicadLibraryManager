@@ -27,7 +27,7 @@ from app.observability import RequestContextMiddleware
 from app.security import SecurityHeadersMiddleware
 from app.web.errors import http_error
 from app.web.routes import boms as bom_routes
-from app.web.routes import catalog, pages, provider, session, system
+from app.web.routes import catalog, pages, provider, session, system, template_admin
 from app.web.routes import editing as editing_routes
 from app.web.routes import library as library_routes
 from app.web.templating import STATIC_DIR
@@ -114,6 +114,7 @@ def create_app(
         library_routes,
         bom_routes,
         editing_routes,
+        template_admin,
         pages,
     ):
         app.include_router(module.router)

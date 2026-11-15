@@ -277,6 +277,14 @@ a.masthead__status { text-decoration: underline; }
 .row input[type="text"]:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .row input::placeholder { color: var(--ink-3); }
 
+/* A field of a template being edited: its name and whether it is required on
+   one line, what limits it underneath. */
+.row--spec { align-items: flex-start; padding-bottom: 0.75rem; border-bottom: 1px solid var(--rule); }
+.row--spec .row__name { flex: 1 1 12rem; }
+.row__controls { display: flex; gap: 0.25rem; margin-left: auto; }
+.row--spec .row__details { padding-left: 0; border-left: 0; }
+.row--spec .row__details input { flex: 1 1 12rem; }
+
 /* A field the template names: its name is given, not typed. */
 .row__label { flex: 0 0 9rem; color: var(--ink); }
 .row__label.is-required::after { content: " *"; color: var(--bad); }

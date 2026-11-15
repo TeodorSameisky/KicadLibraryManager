@@ -158,6 +158,21 @@ fields:
 A category with no template asks nothing, so templates can be introduced one
 category at a time.
 
+**Librarians edit templates in the app**, at `/templates`: every category is
+listed with how many fields its template has and how many of its parts fall
+short of it, and each opens an editor for its fields, their order, which are
+required, the values they are limited to, and the Value pattern. Saving is one
+commit to the repository, in the librarian's name, like any other change. The
+editor says at once how many existing parts the change leaves short, with a link
+to which. A template can also be removed there, after which its category asks
+nothing of its parts.
+
+Writing a template here lays the file out its own way, so a comment in a
+hand-written one does not survive being edited in the app. Numbers like `0805`
+are written quoted: a YAML reader that follows other rules would otherwise take
+them for 805. `IPN`, `Datasheet`, `Footprint`, `Description`, `MPN` and
+`Manufacturer` are set from the part itself and cannot be template fields.
+
 Only IPNs are placed. An IPN is `<category>-<number>`, names a symbol and a
 footprint, and lists the manufacturer parts approved for it. MPNs are documents
 of their own because one can satisfy several IPNs — which is what makes "what
@@ -359,7 +374,7 @@ The status page prints the exact value. A public client needs no secret;
 Anyone signed in can read the library, upload a BOM, and request a part or
 correct a draft. What decides something, or throws a record away, is a
 librarian's to do: approving a part, changing or retiring an approved one,
-refreshing the index, deleting a BOM.
+editing a category's template, refreshing the index, deleting a BOM.
 
 Librarians are listed in `LIBRARIANS`, by the username, e-mail address or
 subject id the identity provider reports for them — not by display name, which
@@ -468,6 +483,8 @@ unhandled error is logged in full and answered with nothing but that id.
 | `POST /api/v1/parts/{ipn}/status` | Approve, retire or return to draft; librarians | |
 | `/api/v1/library/choices` | The categories, symbols, footprints and manufacturer parts a form offers | |
 | `/parts/new`, `/ipn/{ipn}/edit` | The forms for the above | |
+| `PUT`, `DELETE /api/v1/templates/{category}` | Create or replace a category's template, or remove it; librarians | |
+| `/templates`, `/templates/{category}/edit` | Listing and editing templates; librarians | |
 | `POST /api/v1/library/refresh` | Fetch the sources now and index what changed; librarians | |
 | `POST /api/v1/library/webhook` | The same, for the git host; let in by its signature | ✓ |
 | `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, replace}` | |

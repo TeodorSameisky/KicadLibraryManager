@@ -6,5 +6,8 @@
   {# Offered only where the app can write to the library's repository. #}
   {% if writable %}
     <a href="{{ root_path }}/parts/new"{% if here == "Request" %} aria-current="page"{% endif %}>Request a part</a>
+    {% if librarian %}
+      <a href="{{ root_path }}/templates"{% if here == "Templates" %} aria-current="page"{% endif %}>Templates</a>
+    {% endif %}
   {% endif %}
 </nav>
