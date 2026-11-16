@@ -280,6 +280,15 @@ def test_issues_are_listed_with_where_to_look(serve, tree):
         "message": "1102-0002 names footprint 'Passives:Gone', which no source provides",
         "path": "parts/1102/1102-0002.yaml",
         "source": "company",
+        "mpn": None,
+        # The part to open. This library cannot be written to, so not to edit.
+        "parts": [
+            {
+                "ipn": "1102-0002",
+                "description": "Resistor 10k 1% 0.1W 0603",
+                "editable": False,
+            }
+        ],
     }
 
 

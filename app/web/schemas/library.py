@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,6 +11,7 @@ from app.domain.parameters import Parameter
 from app.domain.parts import Lifecycle, Part, PartStatus
 from app.domain.templates import Template, TemplateField
 from app.library.history import History
+from app.library.issues import Issue
 from app.library.placement import AssetBundle
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
@@ -128,12 +129,27 @@ class RefreshResult(BaseModel):
         )
 
 
+class IssuePart(BaseModel):
+    """A part an issue is about, to be opened from the list."""
+
+    ipn: str
+    description: str
+    # Whether whoever is asking may change it, and so be offered its form.
+    editable: bool
+
+
 class IssueOut(BaseModel):
     severity: str
     kind: str
     message: str
     path: str | None
     source: str | None
+    # The manufacturer part, if the issue is in one's file. The parts are then
+    # the ones that list it.
+    mpn: str | None
+    # The parts the issue is about: the one whose file it is in, or those that
+    # list the manufacturer part. Empty for an issue about no part.
+    parts: list[IssuePart]
 
 
 class IssueList(BaseModel):
@@ -148,26 +164,41 @@ class IssueList(BaseModel):
     issues: list[IssueOut]
 
     @classmethod
-    def of(cls, snapshot: Snapshot, severity: str | None, limit: int) -> IssueList:
+    def of(
+        cls,
+        snapshot: Snapshot,
+        severity: str | None,
+        limit: int,
+        *,
+        may_edit: Callable[[Part], bool] = lambda part: False,
+    ) -> IssueList:
+        """`may_edit` says whether whoever is asking may change a part."""
         found = {"error": snapshot.errors, "warning": snapshot.warnings}.get(
             severity or "", list(snapshot.issues)
         )
         page = found[:limit]
+
+        def out(issue: Issue) -> IssueOut:
+            mpn, parts = snapshot.subject(issue)
+            return IssueOut(
+                severity=issue.severity.value,
+                kind=issue.kind,
+                message=issue.message,
+                path=issue.path,
+                source=issue.source,
+                mpn=mpn.mpn if mpn else None,
+                parts=[
+                    IssuePart(ipn=part.ipn, description=part.description, editable=may_edit(part))
+                    for part in parts
+                ],
+            )
+
         return cls(
             total=len(found),
             returned=len(page),
             errors=len(snapshot.errors),
             warnings=len(snapshot.warnings),
-            issues=[
-                IssueOut(
-                    severity=issue.severity.value,
-                    kind=issue.kind,
-                    message=issue.message,
-                    path=issue.path,
-                    source=issue.source,
-                )
-                for issue in page
-            ],
+            issues=[out(issue) for issue in page],
         )
 
 

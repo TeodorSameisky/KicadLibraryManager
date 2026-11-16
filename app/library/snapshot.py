@@ -141,6 +141,35 @@ class Snapshot:
             and (not needle or needle in text[part.ipn])
         ]
 
+    # -- what an issue is about
+
+    @cached_property
+    def _files(self) -> tuple[dict[str, Part], dict[str, Mpn]]:
+        """The parts and the manufacturer parts, each by the file it is in."""
+        return (
+            {part.path: part for part in self.parts.parts.values() if part.path},
+            {mpn.path: mpn for mpn in self.parts.mpns.values() if mpn.path},
+        )
+
+    def subject(self, issue: Issue) -> tuple[Mpn | None, list[Part]]:
+        """What an issue is about, as far as its file says: the manufacturer
+        part if it is one's file, and the parts it reaches.
+
+        An issue names a file, and a file is not something anyone can open
+        from a page. For a part's file the part is what to open. For a
+        manufacturer part's file it is the parts that list it: there the
+        problem is felt, and from there the manufacturer part is reached.
+        Anything else -- a symbol, a list, a file that could not be read --
+        is about no part in particular.
+        """
+        if issue.path is None or issue.source not in (None, self.parts_source):
+            return None, []
+        parts, mpns = self._files
+        if issue.path in parts:
+            return None, [parts[issue.path]]
+        mpn = mpns.get(issue.path)
+        return (mpn, self.parts.parts_using(mpn.mpn)) if mpn is not None else (None, [])
+
     # -- parameters
 
     @cached_property

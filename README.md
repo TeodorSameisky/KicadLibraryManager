@@ -305,6 +305,14 @@ Everything that does not line up — a footprint no source has, a symbol whose
 parent is missing, an IPN in an undeclared category — is collected and listed
 at `/issues`, grouped by kind, with the repository-relative path to open.
 
+An issue names a file, and what can be opened from the list is a part. Under
+an issue in a part's file is that part, linked to its page, with *Edit* beside
+it for whoever may change it: anyone for a draft, a librarian for an approved
+part, nobody where the app cannot write to the library. Under an issue in a
+manufacturer part's file are the parts that list it, which is where the
+problem is felt. An issue about a symbol, a footprint or a file that could not
+be read is about no part in particular, and has only its path.
+
 ## Finding a part
 
 The catalog's search box finds a part somebody already half knows: it looks at
@@ -874,7 +882,7 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/api/v1/parts/{ipn}` | One part, with its sources | |
 | `/api/v1/parts/{ipn}/assets` | What KiCad is sent to place it | |
 | `/api/v1/parts/{ipn}/symbol.svg`, `/footprint.svg`, `/model.step` | Drawings and the 3D model | |
-| `/api/v1/issues?severity=&limit=` | Everything that does not line up | |
+| `/api/v1/issues?severity=&limit=` | Everything that does not line up, each with the parts it is about and whether the reader may edit them | |
 | `POST /api/v1/parts` | Request a part: added as a draft under the next number | |
 | `PUT /api/v1/parts/{ipn}` | Change a part; a draft by anyone, otherwise librarians | |
 | `POST /api/v1/parts/{ipn}/status` | Approve, retire or return to draft; librarians | |

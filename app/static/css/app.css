@@ -916,6 +916,9 @@ a.figure:hover .figure__label { text-decoration: underline; }
 .issue-group .table td { padding-left: var(--gutter); border-bottom: 0; border-top: 1px solid var(--rule); }
 
 .issue__message { width: 58%; }
+/* The parts an issue is about, under its sentence. */
+.issue__parts { display: flex; flex-wrap: wrap; gap: 0 0.75rem; margin-top: 0.2rem; color: var(--ink-2); }
+.issue__part { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
 .issue__path { color: var(--ink-2); font-family: var(--font-mono); font-size: var(--size-xs); overflow-wrap: anywhere; }
 
 /* Too narrow for two columns: the path goes under the sentence it belongs to. */

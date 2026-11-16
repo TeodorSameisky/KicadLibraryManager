@@ -11,14 +11,23 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse, Response
 
 from app.config import Settings
+from app.domain import policy
 from app.domain.parts import Part, PartStatus
+from app.domain.policy import Actor
 from app.errors import NotFound
 from app.library import previews
 from app.library.placement import asset_bundle
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
 from app.services import search
-from app.web.deps import get_library, get_settings, get_snapshot, require_access, require_part
+from app.web.deps import (
+    get_actor,
+    get_library,
+    get_settings,
+    get_snapshot,
+    require_access,
+    require_part,
+)
 from app.web.schemas.library import AssetBundleOut, IndexStatus, IssueList, PartDetail, PartList
 
 router = APIRouter(prefix="/api/v1", tags=["catalog"], dependencies=[Depends(require_access)])
@@ -43,10 +52,17 @@ async def status(library: LibraryService = Depends(get_library)) -> IndexStatus:
 async def issues(
     severity: str | None = Query(None, pattern="^(error|warning)$"),
     limit: int = Query(200, ge=1, le=MAX_ISSUES_PER_PAGE),
-    snapshot: Snapshot = Depends(get_snapshot),
+    library: LibraryService = Depends(get_library),
+    actor: Actor = Depends(get_actor),
 ) -> IssueList:
-    """Everything in the library that does not line up."""
-    return IssueList.of(snapshot, severity, limit)
+    """Everything in the library that does not line up, each with the parts
+    it is about: what to open to put it right."""
+    return IssueList.of(
+        library.snapshot,
+        severity,
+        limit,
+        may_edit=lambda part: library.writable and policy.may_edit(actor, part),
+    )
 
 
 # -- parts ------------------------------------------------------------------

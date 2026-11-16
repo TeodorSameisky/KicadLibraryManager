@@ -67,6 +67,45 @@ function grouped(issues) {
   );
 }
 
+/* The parts an issue is about, under its sentence: a file is what to fix,
+   but a part is what can be opened from here. For a part's own file that is
+   the part, with its form for whoever may change it. For a manufacturer
+   part's file it is the parts that list it. */
+const MOST_PARTS = 8;
+
+function partLink(part) {
+  const ipn = encodeURIComponent(part.ipn);
+  const node = link(`/ipn/${ipn}`, "issue__part", part.ipn);
+  node.title = part.description;
+  return node;
+}
+
+function partsOf(issue) {
+  if (!issue.mpn && !issue.parts.length) return null;
+  const line = el("div", "issue__parts");
+
+  if (!issue.mpn) {
+    for (const part of issue.parts) {
+      line.append(partLink(part));
+      if (part.editable) {
+        line.append(link(`/ipn/${encodeURIComponent(part.ipn)}/edit`, null, "Edit"));
+      }
+    }
+    return line;
+  }
+
+  if (!issue.parts.length) {
+    line.append(el("span", null, `No part lists ${issue.mpn}`));
+    return line;
+  }
+  line.append(el("span", null, "Listed by"));
+  for (const part of issue.parts.slice(0, MOST_PARTS)) line.append(partLink(part));
+  if (issue.parts.length > MOST_PARTS) {
+    line.append(el("span", null, `and ${issue.parts.length - MOST_PARTS} more`));
+  }
+  return line;
+}
+
 function renderGroup(group) {
   const isError = group.severity === "error";
   const box = el("details", "issue-group");
@@ -85,7 +124,10 @@ function renderGroup(group) {
     const row = el("tr");
     // Which repository, then where in it: what a maintainer opens.
     const where = [issue.source, issue.path].filter(Boolean).join(": ");
-    row.append(el("td", "issue__message", issue.message), el("td", "issue__path", where));
+    const message = el("td", "issue__message", issue.message);
+    const about = partsOf(issue);
+    if (about) message.append(about);
+    row.append(message, el("td", "issue__path", where));
     body.append(row);
   }
 
