@@ -39,6 +39,11 @@ log = logging.getLogger(__name__)
 RETRY_AFTER_SECONDS = 600
 
 
+def _reason(what: str, said: str) -> str:
+    """Why a supplier did not answer: what happened, and its own words."""
+    return f"{what}: {said}" if said else what
+
+
 class State(StrEnum):
     FOUND = "found"  # the supplier has the part: there is an offer
     NOT_FOUND = "not-found"  # it was asked, and does not list it
@@ -80,6 +85,9 @@ class SupplierUsage:
     limit: int  # how many calls a day it may be sent
     answers: int  # how many answers are kept
     last_asked: float | None
+    # The last time it did not answer, and why, unless it has answered since.
+    failed_at: float | None = None
+    failure: str = ""
 
 
 class Supply:
@@ -103,6 +111,9 @@ class Supply:
         # Until when a question, or a whole supplier, is left alone after a
         # failure. In memory: a restart costs one more attempt and no more.
         self._left_alone: dict[tuple[str, str], float] = {}
+        # When each supplier last failed and why, until it answers again:
+        # for whoever runs the app, who cannot see it on a part's page.
+        self._failures: dict[str, tuple[float, str]] = {}
 
     @property
     def enabled(self) -> bool:
@@ -153,10 +164,12 @@ class Supply:
                 fetched = supplier.fetch(query)
             except SupplierError as exc:
                 log.warning("%s could not be asked about %s: %s", supplier.name, query.mpn, exc)
+                self._failures[supplier.id] = (now, str(exc))
                 self._left_alone[(supplier.id, asked)] = now + RETRY_AFTER_SECONDS
                 return fall_back(State.FAILED)
 
             if fetched.answered:
+                self._failures.pop(supplier.id, None)
                 kept = self._store.put(
                     supplier.id,
                     asked,
@@ -170,12 +183,26 @@ class Supply:
             if fetched.refused:
                 # Its count of the day is ahead of this one. Nothing more is
                 # sent to it for a while, whatever is asked.
-                log.warning("%s says it has been called too often today", supplier.name)
+                log.warning(
+                    "%s says it has been called too often today: %s", supplier.name, fetched.said
+                )
+                self._failures[supplier.id] = (
+                    now,
+                    _reason("It says it has been called too often", fetched.said),
+                )
                 self._left_alone[(supplier.id, "")] = now + RETRY_AFTER_SECONDS
                 return fall_back(State.OVER_LIMIT)
 
             log.warning(
-                "%s answered HTTP %d when asked about %s", supplier.name, fetched.status, query.mpn
+                "%s answered HTTP %d when asked about %s: %s",
+                supplier.name,
+                fetched.status,
+                query.mpn,
+                fetched.said,
+            )
+            self._failures[supplier.id] = (
+                now,
+                _reason(f"It answered HTTP {fetched.status}", fetched.said),
             )
             self._left_alone[(supplier.id, asked)] = now + RETRY_AFTER_SECONDS
             return fall_back(State.FAILED)
@@ -233,6 +260,7 @@ class Supply:
                 calls, answers, last = used.calls_today, used.answers, used.last_asked
             except DatabaseUnavailable:
                 calls, answers, last = 0, 0, None  # said elsewhere on the page
+            failed_at, failure = self._failures.get(supplier.id, (None, ""))
             found.append(
                 SupplierUsage(
                     id=supplier.id,
@@ -242,6 +270,8 @@ class Supply:
                     limit=self.limit(supplier),
                     answers=answers,
                     last_asked=last,
+                    failed_at=failed_at,
+                    failure=failure,
                 )
             )
         return tuple(found)

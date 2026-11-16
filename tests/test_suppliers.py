@@ -210,7 +210,29 @@ def test_keys_that_are_wrong_are_said_without_saying_the_secret(server):
 
     assert "HTTP 401" in str(refused.value) and "DIGIKEY_CLIENT_SECRET" in str(refused.value)
     assert "not-the-secret" not in str(refused.value)
+    assert "Invalid client" in str(refused.value), "DigiKey's own reason is quoted"
     assert server.searches == []
+
+
+def test_a_search_digikey_refuses_comes_with_its_reason(digikey, server):
+    server.answer = (
+        403,
+        '{"title": "Forbidden",\n "detail": "The  application is not subscribed to this API"}',
+    )
+
+    fetched = digikey.fetch(YAGEO)
+
+    assert (fetched.status, fetched.answered) == (403, False)
+    assert fetched.said == "Forbidden: The application is not subscribed to this API"
+
+    server.answer = (502, "<html>" + "bad gateway " * 100 + "</html>")
+    assert len(digikey.fetch(YAGEO).said) == 301, "what is not its own error is cut short"
+
+
+def test_a_reason_never_says_the_keys_back(digikey, server):
+    server.answer = (400, '{"detail": "client the-client sent s3cret in the wrong place"}')
+
+    assert digikey.fetch(YAGEO).said == "client … sent … in the wrong place"
 
 
 def test_a_supplier_that_cannot_be_reached_is_an_error_not_an_answer(digikey, server):
@@ -515,6 +537,29 @@ def test_usage_says_how_much_of_the_day_is_gone(supply):
 
     assert (used.configured, used.calls_today, used.limit, used.answers) == (True, 2, 3, 2)
     assert used.last_asked is not None
+    assert (used.failed_at, used.failure) == (None, "")
+
+
+def test_usage_says_why_a_supplier_last_failed_until_it_answers_again(supply, server, clock):
+    server.answer = (403, '{"title": "Forbidden", "detail": "Not subscribed to this API"}')
+    supply.ask(YAGEO, NOBODY)
+
+    (used,) = supply.usage()
+    assert used.failed_at == clock.now
+    assert used.failure == "It answered HTTP 403: Forbidden: Not subscribed to this API"
+
+    server.answer = None
+    server.secret = "changed"  # the keys no longer fit
+    clock.pass_(700)  # and the token in hand has run out
+    supply.ask(Query("B"), NOBODY)
+    (used,) = supply.usage()
+    assert "gave no access token (HTTP 401: Invalid client)" in used.failure
+    assert "s3cret" not in used.failure
+
+    server.secret = "s3cret"
+    supply.ask(Query("C"), NOBODY)
+    (used,) = supply.usage()
+    assert (used.failed_at, used.failure) == (None, ""), "it has answered since"
 
 
 def test_with_nowhere_to_keep_answers_nothing_is_asked(digikey, server, tmp_path, clock):
@@ -629,8 +674,21 @@ def test_the_status_page_says_how_much_each_supplier_has_been_asked(site, client
     page = site.get("/").text
     assert "<strong>DigiKey</strong>" in page and "1 of 1000" in page
 
+    assert "did not answer" not in page
+
     bare = client.get("/").text
     assert "not set up" in bare and "DIGIKEY_CLIENT_ID" in bare
+
+
+def test_the_status_page_says_why_a_supplier_did_not_answer(site, server):
+    server.answer = (403, '{"title": "Forbidden", "detail": "Not subscribed to <this> API"}')
+
+    (answer,) = site.get("/api/v1/parts/1102-0001/supply").json()["sources"][0]["answers"]
+    page = site.get("/").text
+
+    assert answer["state"] == "failed"
+    assert "did not answer" in page
+    assert "It answered HTTP 403: Forbidden: Not subscribed to &lt;this&gt; API" in page
 
 
 def test_asking_suppliers_needs_a_session(client):

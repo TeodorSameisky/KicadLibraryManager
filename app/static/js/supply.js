@@ -51,7 +51,7 @@ function start() {
   const SILENT = {
     "not-found": "does not list it",
     "over-limit": "not asked: today's calls to it are used up",
-    failed: "did not answer",
+    failed: "did not answer; the status page says why",
   };
 
   function supplierCell(answer) {

@@ -12,7 +12,8 @@ from app.errors import UpstreamFailed
 
 class SupplierError(UpstreamFailed):
     """A supplier could not be asked, or did not answer. The message is for
-    the log: it may quote what the supplier said."""
+    whoever runs the app -- the log, and the status page: it may quote what
+    the supplier said, and never holds a key."""
 
     def detail(self) -> str:
         return "The supplier did not answer."
@@ -27,6 +28,9 @@ class Fetched:
     # What the supplier says is left of the day's calls, if it says. Only
     # shown: the count that decides anything is the app's own.
     remaining: int | None = field(default=None, compare=False)
+    # Where it is not an answer to the question: the supplier's reason, in a
+    # line, for whoever runs the app. Never holds a key.
+    said: str = field(default="", compare=False)
 
     @property
     def answered(self) -> bool:

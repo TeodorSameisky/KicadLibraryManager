@@ -172,6 +172,18 @@
               </td>
             {% endif %}
           </tr>
+          {% if supplier.configured and supplier.failure %}
+            <tr>
+              <td><span class="tag tag--bad">did not answer</span></td>
+              <td colspan="3">
+                {{ supplier.failure }}
+                <span class="small muted block">
+                  {{ supplier.failed_at | moment }}. A question it failed is not
+                  asked again for ten minutes; restarting the app asks at once.
+                </span>
+              </td>
+            </tr>
+          {% endif %}
         {% endfor %}
       </tbody>
     </table>

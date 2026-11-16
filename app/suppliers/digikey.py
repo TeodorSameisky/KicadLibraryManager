@@ -22,6 +22,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -42,6 +43,9 @@ _TOKEN_MARGIN_SECONDS = 30
 # How many products to ask for. The one meant is among the first few or it
 # is not there: these are the closest matches to an exact number.
 _LIMIT = 10
+
+# How much of DigiKey's reason for not answering is quoted.
+_SAID_LENGTH = 300
 
 
 def _number(text: object) -> str:
@@ -147,11 +151,15 @@ class DigiKey:
                 granted = {}
             token = granted.get("access_token") if isinstance(granted, dict) else None
             if not token:
-                # The status and no more: what was sent holds the secret.
+                # The status and DigiKey's own reason, never what was sent:
+                # that holds the secret.
+                said = self._said(answer.text)
                 raise SupplierError(
-                    f"DigiKey gave no access token (HTTP {answer.status_code}); "
-                    "check DIGIKEY_CLIENT_ID and DIGIKEY_CLIENT_SECRET, and that the "
-                    "application is subscribed to Product Information v4"
+                    f"DigiKey gave no access token (HTTP {answer.status_code}"
+                    f"{f': {said}' if said else ''}). "
+                    "Check DIGIKEY_CLIENT_ID and DIGIKEY_CLIENT_SECRET, that they are "
+                    f"the keys for {self._base_url} (a sandbox application has its own), "
+                    "and that the application is subscribed to Product Information v4"
                 )
             self._token = str(token)
             self._token_expires = self._clock() + (_whole(granted.get("expires_in")) or 600)
@@ -160,6 +168,33 @@ class DigiKey:
     def _forget_token(self) -> None:
         with self._token_lock:
             self._token = None
+
+    def _said(self, body: str) -> str:
+        """DigiKey's reason for not answering, in a line.
+
+        Its errors come in two shapes: `ErrorMessage` and `ErrorDetails` from
+        the token call, `title` and `detail` from the others. Anything else is
+        quoted as it came, cut short. The keys are taken out of it, should
+        DigiKey ever say them back.
+        """
+        try:
+            data = json.loads(body)
+        except ValueError:
+            data = None
+        if isinstance(data, dict):
+            parts = [
+                str(data[key]).strip()
+                for key in ("ErrorMessage", "ErrorDetails", "title", "detail")
+                if isinstance(data.get(key), str) and data[key].strip()
+            ]
+            text = ": ".join(parts)
+        else:
+            text = body
+        text = " ".join(text.split())
+        for key in (self._client_secret, self._client_id):
+            if key:
+                text = text.replace(key, "…")
+        return text if len(text) <= _SAID_LENGTH else f"{text[:_SAID_LENGTH]}…"
 
     def _search(self, http: httpx.Client, query: Query) -> httpx.Response:
         return http.post(
@@ -190,11 +225,14 @@ class DigiKey:
         except httpx.HTTPError as exc:
             raise SupplierError(f"DigiKey could not be reached: {exc}") from exc
 
-        return Fetched(
+        fetched = Fetched(
             status=answer.status_code,
             body=answer.text,
             remaining=_whole(answer.headers.get("X-RateLimit-Remaining")),
         )
+        if fetched.answered:
+            return fetched
+        return replace(fetched, said=self._said(answer.text))
 
     # -- reading
 

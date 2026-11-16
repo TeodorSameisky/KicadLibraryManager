@@ -571,7 +571,11 @@ A supplier allows only so many calls a day, so a call is not made lightly:
   shown meanwhile.
 
 The status page shows, for each supplier, how many calls have gone to it today
-out of how many, how many answers are kept, and when it was last asked. What
+out of how many, how many answers are kept, and when it was last asked -- and,
+where it last did not answer, why, in the supplier's own words: keys that are
+not its keys, an application not subscribed to the API. A part's page says
+only that it did not answer; the reason is for whoever can do something
+about it. What
 is kept is the answer as the supplier gave it, and it is read again each time
 it is shown, so that a better reader can be put to answers already paid for.
 Copies of the database are made without these answers: they can be had again
