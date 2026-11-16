@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.forms import ManufacturerForm, PartForm, SourceEntry, TemplateForm
+from app.domain.parameters import Parameter
 from app.domain.parts import Lifecycle, Part, PartStatus
 from app.domain.templates import Template, TemplateField
 from app.library.history import History
@@ -194,6 +197,27 @@ class PartSummary(BaseModel):
         )
 
 
+class ParameterChoice(BaseModel):
+    """One value a parameter can be narrowed to, and how many parts of
+    the list it would leave."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    value: str
+    count: int
+
+
+class ParameterOut(BaseModel):
+    """Something the parts of a category can be told apart by."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    # Whether its values are quantities, so that `>=` and `<=` can be asked.
+    numeric: bool
+    choices: list[ParameterChoice]
+
+
 class PartList(BaseModel):
     state: str
     # `total` is the catalog and `matched` is what the filters selected.
@@ -202,9 +226,18 @@ class PartList(BaseModel):
     matched: int
     returned: int
     parts: list[PartSummary]
+    # What the list can be narrowed by next. Only within a category: what
+    # a field means is the category's to say.
+    parameters: list[ParameterOut]
 
     @classmethod
-    def of(cls, library: LibraryService, found: list[Part], limit: int) -> PartList:
+    def of(
+        cls,
+        library: LibraryService,
+        found: list[Part],
+        limit: int,
+        parameters: Sequence[Parameter] = (),
+    ) -> PartList:
         snapshot = library.snapshot
         page = found[:limit]
         return cls(
@@ -213,6 +246,7 @@ class PartList(BaseModel):
             matched=len(found),
             returned=len(page),
             parts=[PartSummary.of(part, snapshot) for part in page],
+            parameters=[ParameterOut.model_validate(parameter) for parameter in parameters],
         )
 
 

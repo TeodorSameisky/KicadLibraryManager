@@ -20,6 +20,9 @@ const dom = {
   search: document.getElementById("search"),
   count: document.getElementById("count"),
   filters: document.getElementById("filters"),
+  parameters: document.getElementById("parameters"),
+  parametersSummary: document.getElementById("parameters-summary"),
+  parametersList: document.getElementById("parameters-list"),
   results: document.getElementById("results"),
   indexStatus: document.getElementById("index-status"),
   sessionName: document.getElementById("session-name"),
@@ -31,7 +34,19 @@ const dom = {
 // Filters can arrive in the address, so that a part's page can link back to
 // "everything else in this category".
 const params = new URLSearchParams(window.location.search);
-const filters = { status: params.get("status"), category: params.get("category") };
+const filters = {
+  status: params.get("status"),
+  category: params.get("category"),
+  // What is asked of each parameter of the category, by its name:
+  // {op, value}. One condition each is all the panel asks; the API takes more.
+  where: new Map(),
+};
+for (const condition of params.getAll("where")) {
+  const found = /^(.*?)(>=|<=|=)(.*)$/.exec(condition);
+  if (found && found[1].trim() && found[3].trim()) {
+    filters.where.set(found[1].trim(), { op: found[2], value: found[3].trim() });
+  }
+}
 dom.search.value = params.get("q") || "";
 
 let facets = { statuses: [], categories: [] };
@@ -120,6 +135,8 @@ function categorySelect() {
      three keys getting to. */
   select.addEventListener("change", () => {
     filters.category = select.value || null;
+    // A resistance asked of capacitors would only empty the list.
+    filters.where.clear();
     wrap.classList.toggle("select--on", Boolean(filters.category));
     load();
   });
@@ -128,14 +145,121 @@ function categorySelect() {
 }
 
 const isNarrowed = () =>
-  Boolean(dom.search.value.trim() || filters.status || filters.category);
+  Boolean(dom.search.value.trim() || filters.status || filters.category || filters.where.size);
 
 function clearFilters() {
   filters.status = null;
   filters.category = null;
+  filters.where.clear();
   dom.search.value = "";
   renderFilters();
   load();
+}
+
+// ----------------------------------------------------------- parameters
+
+/* What the parts of the chosen category can be told apart by, each with a
+   dropdown of the values it takes among the parts the other conditions
+   leave. They come with every list, because what is left to choose depends
+   on what has been chosen.
+
+   A parameter whose values are quantities can also be asked to be at least
+   or at most one of them: the sign before the dropdown, changed by pressing
+   it. A voltage rating is wanted to be enough, not to be equal. */
+const OPS = [
+  { op: "=", sign: "=", says: "exactly" },
+  { op: ">=", sign: "\u2265", says: "at least" },
+  { op: "<=", sign: "\u2264", says: "at most" },
+];
+const opOf = (name) => OPS.find((o) => o.op === (filters.where.get(name) || {}).op) || OPS[0];
+
+let controls = new Map(); // name -> {element, update}, for what is on screen
+
+function parameterControl(name) {
+  const wrap = el("span", "param");
+  const select = el("select");
+  select.setAttribute("aria-label", name);
+  const box = el("span", "select");
+  box.append(select);
+
+  // Kept apart from the condition: the sign can be set before a value is.
+  let chosen = opOf(name);
+  const sign = button("param__op", chosen.sign, () => {
+    chosen = OPS[(OPS.indexOf(chosen) + 1) % OPS.length];
+    showSign();
+    if (!select.value) return;
+    filters.where.set(name, { op: chosen.op, value: select.value });
+    describeParameters();
+    load();
+  });
+  function showSign() {
+    sign.textContent = chosen.sign;
+    sign.title = `${name}: ${chosen.says} the value chosen. Press to change.`;
+    sign.setAttribute("aria-label", `${name}: ${chosen.says}`);
+  }
+  showSign();
+
+  select.addEventListener("change", () => {
+    if (select.value) filters.where.set(name, { op: chosen.op, value: select.value });
+    else filters.where.delete(name);
+    wrap.classList.toggle("param--on", Boolean(select.value));
+    box.classList.toggle("select--on", Boolean(select.value));
+    describeParameters();
+    load();
+  });
+
+  wrap.append(el("span", "param__name", name), sign, box);
+
+  /* The values are replaced and the element is kept: rebuilding it would
+     drop the focus of whoever just chose from it. */
+  function update(parameter) {
+    const asked = filters.where.get(name);
+    if (!parameter.numeric) chosen = OPS[0];
+    else if (asked) chosen = opOf(name);
+    sign.hidden = !parameter.numeric;
+    showSign();
+
+    const options = [new Option("any", "")];
+    for (const choice of parameter.choices) {
+      options.push(new Option(`${choice.value}  (${choice.count})`, choice.value));
+    }
+    // A value asked for that the list does not offer -- a bound typed into
+    // the address -- still has to be what the dropdown shows.
+    if (asked && !parameter.choices.some((choice) => choice.value === asked.value)) {
+      options.push(new Option(asked.value, asked.value));
+    }
+    select.replaceChildren(...options);
+    select.value = asked ? asked.value : "";
+    wrap.classList.toggle("param--on", Boolean(asked));
+    box.classList.toggle("select--on", Boolean(asked));
+  }
+
+  return { element: wrap, update };
+}
+
+/* Said on the fold itself, so that a list narrowed by something folded away
+   can still be explained. */
+function describeParameters() {
+  const asked = [...filters.where].map(
+    ([name, { op, value }]) => `${name} ${OPS.find((o) => o.op === op).sign} ${value}`
+  );
+  dom.parametersSummary.textContent = asked.length
+    ? `Parameters: ${asked.join(", ")}`
+    : "Parameters";
+  dom.parameters.classList.toggle("params--on", asked.length > 0);
+}
+
+function renderParameters(parameters) {
+  const names = parameters.map((parameter) => parameter.name);
+  // Built again only when the parameters themselves change: with another
+  // category, not with every value chosen.
+  if (names.join("\n") !== [...controls.keys()].join("\n")) {
+    controls = new Map(names.map((name) => [name, parameterControl(name)]));
+    dom.parametersList.replaceChildren(...[...controls.values()].map((c) => c.element));
+  }
+  for (const parameter of parameters) controls.get(parameter.name).update(parameter);
+  describeParameters();
+  dom.parameters.hidden = parameters.length === 0;
 }
 
 // ----------------------------------------------------------------- list
@@ -219,6 +343,7 @@ function describe(data) {
 
 function render(data) {
   const indexing = data.state === "syncing";
+  renderParameters(data.parameters || []);
   if (indexing) {
     show(
       stateBox(
@@ -277,6 +402,9 @@ async function load() {
   const query = new URLSearchParams({ q: dom.search.value });
   if (filters.status) query.set("status", filters.status);
   if (filters.category) query.set("category", filters.category);
+  for (const [name, { op, value }] of filters.where) {
+    query.append("where", `${name}${op}${value}`);
+  }
 
   try {
     const data = await api(`/api/v1/parts?${query}`);
@@ -291,6 +419,9 @@ async function load() {
         ? stateBox("Sign in to browse this library", "Use the button at the top of the panel.")
         : stateBox("The parts could not be loaded", error.message, [
             button("button", "Try again", load),
+            // A condition from the address that cannot be read is refused,
+            // and the dropdowns that would take it back are not on screen.
+            ...(filters.where.size ? [button("button", "Clear filters", clearFilters)] : []),
           ])
     );
   }

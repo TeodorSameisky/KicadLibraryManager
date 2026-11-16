@@ -11,6 +11,8 @@ repository on disk.
     parts      internal parts, manufacturer parts, and the words for their states
     manufacturers  one company under one name, however it was typed
     templates  what a category expects every part in it to carry
+    quantities a value as an engineer writes it, as a number
+    parameters what a category's parts are told apart by, and narrowing to it
     forms      a part or a template as someone asks for it to be, unchecked
     rules      what is asked of a part, said once for the library and the forms
     policy     who may change what

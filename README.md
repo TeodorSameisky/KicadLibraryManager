@@ -13,6 +13,7 @@ where it is used.
 
 - [How it works](#how-it-works)
 - [The library](#the-library)
+- [Finding a part](#finding-a-part)
 - [Requesting and approving parts](#requesting-and-approving-parts)
 - [BOMs and where used](#boms-and-where-used)
 - [Suppliers](#suppliers)
@@ -285,6 +286,61 @@ failure is shown on the status page.
 Everything that does not line up — a footprint no source has, a symbol whose
 parent is missing, an IPN in an undeclared category — is collected and listed
 at `/issues`, grouped by kind, with the repository-relative path to open.
+
+## Finding a part
+
+The catalog's search box finds a part somebody already half knows: it looks at
+the part number, the description, the field values, the manufacturer parts and
+who makes them. Choosing a part that is not known yet goes the other way: a
+category, and then what is wanted of it.
+
+Once a category is chosen the catalog shows its **parameters**: what its parts
+can be told apart by. Each is a name and a dropdown of the values it takes,
+with how many parts each value would leave:
+
+- **The parts' fields**: the template's fields in the template's order, then
+  `Value`, then any other field a part of the category carries.
+- **Footprint**, the footprint's name without its library, and
+  **Manufacturer**, who makes the part's sources, each under the one name the
+  [list of manufacturers](#manufacturers) gives it. Neither needs a field.
+
+A parameter is offered only if the category's parts differ in it; one that is
+the same for all of them narrows nothing.
+
+**Counts are of what is left.** The number beside a value is how many parts
+would remain if it were chosen, given everything chosen for the *other*
+parameters. Choosing 0603 does not make 0402 vanish from the packages: its
+count is what choosing it instead would give.
+
+**Values are read as quantities.** A field is text, written by hand, and text
+sorts 100k before 4k7. So `4k7`, `4R7`, `100nF`, `0.1 W`, `1/4W`, `1%` and
+`3V3` are read as the numbers they stand for: the values in a dropdown run
+from the smallest up, and `100mW` is the same amount as `0.1W`. Where every
+value of a parameter is a quantity, a sign appears before its dropdown;
+pressing it changes *exactly* (=) to *at least* (≥) or *at most* (≤). A
+voltage rating is wanted to be enough, not to be equal.
+
+What is read is how much, not of what: a unit is looked at only to tell a
+prefix from it, which is enough because the values compared are always one
+field's. A value that is not a quantity (`X7R`, `SOT-23`) can only be asked
+for exactly. A bare `m` is taken for milli, so lengths written as `1m` and
+`500mm` in one field will not line up.
+
+The parameters fold away under their heading, which then says what the list is
+narrowed by. Inside KiCad the panel is short, and the parts are what it is for.
+
+Over the API the same thing is `where`, given once for each condition:
+
+```
+/api/v1/parts?category=1102&where=Resistance>=4k7&where=Resistance<=10k&where=Package=0603
+```
+
+Two conditions that say what one parameter *is* are a choice between the two;
+everything else has to hold together. The answer carries `parameters`: each
+parameter of the category, whether it is a quantity, and its values with their
+counts. A condition that cannot be read is refused with the reason (422). The
+catalog takes the same conditions in its address, so a search can be linked
+to: `/panel?category=1102&where=Tolerance=1%25`.
 
 ## Requesting and approving parts
 
@@ -796,7 +852,7 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/auth/login?next=`, `/auth/callback` | Browser sign-in | ✓ |
 | `/api/v1/session/me`, `POST /api/v1/session/logout` | The current session | ✓ |
 | `/api/v1/status` | Index state per source, and the filters the catalog offers | |
-| `/api/v1/parts?q=&status=&category=&limit=` | Part search | |
+| `/api/v1/parts?q=&status=&category=&where=&limit=` | Part search. `where` narrows by what a part says about itself (`Resistance>=4k7`), and within a category the answer says what is left to choose | |
 | `/api/v1/parts/{ipn}` | One part, with its sources | |
 | `/api/v1/parts/{ipn}/assets` | What KiCad is sent to place it | |
 | `/api/v1/parts/{ipn}/symbol.svg`, `/footprint.svg`, `/model.step` | Drawings and the 3D model | |

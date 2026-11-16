@@ -8,11 +8,12 @@ locking on the read path.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
 from app.domain.parts import Mpn, Part, PartStatus
+from app.domain.templates import Template
 from app.library.assets import index_repository
 from app.library.catalog import Catalog, asset_issues, part_issues
 from app.library.files import has_parts
@@ -20,6 +21,11 @@ from app.library.issues import Issue, Severity, errors, warnings
 from app.library.parts import PartsIndex, load_parts
 from app.library.products import Products, load_products
 from app.library.sources import Checkout, Source
+
+# The two parameters every part has without a field for them. Both are names
+# a field may not have (`RESERVED_FIELDS`), so they cannot be mistaken for one.
+FOOTPRINT = "Footprint"
+MANUFACTURER = "Manufacturer"
 
 
 @dataclass(frozen=True)
@@ -134,6 +140,42 @@ class Snapshot:
             and (category is None or part.category == category)
             and (not needle or needle in text[part.ipn])
         ]
+
+    # -- parameters
+
+    @cached_property
+    def _parameter_values(self) -> dict[str, dict[str, tuple[str, ...]]]:
+        """What each part says for each thing it can be told apart by, by IPN.
+
+        Its fields, as written. And two things every part has without a field
+        for them: the footprint it goes on, and who makes it -- several names
+        where it has several sources, each under the one name the library
+        knows that manufacturer by.
+        """
+        found: dict[str, dict[str, tuple[str, ...]]] = {}
+        for part in self.parts.parts.values():
+            said: dict[str, tuple[str, ...]] = {
+                name: (value.strip(),) for name, value in part.fields.items() if value.strip()
+            }
+            footprint = part.footprint.rpartition(":")[2].strip()
+            if footprint:
+                said.setdefault(FOOTPRINT, (footprint,))
+            makers = {
+                self.parts.manufacturers.canonical(mpn.manufacturer)
+                for mpn in (self.parts.mpns.get(ref.mpn) for ref in part.mpns)
+                if mpn is not None and mpn.manufacturer.strip()
+            }
+            if makers:
+                said.setdefault(MANUFACTURER, tuple(sorted(makers, key=str.casefold)))
+            found[part.ipn] = said
+        return found
+
+    def parameter_values(self, part: Part) -> Mapping[str, tuple[str, ...]]:
+        """What a part says for each of its parameters. See above."""
+        return self._parameter_values.get(part.ipn, {})
+
+    def template(self, category: str) -> Template | None:
+        return self.parts.templates.get(category)
 
     def related(self, part: Part) -> list[Part]:
         """Other IPNs that share a manufacturer part with this one.

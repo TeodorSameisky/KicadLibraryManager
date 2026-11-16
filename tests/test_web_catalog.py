@@ -335,6 +335,7 @@ def test_the_app_answers_while_the_first_index_is_running(make_client, tree, tmp
             assert client.get("/api/v1/status").json()["state"] == "syncing"
             assert client.get("/api/v1/parts").json() == {
                 "state": "syncing", "total": 0, "matched": 0, "returned": 0, "parts": [],
+                "parameters": [],
             }  # fmt: skip
             assert client.get("/").status_code == 200
         finally:

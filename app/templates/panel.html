@@ -49,6 +49,15 @@
     {# Filled in from the index: the panel offers the filters this library
        supports, not a fixed list. #}
     <div class="filters" id="filters" hidden></div>
+
+    {# What the parts of the chosen category can be told apart by: its
+       resistance, its package. Filled in with each list, since what is
+       left to choose depends on what has been chosen. It folds, because
+       inside KiCad the panel is short and the parts are what it is for. #}
+    <details class="params" id="parameters" open hidden>
+      <summary><span id="parameters-summary">Parameters</span></summary>
+      <div class="params__list" id="parameters-list"></div>
+    </details>
   </div>
 
   <div id="results">

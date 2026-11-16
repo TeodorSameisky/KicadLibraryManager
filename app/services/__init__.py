@@ -14,6 +14,7 @@ answer into a response, and a script, a test or another way in can make the
 same call and be held to the same rules.
 
     changes    what every change to the library's repository has in common
+    search     finding parts: by words, and by what they say about themselves
     parts      requesting a part, correcting it, approving and retiring it
     templates  changing what a category asks of its parts
     manufacturers  keeping the list of who makes what, under one name each

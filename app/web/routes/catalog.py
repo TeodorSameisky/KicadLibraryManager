@@ -17,6 +17,7 @@ from app.library import previews
 from app.library.placement import asset_bundle
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
+from app.services import search
 from app.web.deps import get_library, get_settings, get_snapshot, require_access, require_part
 from app.web.schemas.library import AssetBundleOut, IndexStatus, IssueList, PartDetail, PartList
 
@@ -56,11 +57,20 @@ async def list_parts(
     q: str = Query("", max_length=200),
     status: str | None = Query(None, pattern=_STATUS),
     category: str | None = Query(None, max_length=64),
+    where: list[str] = Query(default_factory=list),
     limit: int = Query(100, ge=1, le=MAX_PARTS_PER_PAGE),
     library: LibraryService = Depends(get_library),
 ) -> PartList:
-    found = library.snapshot.search(q, status=status, category=category)
-    return PartList.of(library, found, limit)
+    """The parts that match, and -- within a category -- what they can be
+    narrowed by next.
+
+    `where` is a condition on what a part says about itself, and may be
+    given several times: `Resistance=10k`, `Voltage>=25V`, `Power<=0.25W`.
+    Two that say what one parameter *is* are a choice between them;
+    everything else has to hold together.
+    """
+    found = search.find(library.snapshot, q, status=status, category=category, where=where)
+    return PartList.of(library, found.parts, limit, found.parameters)
 
 
 @router.get("/parts/{ipn}")
