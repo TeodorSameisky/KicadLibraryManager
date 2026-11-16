@@ -10,6 +10,7 @@ repository on disk.
     refs       how a part names a symbol or a footprint
     parts      internal parts, manufacturer parts, and the words for their states
     templates  what a category expects every part in it to carry
+    forms      a part or a template as someone asks for it to be, unchecked
     rules      what is asked of a part, said once for the library and the forms
     policy     who may change what
 """

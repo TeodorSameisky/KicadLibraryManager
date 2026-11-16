@@ -9,13 +9,15 @@ from fastapi.testclient import TestClient
 
 from app.application import create_app
 from app.boms.store import BomStore
+from app.domain.forms import PartForm, SourceEntry
 from app.library import editing
-from app.library.editing import EditError, PartForm, SourceEntry
+from app.library.editing import EditError
 from app.library.files import mpn_file_stem
 from app.library.parts import load_parts
 from app.library.publish import Identity, Publisher, PublishError
 from app.library.service import LibraryService
 from app.library.sources import Source
+from app.services import parts
 from tests.conftest import OPEN, settings_for, sign_in, sign_in_librarian, wait_until_indexed
 from tests.support import PART, LibraryTree
 
@@ -52,13 +54,13 @@ def snapshot(tree):
 
 def problems(form, snapshot, new=True):
     with pytest.raises(EditError) as refused:
-        editing.check(form, snapshot, new=new)
+        parts.check(form, snapshot, new=new)
     return refused.value.problems
 
 
 def test_a_sensible_request_is_accepted(snapshot):
-    editing.check(form(), snapshot, new=True)
-    editing.check(form(category=""), snapshot, new=False), "an existing part keeps its category"
+    parts.check(form(), snapshot, new=True)
+    parts.check(form(category=""), snapshot, new=False), "an existing part keeps its category"
 
 
 @pytest.mark.parametrize(
@@ -94,13 +96,13 @@ def test_everything_wrong_is_said_at_once(snapshot):
 
 
 def test_a_part_may_have_no_footprint_and_no_sources(snapshot):
-    editing.check(form(footprint="", sources=()), snapshot, new=True)
+    parts.check(form(footprint="", sources=()), snapshot, new=True)
 
 
 def test_what_the_form_says_about_a_known_manufacturer_part_is_not_checked(snapshot):
     """It is not used either: one manufacturer part serves many parts."""
     known = SourceEntry("RC0603FR-0710KL", lifecycle="nonsense", datasheet="not a url")
-    editing.check(form(sources=(known,)), snapshot, new=True)
+    parts.check(form(sources=(known,)), snapshot, new=True)
 
 
 # -- writing the files ------------------------------------------------------

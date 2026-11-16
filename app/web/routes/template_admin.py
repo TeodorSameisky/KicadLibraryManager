@@ -10,12 +10,11 @@ from fastapi.responses import Response
 
 from app.domain.policy import Actor
 from app.domain.templates import RESERVED_FIELDS
-from app.library import template_editing as editing
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
 from app.services import templates
 from app.web.deps import get_actor, get_library, get_snapshot, require_access, require_librarian
-from app.web.schemas.library import NoteBody, TemplateBody, TemplateOutcome
+from app.web.schemas.library import NoteBody, TemplateBody, TemplateOut, TemplateOutcome
 from app.web.templating import render
 
 api = APIRouter(prefix="/api/v1/templates", tags=["templates"])
@@ -80,7 +79,7 @@ async def templates_page(
                 "parts": counts.get(category.code, 0),
                 "template": template,
                 "required": sum(spec.required for spec in template.fields) if template else 0,
-                "falling_short": editing.shortfall(snapshot, category.code).parts
+                "falling_short": templates.shortfall(snapshot, category.code).parts
                 if template
                 else 0,
             }
@@ -96,13 +95,15 @@ async def edit_template_page(
     library: LibraryService = Depends(get_library),
 ) -> Response:
     template = snapshot.parts.templates.get(category)
+    # What the form starts out holding: the template as it is, or nothing.
+    starting = TemplateOut.of(template) if template else TemplateOut(value="", fields=[])
     return render(
         request,
         "template_form.html",
         category=category,
         category_name=snapshot.category_name(category),
         has_template=template is not None,
-        data=editing.form_from(template),
+        data=starting.model_dump(),
         reserved=list(RESERVED_FIELDS),
         writable=library.writable,
     )

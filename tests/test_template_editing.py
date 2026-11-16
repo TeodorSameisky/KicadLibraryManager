@@ -4,10 +4,12 @@ import shutil
 
 import pytest
 
+from app.domain.forms import TemplateForm
 from app.domain.templates import TemplateField
 from app.library import template_editing as tpl
 from app.library.editing import EditError
 from app.library.parts import load_parts
+from app.services import templates
 from tests.conftest import sign_in_librarian
 from tests.support import PART
 
@@ -16,7 +18,7 @@ from tests.test_editing import REQUEST, repository, serve, snapshot, web  # noqa
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
-RESISTOR_FORM = tpl.TemplateForm(
+RESISTOR_FORM = TemplateForm(
     value="{Resistance} {Tolerance}",
     fields=(
         TemplateField("Resistance", required=True, example="10k"),
@@ -28,7 +30,7 @@ RESISTOR_FORM = tpl.TemplateForm(
 
 def problems_of(form, library, category="1102"):
     with pytest.raises(EditError) as refused:
-        tpl.check_template(form, library, category)
+        templates.check_template(form, library, category)
     return refused.value.problems
 
 
@@ -36,26 +38,26 @@ def problems_of(form, library, category="1102"):
 
 
 def test_a_sensible_template_is_accepted(snapshot):  # noqa: F811
-    tpl.check_template(RESISTOR_FORM, snapshot, "1102")
-    tpl.check_template(tpl.TemplateForm(), snapshot, "1102")  # one that asks nothing
+    templates.check_template(RESISTOR_FORM, snapshot, "1102")
+    templates.check_template(TemplateForm(), snapshot, "1102")  # one that asks nothing
 
 
 @pytest.mark.parametrize(
     "form,expected",
     [
-        (tpl.TemplateForm(fields=(TemplateField(" "),)), "Every field needs a name."),
-        (tpl.TemplateForm(fields=(TemplateField("A"), TemplateField("a"))), "a is listed twice."),
-        (tpl.TemplateForm(fields=(TemplateField("IPN"),)), "IPN is set from the part itself"),
+        (TemplateForm(fields=(TemplateField(" "),)), "Every field needs a name."),
+        (TemplateForm(fields=(TemplateField("A"), TemplateField("a"))), "a is listed twice."),
+        (TemplateForm(fields=(TemplateField("IPN"),)), "IPN is set from the part itself"),
         (
-            tpl.TemplateForm(fields=(TemplateField("T", options=("1%", "1%")),)),
+            TemplateForm(fields=(TemplateField("T", options=("1%", "1%")),)),
             "T lists an option twice.",
         ),
         (
-            tpl.TemplateForm(fields=(TemplateField("T", options=("1%",), default="5%"),)),
+            TemplateForm(fields=(TemplateField("T", options=("1%",), default="5%"),)),
             "T: the default '5%' is not one of its options.",
         ),
         (
-            tpl.TemplateForm(value="{Resistance}", fields=(TemplateField("R"),)),
+            TemplateForm(value="{Resistance}", fields=(TemplateField("R"),)),
             "The value pattern uses {Resistance}, which is not one of the fields.",
         ),
     ],
@@ -101,7 +103,7 @@ def test_a_template_is_written_as_a_person_would_write_it(tree):
 
 
 def test_what_is_written_reads_back_as_the_same_template(tree):
-    tricky = tpl.TemplateForm(
+    tricky = TemplateForm(
         value="{Note: odd}",
         fields=(
             TemplateField("Note: odd", example="a, b [c] # d", default="yes"),
@@ -125,7 +127,7 @@ def test_what_is_written_reads_back_as_the_same_template(tree):
 def test_anything_that_looks_like_a_number_is_quoted(tree):
     """`0805` is text to this parser and the number 805 to a YAML 1.2 one --
     and to a person reading the file. Quoted, it is the same to all of them."""
-    form = tpl.TemplateForm(
+    form = TemplateForm(
         fields=(
             TemplateField("Package", options=("0402", "0805", "1206", "SOT-23")),
             TemplateField("Pins", options=("8", "1.5", "1e3", "-5"), default="8"),
@@ -173,10 +175,10 @@ def test_the_parts_a_template_leaves_short_are_counted(tree):
     tpl.write_template(tree.root, "1102", "x", RESISTOR_FORM)
     tree.part("1102-0002", PART.replace("  Value: 10k\n", "  Resistance: 1k\n  Tolerance: 1%\n"))
 
-    short = tpl.shortfall(tree.snapshot(), "1102")
+    short = templates.shortfall(tree.snapshot(), "1102")
 
     assert (short.parts, short.of) == (1, 2)
-    assert tpl.shortfall(tree.snapshot(), "1101") == tpl.Shortfall(parts=0, of=0)
+    assert templates.shortfall(tree.snapshot(), "1101") == templates.Shortfall(parts=0, of=0)
 
 
 # -- through the web --------------------------------------------------------

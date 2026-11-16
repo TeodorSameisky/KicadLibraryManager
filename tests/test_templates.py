@@ -2,13 +2,15 @@
 
 import pytest
 
+from app.domain.forms import PartForm
 from app.domain.templates import Template, TemplateField
 from app.kicad.symbol import properties
 from app.library import editing
-from app.library.editing import EditError, PartForm
+from app.library.editing import EditError
 from app.library.issues import errors, warnings
 from app.library.parts import load_parts
 from app.library.placement import PlacementOptions, placed_symbol
+from app.services import parts
 from tests.conftest import sign_in
 from tests.support import PART
 
@@ -173,12 +175,12 @@ def snapshot(tree):
 
 
 def test_a_request_that_fills_the_template_is_accepted(snapshot):
-    editing.check(request(), snapshot, new=True)
+    parts.check(request(), snapshot, new=True)
 
 
 def test_a_request_missing_a_mandatory_field_is_refused(snapshot):
     with pytest.raises(EditError) as refused:
-        editing.check(request(fields={"Tolerance": "10%"}), snapshot, new=True)
+        parts.check(request(fields={"Tolerance": "10%"}), snapshot, new=True)
 
     assert refused.value.problems == [
         "Resistance is required.",
@@ -191,8 +193,8 @@ def test_an_edit_is_held_to_the_template_of_the_part_s_own_category(snapshot):
     incomplete = request(category="", fields={})
 
     with pytest.raises(EditError, match="Resistance is required"):
-        editing.check(incomplete, snapshot, new=False, category="1102")
-    editing.check(incomplete, snapshot, new=False, category="1101"), "no template there"
+        parts.check(incomplete, snapshot, new=False, category="1102")
+    parts.check(incomplete, snapshot, new=False, category="1101"), "no template there"
 
 
 def test_a_field_left_empty_is_not_written(tree):

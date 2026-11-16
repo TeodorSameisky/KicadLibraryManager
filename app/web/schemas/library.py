@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.forms import PartForm, SourceEntry, TemplateForm
 from app.domain.parts import Lifecycle, Part, PartStatus
 from app.domain.templates import Template, TemplateField
-from app.library import editing, template_editing
-from app.library.editing import PartForm, SourceEntry
 from app.library.history import History
 from app.library.placement import AssetBundle
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
-from app.library.template_editing import Shortfall, TemplateForm
+from app.services import templates
+from app.services.changes import MAX_NOTE
+from app.services.templates import Shortfall
 
 # -- the index ----------------------------------------------------------------
 
@@ -405,7 +406,7 @@ class PartBody(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
     sources: list[SourceBody] = Field(default_factory=list)
     # Said by the person, for the library's history: what this is and why.
-    note: str = Field("", max_length=editing.MAX_NOTE)
+    note: str = Field("", max_length=MAX_NOTE)
 
     def form(self) -> PartForm:
         return PartForm(
@@ -429,7 +430,7 @@ class PartBody(BaseModel):
 
 class StatusBody(BaseModel):
     status: str = Field(pattern=f"^({'|'.join(PartStatus)})$")
-    note: str = Field("", max_length=editing.MAX_NOTE)
+    note: str = Field("", max_length=MAX_NOTE)
 
 
 # -- templates ------------------------------------------------------------------
@@ -438,7 +439,7 @@ class StatusBody(BaseModel):
 class FieldBody(BaseModel):
     name: str = Field(max_length=60)
     required: bool = False
-    options: list[str] = Field(default_factory=list, max_length=template_editing.MAX_OPTIONS + 1)
+    options: list[str] = Field(default_factory=list, max_length=templates.MAX_OPTIONS + 1)
     example: str = Field("", max_length=100)
     default: str = Field("", max_length=200)
 
@@ -447,10 +448,8 @@ class TemplateBody(BaseModel):
     """A category's template as someone asks for it to be."""
 
     value: str = Field("", max_length=200)
-    fields: list[FieldBody] = Field(
-        default_factory=list, max_length=template_editing.MAX_FIELDS + 1
-    )
-    note: str = Field("", max_length=editing.MAX_NOTE)
+    fields: list[FieldBody] = Field(default_factory=list, max_length=templates.MAX_FIELDS + 1)
+    note: str = Field("", max_length=MAX_NOTE)
 
     def form(self) -> TemplateForm:
         return TemplateForm(
@@ -470,7 +469,7 @@ class TemplateBody(BaseModel):
 
 
 class NoteBody(BaseModel):
-    note: str = Field("", max_length=editing.MAX_NOTE)
+    note: str = Field("", max_length=MAX_NOTE)
 
 
 class TemplateOutcome(BaseModel):

@@ -8,8 +8,8 @@ import re
 
 import pytest
 
-from app.library.editing import MAX_NOTE, with_note
 from app.library.history import read_history
+from app.services.changes import MAX_NOTE, with_note
 from tests.conftest import sign_in_librarian
 
 # The fixtures that build a repository and an app over it.

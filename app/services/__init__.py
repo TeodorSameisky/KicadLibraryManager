@@ -2,7 +2,10 @@
 
 Requesting a part, approving it, changing a template, uploading a BOM. Each
 function is the whole of one such action: who may do it, whether what was
-asked makes sense, the change itself, and what came of it. It is given who is
+asked makes sense, the change itself, and what came of it. Deciding whether
+a request makes sense is done here and nowhere else -- `parts.check`,
+`templates.check_template` -- against the library as it stands; what is
+below only writes down what was accepted. It is given who is
 asking and what they asked for, and either returns the outcome or raises one
 of the errors in `app.errors`.
 

@@ -11,8 +11,8 @@ snapshot   one finished index of all of the above, and the questions
 placement  what KiCad is sent when a part is placed
 previews   the same part, drawn
 
-editing    what a part's form does to the files
-template_editing   and what a template's form does
+editing    what an accepted part form does to the files
+template_editing   and what an accepted template form does
 publish    committing a change in someone's name, and pushing it
 history    what was changed in a file, put into words
 

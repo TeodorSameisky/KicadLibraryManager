@@ -16,12 +16,12 @@ from app.auth.identity import Principal
 from app.auth.roles import actor_for
 from app.boms.parse import BomError
 from app.boms.store import BomExists, BomStore, StoreUnavailable
+from app.domain.forms import TemplateForm
 from app.domain.policy import Actor
 from app.domain.templates import TemplateField
 from app.errors import AppError, Invalid, NotAllowed, NotFound, Unavailable
 from app.library.editing import EditError
 from app.library.service import LibraryService
-from app.library.template_editing import TemplateForm
 from app.services import boms, changes, parts, templates
 from app.services.boms import BomUpload
 from app.web.errors import _STATUS, app_error

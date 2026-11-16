@@ -12,8 +12,8 @@ from app.domain.policy import Actor
 from app.domain.refs import LibraryRef
 from app.domain.rules import Finding, Rule
 from app.domain.templates import Template, TemplateField, placeholders
-from app.library import editing
 from app.library import parts as parts_loader
+from app.services import parts as part_service
 
 # -- the words for a part's state ---------------------------------------------
 
@@ -151,7 +151,7 @@ def test_every_rule_has_its_words_for_the_issue_list_and_for_the_form():
     for rule in Rule:
         issue = parts_loader.part_issue(Finding(rule, "why"), part)
         assert issue.kind == rule.value and issue.message and issue.path == "parts/x.yaml"
-        assert editing._SENTENCES[rule]
+        assert part_service._SENTENCES[rule]
 
 
 # -- templates ----------------------------------------------------------------
