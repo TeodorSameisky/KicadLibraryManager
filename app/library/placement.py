@@ -19,10 +19,11 @@ from pathlib import Path
 
 import zstandard
 
+from app.domain.parts import Part
+from app.errors import Conflict
 from app.kicad import symbol as symbol_tree
 from app.kicad.sexpr import ParseError, SExpr, dumps, loads
 from app.library.assets import BrokenInheritance, Footprint, Symbol
-from app.library.parts import Part
 from app.library.refs import LibraryRef, model_key
 from app.library.snapshot import Snapshot
 
@@ -31,7 +32,7 @@ from app.library.snapshot import Snapshot
 INLINE_WARN_BYTES = 2 * 1024 * 1024
 
 
-class PlacementError(Exception):
+class PlacementError(Conflict):
     """A part cannot be turned into something worth placing.
 
     The message names library assets, never server paths, so it is safe to

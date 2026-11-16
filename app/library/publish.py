@@ -14,11 +14,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.errors import UpstreamFailed
 from app.library.sources import Source, SourceError, _git, credentials
 
 
-class PublishError(Exception):
+class PublishError(UpstreamFailed):
     """A change could not be committed or pushed."""
+
+    def detail(self) -> str:
+        return f"The change could not be saved to the repository: {self}"
 
 
 class PushRejected(PublishError):

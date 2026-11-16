@@ -2,11 +2,12 @@
 
 import pytest
 
+from app.domain.templates import Template, TemplateField
 from app.kicad.symbol import properties
 from app.library import editing
 from app.library.editing import EditError, PartForm
 from app.library.issues import errors, warnings
-from app.library.parts import Template, TemplateField, load_parts
+from app.library.parts import load_parts
 from app.library.placement import PlacementOptions, placed_symbol
 from tests.conftest import sign_in
 from tests.support import PART

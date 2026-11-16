@@ -1,155 +1,27 @@
-"""Internal part numbers and the manufacturer parts that satisfy them.
+"""Reading the parts out of a library's repository.
 
-An IPN is what gets placed in KiCad. It names a symbol and a footprint from
-the asset libraries, carries the field values, and lists the manufacturer
-parts approved for it.
-
-MPNs are documents of their own rather than entries inside each IPN, because
-one MPN can satisfy several IPNs. That is also what makes obsolescence
-answerable: a lifecycle change is one edit, and the reverse lookup says which
-parts it reaches.
-
-    categories.yaml              the category codes an IPN may start with
-    templates/<category>.yaml    the fields a part in that category carries
-    mpns/<MPN>.yaml              one manufacturer part
-    parts/<category>/<IPN>.yaml  one internal part
+What a part is belongs to `app.domain`, and where the files are and how they
+are written down belongs to `app.library.files`. This is what lies between:
+what each file says is held to what such a file has to say, and gathered into
+one index, with everything that was wrong reported and nothing given up on.
 """
 
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from app.library.issues import Issue
-
-IPN_PATTERN = re.compile(r"^(?P<category>[A-Za-z0-9]+)-(?P<number>\d+)$")
-
-PART_STATUSES = ("draft", "approved", "obsolete")
-LIFECYCLES = ("active", "nrnd", "obsolete", "unknown")
+from app.domain import rules
+from app.domain.parts import IPN_PATTERN, Category, Lifecycle, Mpn, MpnRef, Part, PartStatus
+from app.domain.rules import Finding, Rule
+from app.domain.templates import Template, TemplateField
+from app.library import files
+from app.library.issues import Issue, Severity
 
 # Returned for a file that could not be read at all. Distinct from None, which
 # is what an empty file parses to and is reported as malformed like any other.
 _UNREADABLE: Any = object()
-
-
-def mpn_file_stem(mpn: str) -> str:
-    """The file name a manufacturer part is kept under, without `.yaml`.
-
-    Usually the part number itself. But part numbers contain slashes, colons
-    and spaces -- "LM358/NOPB" -- which a file name cannot, so those become
-    underscores.
-    """
-    return re.sub(r"[^A-Za-z0-9._+#()-]", "_", mpn.strip())
-
-
-@dataclass(frozen=True)
-class Category:
-    code: str
-    name: str
-
-
-@dataclass(frozen=True)
-class TemplateField:
-    name: str
-    required: bool = False
-    options: tuple[str, ...] = ()  # the only values allowed, if any are given
-    example: str = ""  # shown in the empty field, to say what belongs there
-    default: str = ""  # what the field starts out holding
-
-
-_PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
-
-
-@dataclass(frozen=True)
-class Template:
-    """What every part in a category is expected to say about itself.
-
-    A resistor without a resistance is not a part anyone can choose. The
-    template is where a category says so, once, instead of each part being
-    left to remember it.
-    """
-
-    category: str
-    fields: tuple[TemplateField, ...] = ()
-    # What KiCad's own Value field should show, built from the part's fields:
-    # "{Resistance}". Only used for a part that sets no Value of its own.
-    value: str = ""
-
-    def problems(self, fields: Mapping[str, str]) -> list[str]:
-        """What a part's fields are missing or have wrong, as sentences."""
-        found = []
-        for expected in self.fields:
-            given = fields.get(expected.name, "").strip()
-            if not given:
-                if expected.required:
-                    found.append(f"{expected.name} is required.")
-            elif expected.options and given not in expected.options:
-                found.append(
-                    f"{expected.name} must be one of {', '.join(expected.options)}; "
-                    f"it is {given!r}."
-                )
-        return found
-
-    def value_for(self, fields: Mapping[str, str]) -> str:
-        """The Value this template builds from a part's fields, or ""."""
-        built = _PLACEHOLDER.sub(lambda match: fields.get(match.group(1).strip(), ""), self.value)
-        return " ".join(built.split())
-
-
-@dataclass(frozen=True)
-class Mpn:
-    mpn: str
-    manufacturer: str = ""
-    description: str = ""
-    datasheet: str = ""
-    lifecycle: str = "unknown"
-
-    @property
-    def datasheet_url(self) -> str | None:
-        """The datasheet, if it is something a page can safely link to.
-
-        The value comes out of a repository file. Anything that is not a web
-        address -- a `javascript:` URL above all -- is shown as text instead.
-        """
-        return self.datasheet if self.datasheet.startswith(("https://", "http://")) else None
-
-
-@dataclass(frozen=True)
-class MpnRef:
-    """An IPN's mention of a manufacturer part."""
-
-    mpn: str
-    preferred: bool = False
-
-
-@dataclass(frozen=True)
-class Part:
-    ipn: str
-    description: str = ""
-    status: str = "draft"
-    symbol: str = ""
-    footprint: str = ""
-    fields: Mapping[str, str] = field(default_factory=dict)
-    mpns: tuple[MpnRef, ...] = ()
-    path: str = ""  # relative to the repository it came from
-
-    @property
-    def category(self) -> str:
-        match = IPN_PATTERN.match(self.ipn)
-        return match.group("category") if match else ""
-
-    @property
-    def preferred_mpn(self) -> str | None:
-        """The marked source, or the first listed when none is marked."""
-        for ref in self.mpns:
-            if ref.preferred:
-                return ref.mpn
-        return self.mpns[0].mpn if self.mpns else None
 
 
 @dataclass
@@ -171,6 +43,47 @@ class PartsIndex:
         )
 
 
+# -- a part that falls short, as an issue ------------------------------------
+
+# How each rule is weighed and worded for a part that is already in the
+# library. Most are errors. The two that are not are the ones a part can fall
+# short of and still be placed as it was meant.
+_ISSUES: dict[Rule, tuple[Severity, str]] = {
+    Rule.NO_DESCRIPTION: (
+        Severity.WARNING,
+        "{ipn} has no description; the number alone is unsearchable",
+    ),
+    Rule.NO_SYMBOL: (Severity.ERROR, "{ipn} names no symbol"),
+    Rule.UNQUALIFIED_SYMBOL: (Severity.ERROR, "symbol {symbol!r} is not <library>:<name>"),
+    Rule.MISSING_SYMBOL: (
+        Severity.ERROR,
+        "{ipn} names symbol {symbol!r}, which no source provides",
+    ),
+    # Reported against the symbol too, but this is the line that says which
+    # part cannot be placed because of it.
+    Rule.UNPLACEABLE: (Severity.ERROR, "{ipn} cannot be placed: {detail}"),
+    Rule.UNQUALIFIED_FOOTPRINT: (
+        Severity.ERROR,
+        "footprint {footprint!r} is not <library>:<name>",
+    ),
+    Rule.MISSING_FOOTPRINT: (
+        Severity.ERROR,
+        "{ipn} names footprint {footprint!r}, which no source provides",
+    ),
+    Rule.TEMPLATE: (Severity.WARNING, "{ipn}: {detail}"),
+    Rule.MULTIPLE_PREFERRED: (Severity.ERROR, "more than one MPN is marked preferred"),
+}
+
+
+def part_issue(finding: Finding, part: Part) -> Issue:
+    """What a part in the library falls short of, as an entry for the issue list."""
+    severity, wording = _ISSUES[finding.rule]
+    message = wording.format(
+        ipn=part.ipn, symbol=part.symbol, footprint=part.footprint, detail=finding.detail
+    )
+    return Issue(severity, finding.rule.value, message, part.path)
+
+
 # -- loading ---------------------------------------------------------------
 
 
@@ -184,19 +97,17 @@ class _Loader:
 
     def read(self, path: Path) -> tuple[Any, str]:
         """A file's parsed content, or _UNREADABLE with the reason recorded."""
-        relative = path.relative_to(self.root).as_posix()
+        relative = files.relative(self.root, path)
         try:
-            return yaml.safe_load(path.read_text(encoding="utf-8")), relative
-        except yaml.YAMLError as exc:
-            self.report(Issue.error("invalid-yaml", str(exc).split("\n")[0], relative))
-        except (OSError, UnicodeDecodeError) as exc:
-            self.report(Issue.error("unreadable", str(exc), relative))
+            return files.read(path), relative
+        except files.Unreadable as exc:
+            self.report(Issue.error(exc.kind, str(exc), relative))
         return _UNREADABLE, relative
 
     # -- categories.yaml
 
     def load_categories(self) -> None:
-        path = self.root / "categories.yaml"
+        path = files.categories_file(self.root)
         if not path.is_file():
             self.report(
                 Issue.warning(
@@ -223,7 +134,7 @@ class _Loader:
     # -- templates/
 
     def load_templates(self) -> None:
-        for path in sorted((self.root / "templates").glob("*.yaml")):
+        for path in files.template_files(self.root):
             data, relative = self.read(path)
             if data is _UNREADABLE:
                 continue
@@ -302,7 +213,7 @@ class _Loader:
     # -- mpns/
 
     def load_mpns(self) -> None:
-        for path in sorted((self.root / "mpns").glob("*.yaml")):
+        for path in files.mpn_files(self.root):
             data, relative = self.read(path)
             if data is _UNREADABLE:
                 continue
@@ -311,19 +222,19 @@ class _Loader:
                 continue
 
             mpn = str(data["mpn"])
-            if mpn_file_stem(mpn) != path.stem:
+            if files.mpn_file_stem(mpn) != path.stem:
                 self.report(
                     Issue.warning(
                         "name-mismatch", f"mpn {mpn!r} is in file {path.stem!r}", relative
                     )
                 )
 
-            lifecycle = str(data.get("lifecycle") or "unknown")
-            if lifecycle not in LIFECYCLES:
+            lifecycle = str(data.get("lifecycle") or Lifecycle.UNKNOWN)
+            if lifecycle not in Lifecycle:
                 self.report(
                     Issue.warning(
                         "bad-lifecycle",
-                        f"lifecycle {lifecycle!r} is not one of {', '.join(LIFECYCLES)}",
+                        f"lifecycle {lifecycle!r} is not one of {', '.join(Lifecycle)}",
                         relative,
                     )
                 )
@@ -343,8 +254,8 @@ class _Loader:
     # -- parts/
 
     def load_parts(self) -> None:
-        parts_dir = self.root / "parts"
-        for path in sorted(parts_dir.rglob("*.yaml")):
+        parts_dir = files.parts_directory(self.root)
+        for path in files.part_files(self.root):
             data, relative = self.read(path)
             if data is _UNREADABLE:
                 continue
@@ -355,12 +266,12 @@ class _Loader:
             ipn = str(data["ipn"])
             self._check_number(ipn, path, parts_dir, relative)
 
-            status = str(data.get("status") or "draft")
-            if status not in PART_STATUSES:
+            status = str(data.get("status") or PartStatus.DRAFT)
+            if status not in PartStatus:
                 self.report(
                     Issue.warning(
                         "bad-status",
-                        f"status {status!r} is not one of {', '.join(PART_STATUSES)}",
+                        f"status {status!r} is not one of {', '.join(PartStatus)}",
                         relative,
                     )
                 )
@@ -434,11 +345,6 @@ class _Loader:
                 refs.append(MpnRef(str(entry["mpn"]), bool(entry.get("preferred"))))
             else:
                 self.report(Issue.error("bad-mpn-ref", f"malformed entry: {entry!r}", relative))
-
-        if sum(ref.preferred for ref in refs) > 1:
-            self.report(
-                Issue.error("multiple-preferred", "more than one MPN is marked preferred", relative)
-            )
         return tuple(refs)
 
     # -- what only shows once everything is loaded
@@ -446,22 +352,21 @@ class _Loader:
     def check(self) -> None:
         mpns = self.index.mpns
         for part in self.index.parts.values():
-            if not part.symbol:
-                self.report(Issue.error("no-symbol", f"{part.ipn} names no symbol", part.path))
-            if not part.description:
-                self.report(
-                    Issue.warning(
-                        "no-description",
-                        f"{part.ipn} has no description; the number alone is unsearchable",
-                        part.path,
-                    )
-                )
+            # What is asked of any part, of a requested one as much as of this
+            # one. Whether its symbol and footprint exist is looked at later,
+            # against every source at once.
+            for finding in rules.part_findings(
+                description=part.description,
+                symbol=part.symbol,
+                fields=part.fields,
+                preferred=[ref.preferred for ref in part.mpns],
+                template=self.index.templates.get(part.category),
+            ):
+                self.report(part_issue(finding, part))
 
-            template = self.index.templates.get(part.category)
-            for problem in template.problems(part.fields) if template else ():
-                self.report(Issue.warning("template", f"{part.ipn}: {problem}", part.path))
-
-            approved = part.status == "approved"
+            # What can only be asked of a part that is already in the library:
+            # how it stands with the manufacturer parts it lists.
+            approved = part.status == PartStatus.APPROVED
             if approved and not part.mpns:
                 self.report(
                     Issue.warning(
@@ -480,7 +385,7 @@ class _Loader:
                             part.path,
                         )
                     )
-                elif approved and mpns[ref.mpn].lifecycle == "obsolete":
+                elif approved and mpns[ref.mpn].lifecycle == Lifecycle.OBSOLETE:
                     self.report(
                         Issue.warning(
                             "obsolete-mpn",
@@ -488,11 +393,6 @@ class _Loader:
                             part.path,
                         )
                     )
-
-
-def has_parts(root: Path) -> bool:
-    """Whether a repository carries part definitions at all."""
-    return (root / "parts").is_dir()
 
 
 def load_parts(root: Path) -> PartsIndex:

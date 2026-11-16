@@ -10,6 +10,6 @@ records of what was built, arrive by upload, and are queried by part -- so
 they live in a database, next to the library's clones on the data volume.
 
     parse    a KiCad BOM export, read into lines
-    store    BOMs kept in SQLite, and looked up by part
+    store    BOMs kept in the database, and looked up by part
     report   a stored BOM set against the library
 """

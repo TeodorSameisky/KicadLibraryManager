@@ -6,35 +6,31 @@
  * there when it lands -- and this sends it, one command at a time, waiting for
  * KiCad's answer to each.
  */
-(() => {
-  "use strict";
+import { api } from "./app.js";
+import { bridge } from "./bridge.js";
 
-  /* Place `ipn`. Resolves with the warnings the server had about it (a
-     footprint it could not find, a model too large to send safely), and
-     rejects with the reason if it could not be placed.
+/* Place `ipn`. Resolves with the warnings the server had about it (a
+   footprint it could not find, a model too large to send safely), and
+   rejects with the reason if it could not be placed.
 
-     `onWarnings` is called as soon as they are known, before anything is
-     sent, so that they can be shown while the part is on its way.
-     `log` is told each step. */
-  async function place(ipn, { log = () => {}, onWarnings = () => {} } = {}) {
-    const bridge = window.KicadBridge;
-    if (!bridge.isEmbedded()) throw new Error("Parts can only be placed from inside KiCad.");
+   `onWarnings` is called as soon as they are known, before anything is
+   sent, so that they can be shown while the part is on its way.
+   `log` is told each step. */
+export async function place(ipn, { log = () => {}, onWarnings = () => {} } = {}) {
+  if (!bridge.isEmbedded()) throw new Error("Parts can only be placed from inside KiCad.");
 
-    log(`Fetching ${ipn}`);
-    const bundle = await window.App.api(`/api/v1/parts/${encodeURIComponent(ipn)}/assets`);
+  log(`Fetching ${ipn}`);
+  const bundle = await api(`/api/v1/parts/${encodeURIComponent(ipn)}/assets`);
 
-    for (const warning of bundle.warnings) log(`Warning: ${warning}`);
-    if (bundle.warnings.length) onWarnings(bundle.warnings);
+  for (const warning of bundle.warnings) log(`Warning: ${warning}`);
+  if (bundle.warnings.length) onWarnings(bundle.warnings);
 
-    await bridge.whenReady();
-    for (const asset of bundle.assets) {
-      log(`Sending ${asset.filename}`);
-      await bridge.send(asset.command, asset.parameters, asset.data);
-    }
-
-    log(`Placed ${ipn}`);
-    return bundle.warnings;
+  await bridge.whenReady();
+  for (const asset of bundle.assets) {
+    log(`Sending ${asset.filename}`);
+    await bridge.send(asset.command, asset.parameters, asset.data);
   }
 
-  window.Place = { place };
-})();
+  log(`Placed ${ipn}`);
+  return bundle.warnings;
+}

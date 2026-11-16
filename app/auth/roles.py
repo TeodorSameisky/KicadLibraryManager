@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Collection
 
 from app.auth.identity import Principal
+from app.domain.policy import Actor
 
 # The claims a librarian may be listed by. Not `name`: that is what a person
 # chooses to be called, and two people can choose the same thing.
@@ -43,3 +44,22 @@ def is_librarian(
         if principal.claims.get(claim)
     )
     return not listed.isdisjoint(known_as)
+
+
+def actor_for(
+    principal: Principal | None,
+    librarians: Collection[str],
+    *,
+    auth_configured: bool,
+    hostname: str,
+) -> Actor:
+    """Whoever is asking, as the rules about who may change what see them.
+
+    `hostname` is this deployment's, for the address given to someone the
+    identity provider gave none.
+    """
+    return Actor(
+        librarian=is_librarian(principal, librarians, auth_configured=auth_configured),
+        name=principal.display_name if principal else "",
+        email=principal.address(hostname) if principal else f"nobody@users.noreply.{hostname}",
+    )

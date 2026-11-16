@@ -228,7 +228,7 @@ def test_old_versions_are_fetched_with_the_token_too(monkeypatch, tmp_path):
         seen.update(root=root, env=env)
         return "history"
 
-    monkeypatch.setattr("app.library.service.read_history", read)
+    monkeypatch.setattr("app.library.history.read_history", read)
     service = LibraryService([PRIVATE], tmp_path, token=TOKEN)
     service._checkouts = {"company": tmp_path}
     service._snapshot = Snapshot(
@@ -242,7 +242,7 @@ def test_old_versions_are_fetched_with_the_token_too(monkeypatch, tmp_path):
 def test_a_public_source_s_old_versions_are_fetched_without_it(monkeypatch, tmp_path):
     seen = {}
     monkeypatch.setattr(
-        "app.library.service.read_history",
+        "app.library.history.read_history",
         lambda root, relative, limit, env: seen.setdefault("env", env),
     )
     service = LibraryService([PUBLIC], tmp_path, token=TOKEN)

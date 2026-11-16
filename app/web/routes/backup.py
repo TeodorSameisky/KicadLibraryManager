@@ -7,20 +7,17 @@ This is how a librarian puts a copy somewhere that is not this server.
 
 from __future__ import annotations
 
-import logging
 import os
 import tempfile
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from app.boms.backup import BackupError, Backups, copy_database
+from app.db.backup import BackupError, Backups, copy_database
 from app.web.deps import get_backups, require_librarian
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["backup"], dependencies=[Depends(require_librarian)])
 
@@ -37,11 +34,9 @@ def download_backup(backups: Backups = Depends(get_backups)) -> FileResponse:
     copy = Path(name)
     try:
         copy_database(backups.database, copy)
-    except BackupError as exc:
+    except BackupError:
         copy.unlink(missing_ok=True)
-        # The reason names a path on the server; it goes to the log, not the page.
-        log.warning("a backup could not be made on request: %s", exc)
-        raise HTTPException(status_code=503, detail="A backup cannot be made right now.") from exc
+        raise
 
     stamp = time.strftime("%Y-%m-%d", time.gmtime())
     return FileResponse(

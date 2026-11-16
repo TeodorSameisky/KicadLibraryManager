@@ -204,6 +204,7 @@ def test_a_bom_database_from_before_devices_gets_the_column_and_keeps_its_boms(t
     kept = bom(store, project="Old")
     with sqlite3.connect(path) as connection:
         connection.execute("ALTER TABLE boms DROP COLUMN device")
+        connection.execute("PRAGMA user_version = 0")  # steps were not numbered then either
 
     reopened = BomStore(path)
 

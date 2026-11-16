@@ -4,6 +4,7 @@ import shutil
 
 import pytest
 
+from app.domain.templates import TemplateField
 from app.library import template_editing as tpl
 from app.library.editing import EditError
 from app.library.parts import load_parts
@@ -18,9 +19,9 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not 
 RESISTOR_FORM = tpl.TemplateForm(
     value="{Resistance} {Tolerance}",
     fields=(
-        tpl.FieldSpec("Resistance", required=True, example="10k"),
-        tpl.FieldSpec("Tolerance", required=True, options=("0.1%", "1%", "5%"), default="1%"),
-        tpl.FieldSpec("Package", options=("0402", "0603")),
+        TemplateField("Resistance", required=True, example="10k"),
+        TemplateField("Tolerance", required=True, options=("0.1%", "1%", "5%"), default="1%"),
+        TemplateField("Package", options=("0402", "0603")),
     ),
 )
 
@@ -42,19 +43,19 @@ def test_a_sensible_template_is_accepted(snapshot):  # noqa: F811
 @pytest.mark.parametrize(
     "form,expected",
     [
-        (tpl.TemplateForm(fields=(tpl.FieldSpec(" "),)), "Every field needs a name."),
-        (tpl.TemplateForm(fields=(tpl.FieldSpec("A"), tpl.FieldSpec("a"))), "a is listed twice."),
-        (tpl.TemplateForm(fields=(tpl.FieldSpec("IPN"),)), "IPN is set from the part itself"),
+        (tpl.TemplateForm(fields=(TemplateField(" "),)), "Every field needs a name."),
+        (tpl.TemplateForm(fields=(TemplateField("A"), TemplateField("a"))), "a is listed twice."),
+        (tpl.TemplateForm(fields=(TemplateField("IPN"),)), "IPN is set from the part itself"),
         (
-            tpl.TemplateForm(fields=(tpl.FieldSpec("T", options=("1%", "1%")),)),
+            tpl.TemplateForm(fields=(TemplateField("T", options=("1%", "1%")),)),
             "T lists an option twice.",
         ),
         (
-            tpl.TemplateForm(fields=(tpl.FieldSpec("T", options=("1%",), default="5%"),)),
+            tpl.TemplateForm(fields=(TemplateField("T", options=("1%",), default="5%"),)),
             "T: the default '5%' is not one of its options.",
         ),
         (
-            tpl.TemplateForm(value="{Resistance}", fields=(tpl.FieldSpec("R"),)),
+            tpl.TemplateForm(value="{Resistance}", fields=(TemplateField("R"),)),
             "The value pattern uses {Resistance}, which is not one of the fields.",
         ),
     ],
@@ -103,8 +104,8 @@ def test_what_is_written_reads_back_as_the_same_template(tree):
     tricky = tpl.TemplateForm(
         value="{Note: odd}",
         fields=(
-            tpl.FieldSpec("Note: odd", example="a, b [c] # d", default="yes"),
-            tpl.FieldSpec("Pins", options=("2", "4", "08", "true", "1.5")),
+            TemplateField("Note: odd", example="a, b [c] # d", default="yes"),
+            TemplateField("Pins", options=("2", "4", "08", "true", "1.5")),
         ),
     )
     tree.standard()
@@ -126,8 +127,8 @@ def test_anything_that_looks_like_a_number_is_quoted(tree):
     and to a person reading the file. Quoted, it is the same to all of them."""
     form = tpl.TemplateForm(
         fields=(
-            tpl.FieldSpec("Package", options=("0402", "0805", "1206", "SOT-23")),
-            tpl.FieldSpec("Pins", options=("8", "1.5", "1e3", "-5"), default="8"),
+            TemplateField("Package", options=("0402", "0805", "1206", "SOT-23")),
+            TemplateField("Pins", options=("8", "1.5", "1e3", "-5"), default="8"),
         )
     )
     tree.standard()

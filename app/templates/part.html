@@ -44,7 +44,7 @@
      The row is also where Place goes, which is offered only inside KiCad's
      panel and revealed by the script there, so without these edit actions the
      row starts out hidden: empty, it would only be a gap. #}
-  {% set can_change = writable and (librarian or part.status == "draft") %}
+  {% set can_change = writable and may_edit(part) %}
   <div class="actions" id="part-actions"{% if not can_change %} hidden{% endif %}>
     <button type="button" class="button" id="place-button" data-ipn="{{ part.ipn }}" hidden>Place in KiCad</button>
     {% if can_change %}
@@ -223,17 +223,16 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ root_path }}/static/js/place.js"></script>
-  <script src="{{ root_path }}/static/js/part-place.js"></script>
-  {% if writable and (librarian or part.status == "draft") %}
-    <script src="{{ root_path }}/static/js/part-form.js"></script>
+  <script type="module" src="{{ root_path }}/static/js/part-place.js"></script>
+  {% if writable and may_edit(part) %}
+    <script type="module" src="{{ root_path }}/static/js/part-form.js"></script>
   {% endif %}
   {% if symbol_svg and footprint_svg %}
-    <script src="{{ root_path }}/static/js/pin-map.js"></script>
+    <script type="module" src="{{ root_path }}/static/js/pin-map.js"></script>
   {% endif %}
   {# Only where there is a model. The viewer's kernel is megabytes, and it is
      fetched when asked for, never in case it might be. #}
   {% if has_model %}
-    <script src="{{ root_path }}/static/js/model-viewer.js"></script>
+    <script type="module" src="{{ root_path }}/static/js/model-viewer.js"></script>
   {% endif %}
 {% endblock %}

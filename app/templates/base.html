@@ -13,14 +13,18 @@
     {% block head %}{% endblock %}
   </head>
   {# Each script reads its configuration from data attributes on <body>, so
-     the script files themselves are static and can be cached. #}
+     the script files themselves are static and can be cached.
+
+     The scripts at the end of the page are modules: each imports what it
+     uses, so a page names only its own and the order of the tags decides
+     nothing. The two in the head are not, because a module is never run
+     before the page is drawn, and those two have to be. #}
   <body data-base-path="{{ root_path }}" {% block body_attrs %}{% endblock %}>
     <main class="page {% block page_class %}{% endblock %}">
       {% block content %}{% endblock %}
     </main>
-    <script src="{{ root_path }}/static/js/app.js"></script>
     {# Inside KiCad, a link that leaves the app must not navigate the panel. #}
-    <script src="{{ root_path }}/static/js/external-links.js"></script>
+    <script type="module" src="{{ root_path }}/static/js/external-links.js"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

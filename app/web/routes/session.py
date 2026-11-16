@@ -18,7 +18,6 @@ app as the client:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
@@ -35,6 +34,7 @@ from app.auth.redirects import is_internal, landing_url
 from app.auth.sessions import Session, SessionStore
 from app.config import Settings
 from app.web.deps import current_session, get_identity, get_sessions, get_settings
+from app.web.schemas.system import Me
 
 log = logging.getLogger(__name__)
 
@@ -190,15 +190,10 @@ async def callback(
 # -- the session itself -----------------------------------------------------
 
 
-@router.get("/api/v1/session/me")
-async def me(session: Session | None = Depends(current_session)) -> dict[str, Any]:
-    if session is None:
-        return {"authenticated": False}
-    return {
-        "authenticated": True,
-        "subject": session.subject,
-        "display_name": session.display_name,
-    }
+# Without what is None: with nobody signed in there is no one to name.
+@router.get("/api/v1/session/me", response_model_exclude_none=True)
+async def me(session: Session | None = Depends(current_session)) -> Me:
+    return Me.of(session)
 
 
 @router.post("/api/v1/session/logout", status_code=204)

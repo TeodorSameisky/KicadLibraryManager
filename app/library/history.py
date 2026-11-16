@@ -20,9 +20,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import yaml
-
-from app.library.sources import SourceError, _git
+from app.domain.parts import PartStatus
+from app.errors import Unavailable
+from app.library import files
+from app.library.sources import Source, SourceError, _git, credentials
 
 DEFAULT_LIMIT = 50
 
@@ -34,8 +35,11 @@ _SSH_URL = re.compile(r"^[\w.-]+@(?P<host>[\w.-]+):(?P<path>[\w./-]+?)(?:\.git)?
 _UNREADABLE: Any = object()
 
 
-class HistoryUnavailable(Exception):
+class HistoryUnavailable(Unavailable):
     """The history cannot be read. The message says why, in words for a reader."""
+
+    def detail(self) -> str:
+        return f"No history: {self}."
 
 
 @dataclass(frozen=True)
@@ -87,7 +91,7 @@ def describe(old: Any, new: Any) -> tuple[str, ...]:
         return ()
 
     if old is None:
-        made = [f"Created as {_text(new.get('status')) or 'draft'}."]
+        made = [f"Created as {_text(new.get('status')) or PartStatus.DRAFT}."]
         if new.get("description"):
             made.append(f"Description: {new['description']}")
         return tuple(made)
@@ -155,8 +159,8 @@ def _order(line: str) -> int:
 
 def _load(text: str) -> Any:
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError:
+        data = files.parse(text)
+    except files.Unreadable:
         return _UNREADABLE
     return data if isinstance(data, dict) else _UNREADABLE
 
@@ -233,6 +237,46 @@ def read_history(
         changes.append(Change(sha, float(when), author, subject, what, note.strip()))
 
     return History(changes=tuple(changes), more=len(entries) > limit)
+
+
+class Histories:
+    """Histories already read, remembered until the library moves on.
+
+    Reading one runs git and may fetch old versions from the git host, so the
+    first view of a part with a long history can take a moment. The answer is
+    kept under the commit the source was at, so asking again costs nothing
+    until there is something new to say.
+    """
+
+    def __init__(self, token: str | None = None, *, room: int = 512) -> None:
+        # For the old versions of files in a private repository: their
+        # contents are fetched from the git host, which wants to know who asks.
+        self._token = token
+        self._room = room
+        self._remembered: dict[tuple[str | None, str, int], History] = {}
+
+    def read(
+        self,
+        repository: Path,
+        source: Source | None,
+        commit: str | None,
+        path: str,
+        limit: int = DEFAULT_LIMIT,
+    ) -> History:
+        """The changes to `path` in `repository`, which is `source` at `commit`.
+
+        Blocking: it runs git.
+        """
+        key = (commit, path, limit)
+        remembered = self._remembered.get(key)
+        if remembered is None:
+            # The token goes to a source marked private and to no other.
+            env = credentials(source.url, self._token) if source and source.private else {}
+            remembered = read_history(repository, path, limit, env)
+            if len(self._remembered) >= self._room:
+                self._remembered.clear()  # a cache; losing it only costs a re-read
+            self._remembered[key] = remembered
+        return remembered
 
 
 def commit_url(source_url: str, commit: str) -> str | None:

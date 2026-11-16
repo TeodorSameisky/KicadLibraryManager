@@ -11,7 +11,8 @@ from app.application import create_app
 from app.boms.store import BomStore
 from app.library import editing
 from app.library.editing import EditError, PartForm, SourceEntry
-from app.library.parts import load_parts, mpn_file_stem
+from app.library.files import mpn_file_stem
+from app.library.parts import load_parts
 from app.library.publish import Identity, Publisher, PublishError
 from app.library.service import LibraryService
 from app.library.sources import Source

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +13,9 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from app import __version__
-from app.auth.roles import is_librarian
+from app.auth.roles import actor_for
 from app.boms.parse import compact_references
+from app.domain import policy
 
 _APP_DIR = Path(__file__).resolve().parent.parent
 
@@ -33,7 +35,7 @@ class RevalidatedStaticFiles(StaticFiles):
     for the 7 MB CAD kernel.
     """
 
-    def file_response(self, *args, **kwargs):
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
         response = super().file_response(*args, **kwargs)
         response.headers["Cache-Control"] = "no-cache"
         return response
@@ -59,6 +61,12 @@ def render(request: Request, template: str, *, status_code: int = 200, **context
     """
     settings = request.app.state.settings
     session = request.app.state.sessions.get(request.cookies.get(settings.cookie_name))
+    actor = actor_for(
+        session.principal if session else None,
+        settings.librarians,
+        auth_configured=settings.auth_configured,
+        hostname=settings.hostname,
+    )
     return templates.TemplateResponse(
         request=request,
         name=template,
@@ -71,11 +79,10 @@ def render(request: Request, template: str, *, status_code: int = 200, **context
             # Decides which actions a page offers. What a route allows is
             # decided by the route; this only keeps a page from offering a
             # button that would be refused.
-            "librarian": is_librarian(
-                session.principal if session else None,
-                settings.librarians,
-                auth_configured=settings.auth_configured,
-            ),
+            "librarian": actor.librarian,
+            # Asked by a page of a part, so that the page and the route that
+            # would refuse it are told the same thing.
+            "may_edit": partial(policy.may_edit, actor),
             **context,
         },
     )

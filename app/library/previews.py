@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from app.domain.parts import Part
 from app.kicad.render import render_footprint, render_symbol
 from app.kicad.sexpr import ParseError, loads
 from app.library.assets import Footprint
-from app.library.parts import Part
 from app.library.placement import PlacementError, PlacementOptions, placed_symbol
 from app.library.refs import LibraryRef, model_key
 from app.library.snapshot import Snapshot

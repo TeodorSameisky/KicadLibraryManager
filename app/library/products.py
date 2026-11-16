@@ -29,8 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from app.library import files
 from app.library.issues import Issue
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -127,10 +126,6 @@ class Products:
 # -- loading ----------------------------------------------------------------
 
 
-def has_products(root: Path) -> bool:
-    return (root / "products").is_dir()
-
-
 def _text(data: dict[str, Any], key: str) -> str:
     value = data.get(key)
     return " ".join(str(value).split()) if value is not None else ""
@@ -219,15 +214,12 @@ def load_products(root: Path) -> tuple[Products, list[Issue]]:
     issues: list[Issue] = []
     families: list[Family] = []
 
-    for path in sorted((root / "products").glob("*.yaml"), key=lambda p: p.name.casefold()):
-        relative = path.relative_to(root).as_posix()
+    for path in files.product_files(root):
+        relative = files.relative(root, path)
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            issues.append(Issue.error("invalid-yaml", str(exc).split("\n")[0], relative))
-            continue
-        except (OSError, UnicodeDecodeError) as exc:
-            issues.append(Issue.error("unreadable", str(exc), relative))
+            data = files.read(path)
+        except files.Unreadable as exc:
+            issues.append(Issue.error(exc.kind, str(exc), relative))
             continue
 
         family = path.stem

@@ -55,12 +55,20 @@ def test_the_page_listens_to_kicad_before_kicad_speaks(library_client):
     assert 'data-server-version="' in bridge
 
 
-def test_the_placing_code_is_loaded_before_what_uses_it(library_client):
-    part = library_client.get("/ipn/1102-0001").text
-    assert part.index("static/js/place.js") < part.index("static/js/part-place.js")
+def test_the_placing_code_is_one_module_that_both_pages_import(library_client):
+    """A page names its own script, and the script says what it uses: the
+    order of the tags no longer decides anything."""
+    for page, script in (("/ipn/1102-0001", "part-place.js"), ("/panel", "panel.js")):
+        assert f'type="module" src="/static/js/{script}"' in library_client.get(page).text
+        source = library_client.get(f"/static/js/{script}").text
+        assert 'import { place } from "./place.js";' in source, script
 
-    panel = library_client.get("/panel").text
-    assert panel.index("static/js/place.js") < panel.index("static/js/panel.js")
+    place = library_client.get("/static/js/place.js").text
+    assert "export async function place(" in place
+    # The bridge is the one thing a module cannot import directly: it is an
+    # ordinary script in the head, and bridge.js is how the modules reach it.
+    assert 'import { bridge } from "./bridge.js";' in place
+    assert library_client.get("/static/js/bridge.js").status_code == 200
 
 
 @pytest.mark.parametrize("script", ["place.js", "part-place.js"])

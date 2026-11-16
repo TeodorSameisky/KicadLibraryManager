@@ -38,7 +38,12 @@ NAMES = [
 @pytest.fixture(scope="module")
 def results():
     done = subprocess.run(
-        ["node", str(HARNESS)], capture_output=True, text=True, timeout=60, check=False
+        # The flag is what lets the harness load a module into a page of its own.
+        ["node", "--experimental-vm-modules", "--no-warnings", str(HARNESS)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
     )
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)

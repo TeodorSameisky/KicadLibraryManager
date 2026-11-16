@@ -32,6 +32,13 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]
 
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+# Strict throughout: every function says what it takes and returns, and
+# nothing is left as Any without saying so.
+strict = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

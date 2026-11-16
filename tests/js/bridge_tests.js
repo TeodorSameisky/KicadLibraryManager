@@ -1,8 +1,13 @@
 /* Runs the page scripts that talk to KiCad against a pretend KiCad.
  *
- * They are plain browser scripts with no module system, so each is run in a
- * fresh context holding only what a page would give it. Prints a JSON object:
- * the name of each test, and whether it passed.
+ * Each is run in a fresh context holding only what a page would give it. The
+ * two that are loaded in a page's head are ordinary scripts and are run as
+ * such; the rest are modules, loaded the way a browser loads them, with what
+ * they import. Prints a JSON object: the name of each test, and whether it
+ * passed.
+ *
+ * Needs `node --experimental-vm-modules`, which is what lets a module be
+ * loaded into a context of its own.
  */
 "use strict";
 
@@ -13,6 +18,29 @@ const vm = require("vm");
 const SCRIPTS = path.join(__dirname, "..", "..", "app", "static", "js");
 const read = (name) => fs.readFileSync(path.join(SCRIPTS, name), "utf8");
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/* Load one of the page's modules into a context, and whatever it imports
+   with it. `stubs` stands in for a module by name: what it exports, given as
+   an object, in place of the file. Returns what the module exports. */
+async function load(name, context, stubs = {}) {
+  const loaded = new Map();
+  const find = (specifier) => {
+    const file = specifier.replace(/^\.\//, "");
+    if (!loaded.has(file)) {
+      const stub = stubs[file];
+      loaded.set(file, stub
+        ? new vm.SyntheticModule(Object.keys(stub), function () {
+            for (const [key, value] of Object.entries(stub)) this.setExport(key, value);
+          }, { context, identifier: file })
+        : new vm.SourceTextModule(read(file), { context, identifier: file }));
+    }
+    return loaded.get(file);
+  };
+  const module = find(name);
+  await module.link(find);
+  await module.evaluate();
+  return module.namespace;
+}
 
 class Storage {
   constructor() { this.data = new Map(); }
@@ -172,7 +200,7 @@ test("junk-in-storage-is-ignored", async () => {
 
 // -- placing ------------------------------------------------------------
 
-function placing({ embedded = true, failAt = null } = {}) {
+async function placing({ embedded = true, failAt = null } = {}) {
   const calls = [];
   const bundle = {
     warnings: ["footprint is large"],
@@ -183,7 +211,6 @@ function placing({ embedded = true, failAt = null } = {}) {
     ],
   };
   const win = {
-    App: { api: async (url) => { calls.push(["api", url]); return bundle; } },
     KicadBridge: {
       isEmbedded: () => embedded,
       whenReady: async () => { calls.push(["ready"]); },
@@ -194,12 +221,17 @@ function placing({ embedded = true, failAt = null } = {}) {
     },
   };
   win.window = win;
-  vm.runInNewContext(read("place.js"), { window: win, encodeURIComponent, Promise });
-  return { place: win.Place.place, calls };
+  // bridge.js is the real one: it hands the modules what the head script left
+  // on the window. app.js is stood in for, there being no server to ask.
+  const context = vm.createContext({ window: win, encodeURIComponent, Promise });
+  const { place } = await load("place.js", context, {
+    "app.js": { api: async (url) => { calls.push(["api", url]); return bundle; } },
+  });
+  return { place, calls };
 }
 
 test("place-sends-in-order", async () => {
-  const { place, calls } = placing();
+  const { place, calls } = await placing();
   const warnings = await place("1102-0001");
 
   equal(calls.map((c) => c.join(":")), [
@@ -210,7 +242,7 @@ test("place-sends-in-order", async () => {
 });
 
 test("place-warns-before-sending", async () => {
-  const { place, calls } = placing();
+  const { place, calls } = await placing();
   let when = null;
   await place("1102-0001", { onWarnings: () => { when = calls.length; } });
 
@@ -218,7 +250,7 @@ test("place-warns-before-sending", async () => {
 });
 
 test("place-stops-on-error", async () => {
-  const { place, calls } = placing({ failAt: "DL_3DMODEL" });
+  const { place, calls } = await placing({ failAt: "DL_3DMODEL" });
 
   let message = null;
   await place("1102-0001").catch((error) => { message = error.message; });
@@ -228,7 +260,7 @@ test("place-stops-on-error", async () => {
 });
 
 test("place-needs-kicad", async () => {
-  const { place, calls } = placing({ embedded: false });
+  const { place, calls } = await placing({ embedded: false });
 
   let message = null;
   await place("1102-0001").catch((error) => { message = error.message; });
@@ -242,7 +274,7 @@ test("place-needs-kicad", async () => {
 test("in-kicad-detection", async () => {
   /* The head script decides, and says so on the page; the other scripts ask
      the page. */
-  const inside = (host) => {
+  const inside = async (host) => {
     const classes = new Set();
     const document = {
       body: { dataset: {} },
@@ -251,20 +283,20 @@ test("in-kicad-detection", async () => {
     const win = { ...host };
     win.window = win;
     vm.runInNewContext(read("in-kicad.js"), { window: win, document, Boolean });
-    vm.runInNewContext(read("app.js"), {
+    const app = await load("app.js", vm.createContext({
       window: win, document, fetch: () => {}, Promise, Object, Array, Error, String, Boolean,
-    });
+    }));
     const marked = classes.has("in-kicad");
-    assert(win.App.inKicad() === marked, "the page and the scripts agree");
+    assert(app.inKicad() === marked, "the page and the scripts agree");
     return marked;
   };
 
-  equal(inside({}), false, "an ordinary browser");
-  equal(inside({ chrome: {} }), false, "Chrome has window.chrome and no webview");
-  equal(inside({ chrome: { webview: {} } }), true, "KiCad on Windows");
-  equal(inside({ webkit: { messageHandlers: { kicad: {} } } }), true, "KiCad on macOS and Linux");
-  equal(inside({ webkit: { messageHandlers: {} } }), false, "some other WebKit host");
-  equal(inside({ external: { invoke() {} } }), true, "the older host bridge");
+  equal(await inside({}), false, "an ordinary browser");
+  equal(await inside({ chrome: {} }), false, "Chrome has window.chrome and no webview");
+  equal(await inside({ chrome: { webview: {} } }), true, "KiCad on Windows");
+  equal(await inside({ webkit: { messageHandlers: { kicad: {} } } }), true, "KiCad on macOS and Linux");
+  equal(await inside({ webkit: { messageHandlers: {} } }), false, "some other WebKit host");
+  equal(await inside({ external: { invoke() {} } }), true, "the older host bridge");
 });
 
 (async () => {

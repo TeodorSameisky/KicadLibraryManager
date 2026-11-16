@@ -4,11 +4,10 @@
  * place into, and the page is the same page a placed symbol's Datasheet field
  * opens, which is read in a browser.
  */
-(() => {
-  "use strict";
+import { el, inKicad } from "./app.js";
+import { place } from "./place.js";
 
-  const { el, inKicad } = window.App;
-
+function start() {
   const button = document.getElementById("place-button");
   const actions = document.getElementById("part-actions");
   const result = document.getElementById("place-result");
@@ -32,7 +31,7 @@
     say(null, "");
 
     try {
-      const warnings = await window.Place.place(button.dataset.ipn, {
+      const warnings = await place(button.dataset.ipn, {
         // Shown while it is on its way, not after: a missing footprint is
         // worth knowing before the part lands without a land pattern.
         onWarnings: (found) => say("warn", found.join(" ")),
@@ -48,4 +47,6 @@
       button.disabled = false;
     }
   });
-})();
+}
+
+start();

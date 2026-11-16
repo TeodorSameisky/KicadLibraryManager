@@ -26,6 +26,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.errors import Unavailable
+
 log = logging.getLogger(__name__)
 
 _NAME = re.compile(r"^library-manager-(\d{4}-\d{2}-\d{2})\.db$")
@@ -38,8 +40,12 @@ CHECK_EVERY_SECONDS = 3600
 DUE_AFTER_SECONDS = 20 * 3600
 
 
-class BackupError(Exception):
+class BackupError(Unavailable):
     """A copy of the database could not be made."""
+
+    def detail(self) -> str:
+        # The reason names a path on the server; it goes to the log, not the page.
+        return "A backup cannot be made right now."
 
 
 @dataclass(frozen=True)

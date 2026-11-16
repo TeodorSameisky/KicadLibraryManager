@@ -7,42 +7,46 @@ settings and library.
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Request
+from typing import cast
+
+from fastapi import Depends, Request
 
 from app.auth.oidc import OidcClient
-from app.auth.roles import is_librarian
+from app.auth.roles import actor_for
 from app.auth.sessions import Session, SessionStore
-from app.boms.backup import Backups
 from app.boms.store import BomStore
 from app.config import Settings
-from app.library.parts import Part
+from app.db.backup import Backups
+from app.domain.parts import Part
+from app.domain.policy import Actor
+from app.errors import NotAllowed, NotFound
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
 from app.web.errors import NotSignedIn
 
 
 def get_settings(request: Request) -> Settings:
-    return request.app.state.settings
+    return cast(Settings, request.app.state.settings)
 
 
 def get_sessions(request: Request) -> SessionStore:
-    return request.app.state.sessions
+    return cast(SessionStore, request.app.state.sessions)
 
 
 def get_identity(request: Request) -> OidcClient:
-    return request.app.state.identity
+    return cast(OidcClient, request.app.state.identity)
 
 
 def get_library(request: Request) -> LibraryService:
-    return request.app.state.library
+    return cast(LibraryService, request.app.state.library)
 
 
 def get_boms(request: Request) -> BomStore:
-    return request.app.state.boms
+    return cast(BomStore, request.app.state.boms)
 
 
 def get_backups(request: Request) -> Backups:
-    return request.app.state.backups
+    return cast(Backups, request.app.state.backups)
 
 
 def get_snapshot(library: LibraryService = Depends(get_library)) -> Snapshot:
@@ -78,20 +82,32 @@ def require_access(
     return session
 
 
-def require_librarian(
+def get_actor(
     settings: Settings = Depends(get_settings),
+    session: Session | None = Depends(current_session),
+) -> Actor:
+    """Whoever is asking, as the rules about who may change what see them."""
+    return actor_for(
+        session.principal if session else None,
+        settings.librarians,
+        auth_configured=settings.auth_configured,
+        hostname=settings.hostname,
+    )
+
+
+def require_librarian(
     session: Session | None = Depends(require_access),
+    actor: Actor = Depends(get_actor),
 ) -> Session | None:
     """Let a librarian through. Asked after `require_access`, so someone who
     is not signed in is told to sign in, not that they lack a role."""
-    principal = session.principal if session else None
-    if not is_librarian(principal, settings.librarians, auth_configured=settings.auth_configured):
-        raise HTTPException(status_code=403, detail="Only a librarian can do this.")
+    if not actor.librarian:
+        raise NotAllowed("Only a librarian can do this.")
     return session
 
 
 def require_part(ipn: str, snapshot: Snapshot = Depends(get_snapshot)) -> Part:
     part = snapshot.part(ipn)
     if part is None:
-        raise HTTPException(status_code=404, detail=f"There is no part {ipn}")
+        raise NotFound(f"There is no part {ipn}")
     return part

@@ -171,7 +171,8 @@ def _is_leaf(node: SExpr | str) -> bool:
 
 
 def _inline(node: SExpr) -> str:
-    return "(" + " ".join(_token(item) for item in node.items) + ")"
+    # A leaf holds no lists, which is what the check says to a type checker.
+    return "(" + " ".join(_token(i) for i in node.items if not isinstance(i, SExpr)) + ")"
 
 
 def _write_points(points: list[SExpr], indent: int, out: list[str]) -> None:
@@ -205,11 +206,12 @@ def _write(node: SExpr, indent: int, out: list[str]) -> None:
     # The tokens before the first nested list ride on the opening line; from
     # there on everything gets a line of its own, in the order it was read.
     split = next(i for i, item in enumerate(node.items) if isinstance(item, SExpr))
-    out.append(pad + "(" + " ".join(_token(item) for item in node.items[:split]))
+    opening = [item for item in node.items[:split] if not isinstance(item, SExpr)]
+    out.append(pad + "(" + " ".join(_token(item) for item in opening))
 
     rest = node.items[split:]
     if node.head == "pts" and all(_is_leaf(item) for item in rest):
-        _write_points(rest, indent + 1, out)
+        _write_points([item for item in rest if isinstance(item, SExpr)], indent + 1, out)
     else:
         for item in rest:
             if isinstance(item, SExpr):

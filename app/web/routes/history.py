@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from app.config import Settings
+from app.domain.parts import Part
 from app.library.history import DEFAULT_LIMIT, History, HistoryUnavailable, commit_url
-from app.library.parts import Part
 from app.library.service import LibraryService
 from app.web.deps import get_library, get_settings, require_access, require_part
+from app.web.schemas.library import PartHistory
 from app.web.templating import render
 
 api = APIRouter(prefix="/api/v1", tags=["history"])
@@ -24,6 +22,11 @@ def _commit_link(library: LibraryService, settings: Settings, commit: str) -> st
     wanted = library.snapshot.parts_source
     source = next((s for s in settings.library_sources if s.id == wanted), None)
     return commit_url(source.url, commit) if source else None
+
+
+def _links(library: LibraryService, settings: Settings, history: History) -> dict[str, str | None]:
+    """Each change's commit on the git host, by commit."""
+    return {c.commit: _commit_link(library, settings, c.commit) for c in history.changes}
 
 
 def _history(library: LibraryService, part: Part) -> History:
@@ -39,27 +42,9 @@ def part_history(
     part: Part = Depends(require_part),
     library: LibraryService = Depends(get_library),
     settings: Settings = Depends(get_settings),
-) -> Any:
-    try:
-        history = _history(library, part)
-    except HistoryUnavailable as exc:
-        return JSONResponse(status_code=503, content={"detail": f"No history: {exc}."})
-    return {
-        "ipn": part.ipn,
-        "more": history.more,
-        "changes": [
-            {
-                "commit": change.commit,
-                "when": change.when,
-                "author": change.author,
-                "subject": change.subject,
-                "note": change.note,
-                "what": list(change.what),
-                "url": _commit_link(library, settings, change.commit),
-            }
-            for change in history.changes
-        ],
-    }
+) -> PartHistory:
+    history = _history(library, part)
+    return PartHistory.of(part, history, _links(library, settings, history))
 
 
 @pages.get("/ipn/{ipn}/history")
@@ -82,7 +67,7 @@ def history_page(
         part=part,
         history=history,
         unavailable=unavailable,
-        links={c.commit: _commit_link(library, settings, c.commit) for c in history.changes},
+        links=_links(library, settings, history),
         limit=DEFAULT_LIMIT,
     )
 

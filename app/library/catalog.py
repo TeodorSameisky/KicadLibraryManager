@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.library.assets import AssetIndex, BrokenInheritance, Footprint, Model, Symbol
+from app.domain import rules
+from app.library.assets import AssetIndex, Footprint, Model, Symbol
 from app.library.issues import Issue
-from app.library.parts import PartsIndex
+from app.library.parts import PartsIndex, part_issue
 from app.library.refs import LibraryRef, model_key
 
 
@@ -144,46 +145,7 @@ def asset_issues(catalog: Catalog) -> list[Issue]:
 def part_issues(parts: PartsIndex, catalog: Catalog, source: str) -> list[Issue]:
     """What the parts loader reported, plus each part's assets resolved."""
     found = [issue.from_source(source) for issue in parts.issues]
-
-    def report(kind: str, message: str, path: str) -> None:
-        found.append(Issue.error(kind, message, path).from_source(source))
-
     for part in parts.parts.values():
-        if part.symbol:
-            ref = LibraryRef.parse(part.symbol)
-            if ref is None:
-                report(
-                    "unqualified-symbol",
-                    f"symbol {part.symbol!r} is not <library>:<name>",
-                    part.path,
-                )
-            else:
-                try:
-                    catalog.symbol_ancestry(ref)
-                except LookupError:
-                    report(
-                        "missing-symbol",
-                        f"{part.ipn} names symbol {part.symbol!r}, which no source provides",
-                        part.path,
-                    )
-                except BrokenInheritance as exc:
-                    # Reported against the symbol too, but this is the line
-                    # that says which part cannot be placed because of it.
-                    report("unplaceable", f"{part.ipn} cannot be placed: {exc}", part.path)
-
-        if part.footprint:
-            ref = LibraryRef.parse(part.footprint)
-            if ref is None:
-                report(
-                    "unqualified-footprint",
-                    f"footprint {part.footprint!r} is not <library>:<name>",
-                    part.path,
-                )
-            elif catalog.footprint(ref) is None:
-                report(
-                    "missing-footprint",
-                    f"{part.ipn} names footprint {part.footprint!r}, which no source provides",
-                    part.path,
-                )
-
+        for finding in rules.asset_findings(part.symbol, part.footprint, catalog):
+            found.append(part_issue(finding, part).from_source(source))
     return found

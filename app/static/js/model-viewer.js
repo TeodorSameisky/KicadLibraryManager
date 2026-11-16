@@ -8,15 +8,14 @@
  * The kernel is 7.6 MB, so nothing below is fetched until the viewer is asked
  * for.
  */
-(() => {
-  "use strict";
+import { base } from "./app.js";
 
+function start() {
   const mount = document.getElementById("model-viewer");
   const loadButton = document.getElementById("model-load");
   const statusLine = document.getElementById("model-status");
   if (!mount || !loadButton) return;
 
-  const base = document.body.dataset.basePath || "";
   const vendor = `${base}/static/vendor`;
   const modelUrl = `${base}/api/v1/parts/${encodeURIComponent(mount.dataset.ipn)}/model.step`;
 
@@ -254,4 +253,6 @@
       setStatus(`The model cannot be shown: ${error.message}`);
     }
   });
-})();
+}
+
+start();

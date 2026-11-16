@@ -64,7 +64,7 @@ def _paint(node: SExpr) -> str:
     fill = node.child("fill")
     kind = fill.child("type") if fill else None
     return (
-        f'fill="{_FILLS.get(kind.arg(0) if kind else "", "none")}" '
+        f'fill="{_FILLS.get((kind.arg(0) if kind else None) or "", "none")}" '
         f'stroke="var(--symbol-line)" '
         f'stroke-width="{fmt(stroke_width(node, DEFAULT_STROKE_MM))}" '
         'stroke-linecap="round" stroke-linejoin="round"'

@@ -10,13 +10,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.config import Settings
 from app.library.service import LibraryService
 from app.web.deps import get_library, get_settings, require_librarian
+from app.web.schemas.library import RefreshResult
+from app.web.schemas.system import WebhookAccepted
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/api/v1/library", tags=["library"])
 
 
 @router.post("/refresh", dependencies=[Depends(require_librarian)])
-async def refresh(library: LibraryService = Depends(get_library)) -> dict[str, Any]:
+async def refresh(library: LibraryService = Depends(get_library)) -> RefreshResult:
     """Fetch every source now, and index whatever changed.
 
     Answers when it is done, so that the button that asked can say what
@@ -32,19 +33,7 @@ async def refresh(library: LibraryService = Depends(get_library)) -> dict[str, A
     """
     before = library.snapshot
     after = await library.refresh()
-    return {
-        "state": library.state.value,
-        "error": library.error,
-        "changed": after is not before,
-        "parts": after.part_count,
-        "errors": len(after.errors),
-        "warnings": len(after.warnings),
-        "checked_at": library.checked_at,
-        "sources": [
-            {"id": source.id, "commit": source.commit, "error": source.error}
-            for source in after.sources
-        ],
-    }
+    return RefreshResult.of(library, after, changed=after is not before)
 
 
 def _signatures(request: Request) -> list[str]:
@@ -66,7 +55,7 @@ async def webhook(
     request: Request,
     settings: Settings = Depends(get_settings),
     library: LibraryService = Depends(get_library),
-) -> dict[str, str]:
+) -> WebhookAccepted:
     """Called by the git host when something is pushed.
 
     It has no session, so what lets it in is a secret it shares with this app:
@@ -89,4 +78,4 @@ async def webhook(
     # with 3D models can take longer than that to fetch.
     library.request_refresh()
     log.info("the git host reported a push; refreshing the library")
-    return {"status": "refresh requested"}
+    return WebhookAccepted(status="refresh requested")

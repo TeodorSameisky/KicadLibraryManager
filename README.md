@@ -453,6 +453,15 @@ points somewhere that does not exist is reported on the status page instead,
 and sessions then carry on in memory alone, as they did before there was a
 database.
 
+Its tables are made by numbered steps, in `app/db/migrations.py`, and the file
+remembers how many it has been through. A new version of the app that needs a
+new table or column adds a step, and the step is taken once, when that version
+first opens the file; nothing has to be run by hand. A database from before
+the steps were numbered is taken as it is and brought up to date the same way.
+A file that a *newer* version has written to is left alone and reported: after
+going back a version, restore a backup from before the upgrade, or go forward
+again.
+
 ### Backups
 
 The app copies the database **once a day** to `backups/` beside it
@@ -683,7 +692,7 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/boms`, `/boms/{id}` | Uploading BOMs; one BOM against the library | |
 | `/products` | Families, devices, their repositories and BOMs; searchable | |
 | `/issues` | The issue list | |
-| `/docs` | Interactive API reference | ✓ |
+| `/docs` | Interactive API reference: every JSON answer, field by field | ✓ |
 
 ## Development
 
@@ -707,6 +716,10 @@ ruff check app tests
 ruff format app tests
 ```
 
+```bash
+mypy
+```
+
 CI runs the same checks, then builds the image and calls it: the image is what
 ships, and a Dockerfile that has stopped building is otherwise found on deploy.
 
@@ -721,10 +734,14 @@ app/
   config.py          Settings, read once from the environment
   observability.py   logging, request ids, crash handling
   security.py        HSTS and hardening headers
-  web/               HTTP: routes, pages, request-scoped dependencies
+  errors.py          the kinds of thing that can go wrong, for every layer to raise
+  web/               HTTP: routes, pages, request-scoped dependencies, errors as answers
+  services/          what can be done: one function for each action, no HTTP
   auth/              the OIDC provider, sessions, safe redirects
   boms/              reading KiCad BOMs, keeping them, setting them against the library
+  db/                the database: how it is opened, its tables as numbered steps, backups
   library/           sources, assets, parts, snapshots, placement, previews
+  domain/            parts, templates, what is asked of them, who may change them
   kicad/             the file formats: reading, rewriting, drawing
   templates/  static/
 tests/
@@ -732,7 +749,51 @@ tests/
 ```
 
 `kicad/` knows nothing about parts or HTTP; `library/` and `boms/` know nothing
-about HTTP. The app is built by a factory from a `Settings` object, so a test builds
+about HTTP. `domain/` does no I/O at all: it is given what it needs and says
+what it found. What a part has to say about itself is decided there once, in
+`domain/rules.py`, for a part being requested and for one already in the
+library alike; who may change a part is decided in `domain/policy.py`, for
+the routes and the pages alike.
+
+Each thing that can be done -- requesting a part, approving it, changing a
+template, uploading a BOM -- is one function in `services/`: who may do it,
+whether what was asked makes sense, the change, and what came of it. A route
+turns a request into that call and the outcome into an answer, and nothing
+more. What goes wrong is raised as one of the kinds in `errors.py` (not found,
+not allowed, invalid, conflict, unavailable, upstream failed) and becomes a
+status code in exactly one place, `web/errors.py`: a route does not catch an
+error in order to answer it.
+
+The pages' scripts, in `static/js/`, are ES modules, served as they are
+written: there is no build step and nothing to install. Each imports what it
+uses -- `app.js` for talking to the API and building DOM, `place.js` for
+placing a part -- so a page names only its own script and the order of the
+tags decides nothing. Two scripts are *not* modules, on purpose:
+`in-kicad.js` and `kicad-bridge.js` are ordinary scripts in the page's head,
+because each has to run before the page is drawn or before KiCad speaks, and
+a module never runs that early. `bridge.js` is how the modules reach what the
+bridge leaves on the window.
+
+What each JSON endpoint takes and answers is written down in `web/schemas/`,
+as models with named, typed fields; a route returns one, built from the app's
+own objects by the model's `of` method. That is the contract the panel's
+scripts are written against and what `/docs` shows. A test holds every
+documented endpoint to naming its answer, so a new one cannot be added
+without saying what it sends.
+
+In `library/`, `files.py` is the one module that knows where each kind of
+library file is and how it is written down: the loaders read through it and
+the editors write through it, so what the app writes is what it can read back.
+`service.py` holds the snapshot being served and the lock that keeps a refresh
+and a change apart, and leaves the work to `indexer.py` (fetch the sources,
+read them into a snapshot), `writer.py` (commit and push, again if somebody
+pushed first) and the history cache in `history.py`.
+
+Whatever is kept in the database has a store of its own beside the code that
+uses it (`boms/store.py`, `auth/sessions.py`). None of them opens the file:
+each is handed the one `Database` from `db/`, which is also where every table
+is made. Keeping something new means a step in `db/migrations.py` and a store
+that takes a `Database`. The app is built by a factory from a `Settings` object, so a test builds
 the deployment it wants instead of patching the environment.
 
 The reader for KiCad's files is deliberately not a model of the format: a file

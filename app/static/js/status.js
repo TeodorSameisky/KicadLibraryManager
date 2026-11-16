@@ -4,10 +4,9 @@
  * person pressing it has usually just pushed something and wants to know
  * whether it arrived.
  */
-(() => {
-  "use strict";
+import { api, plural } from "./app.js";
 
-  const { api, plural } = window.App;
+function start() {
   const button = document.getElementById("refresh-now");
   const result = document.getElementById("refresh-result");
   if (!button) return;
@@ -32,4 +31,6 @@
       button.disabled = false;
     }
   });
-})();
+}
+
+start();

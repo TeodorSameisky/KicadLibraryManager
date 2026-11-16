@@ -19,6 +19,9 @@ import csv
 import io
 import re
 from dataclasses import dataclass
+from typing import Any
+
+from app.errors import Invalid
 
 # What a column may be headed, lower-cased. The first heading in the file
 # that matches wins.
@@ -42,7 +45,7 @@ _TRUTHY = {"dnp", "yes", "true", "1", "x", "y"}
 _MAX_RANGE = 1000
 
 
-class BomError(ValueError):
+class BomError(Invalid):
     """The text cannot be read as a BOM. The message says what to change."""
 
 
@@ -171,7 +174,7 @@ def parse_bom(text: str) -> ParsedBom:
         )
 
     warnings: list[str] = []
-    merged: dict[tuple, dict] = {}
+    merged: dict[tuple[object, ...], dict[str, Any]] = {}
 
     for number, cells in enumerate(rows[1:], start=2):
         row = {

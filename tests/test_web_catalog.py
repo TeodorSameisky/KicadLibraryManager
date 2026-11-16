@@ -428,7 +428,7 @@ def test_every_asset_and_link_carries_the_path_prefix(serve, public_url, prefix)
         text = client.get(path).text
         assert f'data-base-path="{prefix}"' in text, path
         assert f'href="{prefix}/static/css/app.css"' in text, path
-        assert f'src="{prefix}/static/js/app.js"' in text, path
+        assert f'src="{prefix}/static/js/external-links.js"' in text, path
         assert "//static/" not in text, path
         if prefix:
             assert 'href="/static/' not in text and 'src="/static/' not in text, path

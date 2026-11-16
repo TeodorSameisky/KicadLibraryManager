@@ -11,8 +11,9 @@ from starlette.responses import Response
 from app.auth.sessions import Session
 from app.boms.store import BomStore, StoreUnavailable
 from app.config import Settings
+from app.db.backup import Backups
+from app.domain.parts import Part
 from app.library import previews
-from app.library.parts import Part
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
 from app.web.deps import (
@@ -35,7 +36,7 @@ router = APIRouter(tags=["pages"], include_in_schema=False)
 _OVERDUE_AFTER_SECONDS = 3 * 24 * 3600
 
 
-def _backup_overdue(backups) -> bool:
+def _backup_overdue(backups: Backups) -> bool:
     latest = backups.latest()
     if not backups.enabled or not backups.database.is_file():
         return False

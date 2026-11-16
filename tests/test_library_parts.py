@@ -1,7 +1,8 @@
 """Loading internal part numbers and the manufacturer parts behind them."""
 
+from app.domain.parts import Mpn, Part
 from app.library.issues import errors, warnings
-from app.library.parts import Mpn, Part, load_parts
+from app.library.parts import load_parts
 from tests.support import MPN, PART
 
 

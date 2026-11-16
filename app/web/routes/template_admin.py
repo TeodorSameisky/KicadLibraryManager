@@ -1,28 +1,21 @@
-"""Editing the templates that say what each category's parts carry.
+"""Editing the templates that say what each category's parts carry: over HTTP.
 
-A template decides what every part in a category must say about itself, so
-all of this is a librarian's to do. Each change is one commit to the library's
-repository, in the name of whoever made it, like any other change to it.
+What may be done, by whom, and what it takes is `app.services.templates`.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
 
-from app.auth.sessions import Session
-from app.config import Settings
-from app.library import editing as part_editing
+from app.domain.policy import Actor
+from app.domain.templates import RESERVED_FIELDS
 from app.library import template_editing as editing
-from app.library.editing import EditError
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
-from app.library.template_editing import FieldSpec, TemplateForm
-from app.web.deps import get_library, get_settings, get_snapshot, require_access, require_librarian
-from app.web.routes.editing import _author, _publish_snapshot, _refused, _require_writable
+from app.services import templates
+from app.web.deps import get_actor, get_library, get_snapshot, require_access, require_librarian
+from app.web.schemas.library import NoteBody, TemplateBody, TemplateOutcome
 from app.web.templating import render
 
 api = APIRouter(prefix="/api/v1/templates", tags=["templates"])
@@ -30,103 +23,38 @@ pages = APIRouter(include_in_schema=False)
 
 
 def _require_category(category: str, snapshot: Snapshot = Depends(get_snapshot)) -> str:
-    if category not in snapshot.parts.categories:
-        raise HTTPException(status_code=404, detail=f"There is no category {category}")
-    return category
-
-
-# -- what is asked for ------------------------------------------------------
-
-
-class FieldBody(BaseModel):
-    name: str = Field(max_length=60)
-    required: bool = False
-    options: list[str] = Field(default_factory=list, max_length=editing.MAX_OPTIONS + 1)
-    example: str = Field("", max_length=100)
-    default: str = Field("", max_length=200)
-
-
-class TemplateBody(BaseModel):
-    value: str = Field("", max_length=200)
-    fields: list[FieldBody] = Field(default_factory=list, max_length=editing.MAX_FIELDS + 1)
-    note: str = Field("", max_length=part_editing.MAX_NOTE)
-
-    def form(self) -> TemplateForm:
-        return TemplateForm(
-            value=self.value,
-            fields=tuple(
-                FieldSpec(
-                    name=item.name.strip(),
-                    required=item.required,
-                    # Blank options are the empty boxes of a form, not values.
-                    options=tuple(option.strip() for option in item.options if option.strip()),
-                    example=item.example,
-                    default=item.default,
-                )
-                for item in self.fields
-            ),
-        )
-
-
-def _outcome(snapshot: Snapshot, category: str) -> dict[str, Any]:
-    """What a saved template means for the parts that already exist."""
-    short = editing.shortfall(snapshot, category)
-    return {"category": category, "parts": short.of, "falling_short": short.parts}
+    return templates.require_category(snapshot, category)
 
 
 # -- as JSON ----------------------------------------------------------------
 
 
-@api.put("/{category}", dependencies=[Depends(require_librarian)])
+@api.put("/{category}")
 async def save_template(
+    category: str,
     body: TemplateBody,
-    category: str = Depends(_require_category),
-    settings: Settings = Depends(get_settings),
-    snapshot: Snapshot = Depends(get_snapshot),
-    library: LibraryService = Depends(_require_writable),
-    session: Session | None = Depends(require_access),
-) -> Any:
+    library: LibraryService = Depends(get_library),
+    actor: Actor = Depends(get_actor),
+) -> TemplateOutcome:
     """Create a category's template, or replace it."""
-    form = body.form()
-    try:
-        editing.check_template(form, snapshot, category)
-    except EditError as exc:
-        return _refused(exc)
-
-    name = snapshot.category_name(category)
-    after, failed = await _publish_snapshot(
-        library,
-        lambda root: part_editing.with_note(
-            editing.write_template(root, category, name, form), body.note
-        ),
-        _author(session, settings),
+    short = await templates.save_template(
+        library, category, body.form(), note=body.note, actor=actor
     )
-    return failed or _outcome(after, category)
+    return TemplateOutcome.of(category, short)
 
 
-class NoteBody(BaseModel):
-    note: str = Field("", max_length=part_editing.MAX_NOTE)
-
-
-@api.delete("/{category}", dependencies=[Depends(require_librarian)])
+@api.delete("/{category}")
 async def remove_template(
+    category: str,
     body: NoteBody | None = None,
-    category: str = Depends(_require_category),
-    settings: Settings = Depends(get_settings),
-    snapshot: Snapshot = Depends(get_snapshot),
-    library: LibraryService = Depends(_require_writable),
-    session: Session | None = Depends(require_access),
-) -> Any:
+    library: LibraryService = Depends(get_library),
+    actor: Actor = Depends(get_actor),
+) -> TemplateOutcome:
     """Take a template away: the category's parts are then asked for nothing."""
-    name = snapshot.category_name(category)
-    after, failed = await _publish_snapshot(
-        library,
-        lambda root: part_editing.with_note(
-            editing.delete_template(root, category, name), body.note if body else ""
-        ),
-        _author(session, settings),
+    short = await templates.remove_template(
+        library, category, note=body.note if body else "", actor=actor
     )
-    return failed or _outcome(after, category)
+    return TemplateOutcome.of(category, short)
 
 
 # -- as pages ---------------------------------------------------------------
@@ -175,7 +103,7 @@ async def edit_template_page(
         category_name=snapshot.category_name(category),
         has_template=template is not None,
         data=editing.form_from(template),
-        reserved=list(editing.RESERVED_FIELDS),
+        reserved=list(RESERVED_FIELDS),
         writable=library.writable,
     )
 

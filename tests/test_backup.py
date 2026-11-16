@@ -12,15 +12,15 @@ import pytest
 
 from app.auth.identity import Principal
 from app.auth.sessions import SessionStore
-from app.boms.backup import (
+from app.boms.parse import parse_bom
+from app.boms.store import BomStore
+from app.db.backup import (
     DUE_AFTER_SECONDS,
     BackupError,
     Backups,
     copy_database,
     keep_backups,
 )
-from app.boms.parse import parse_bom
-from app.boms.store import BomStore
 from tests.conftest import OPEN, sign_in, sign_in_librarian
 from tests.test_boms import KICAD_DEFAULT
 
@@ -110,6 +110,8 @@ def test_a_copy_that_cannot_be_made_leaves_nothing_that_looks_like_one(tmp_path)
 def test_a_database_with_no_sessions_table_is_copied_too(tmp_path):
     path = tmp_path / "boms-only.db"
     BomStore(path).save(parse_bom(KICAD_DEFAULT), project="P", source="x")
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE sessions")  # as a file from before sessions were kept
 
     copy_database(path, tmp_path / "copy.db")
 
@@ -228,7 +230,7 @@ async def test_a_failing_backup_is_logged_and_tried_again(backups, caplog):
         raise BackupError("the disk is full")
 
     backups.run = failing
-    with caplog.at_level(logging.ERROR, logger="app.boms.backup"):
+    with caplog.at_level(logging.ERROR, logger="app.db.backup"):
         task = asyncio.create_task(keep_backups(backups, every=0.01))
         for _ in range(200):
             if len(attempts) >= 3:

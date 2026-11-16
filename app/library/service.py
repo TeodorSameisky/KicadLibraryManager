@@ -1,14 +1,20 @@
 """Keeps a current snapshot of the library available while the app runs.
 
-Indexing means cloning or fetching every source and reading every file in it.
-For a repository carrying 3D models that takes long enough to fail a container
-health check, so it never happens during startup: the app starts at once,
-reports that it is indexing, and swaps the finished snapshot in when it lands.
+The app starts at once, reports that it is indexing, and swaps the finished
+snapshot in when it lands: cloning a library takes longer than a container is
+given to become healthy.
 
 After that the library is looked at again whenever something says it may have
 changed -- a webhook from the git host, a librarian pressing a button -- and
-on a timer for when nothing says so. Looking is cheap: if no source has moved
-to a new commit, the snapshot being served is kept as it is.
+on a timer for when nothing says so.
+
+What this holds is the snapshot being served and the one lock that keeps a
+refresh and a change from touching a checkout at the same time. The work
+itself is done by others:
+
+    indexer   fetching the sources and reading them into a snapshot
+    writer    changing the repository: commit, push, again if somebody was first
+    history   what was changed in a file, remembered until the library moves on
 """
 
 from __future__ import annotations
@@ -17,24 +23,21 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
-from app.library.history import DEFAULT_LIMIT, History, HistoryUnavailable, read_history
-from app.library.publish import Identity, Publisher, PublishError, PushRejected
-from app.library.snapshot import Snapshot, SyncFailure, build_snapshot
-from app.library.sources import Checkout, Source, SourceError, credentials, sync
+from app.library.history import DEFAULT_LIMIT, Histories, History, HistoryUnavailable
+from app.library.indexer import Indexer
+from app.library.publish import Identity, Publisher, PublishError
+from app.library.snapshot import Snapshot
+from app.library.sources import Checkout, Source, sync
+from app.library.writer import Write, Writer
 
 log = logging.getLogger(__name__)
 
 Sync = Callable[[Source, Path], Checkout]
 
-# A write to a checkout: given its root, change the files and return the
-# commit message. May raise to refuse.
-Write = Callable[[Path], str]
-
-_PUSH_ATTEMPTS = 3
+__all__ = ["LibraryService", "State", "Sync", "Write"]
 
 
 class State(str, Enum):
@@ -59,10 +62,15 @@ class LibraryService:
         self._workdir = workdir
         self._sync = sync
         self._interval = refresh_interval_seconds
-        self._publisher = publisher
-        # For reading the old versions of files in a private repository. The
-        # clones themselves are made by `sync`, which is given the same token.
-        self._token = token
+
+        self._indexer = Indexer(self._sources, self._fetch)
+        # Only with a publisher: without one the library is read and not changed.
+        self._writer = Writer(publisher, self._fetch) if publisher is not None else None
+        # The token is for reading the old versions of files in a private
+        # repository. The clones themselves are made by `sync`, which is
+        # given the same token.
+        self._histories = Histories(token)
+
         self._snapshot = Snapshot()
         self._state = State.SYNCING if self._sources else State.EMPTY
         self._error: str | None = None
@@ -71,10 +79,14 @@ class LibraryService:
         # snapshot, because the snapshot is shown to people and a server path
         # is not for them.
         self._checkouts: dict[str, Path] = {}
-        self._histories: dict[tuple[str | None, str, int], History] = {}
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._requested: asyncio.Task[None] | None = None
+
+    def _fetch(self, source: Source) -> Checkout:
+        """Bring one source up to date. The one way a checkout is reached,
+        for reading and for writing alike."""
+        return self._sync(source, self._workdir)
 
     @property
     def state(self) -> State:
@@ -97,33 +109,27 @@ class LibraryService:
     @property
     def writable(self) -> bool:
         """Whether this deployment can change the library, not only read it."""
-        return self._publisher is not None and bool(self._sources)
+        return self._writer is not None and bool(self._sources)
+
+    def _parts_source(self) -> Source | None:
+        """The source the parts are read from, and so the one a new part goes to."""
+        wanted = self._snapshot.parts_source
+        return next((s for s in self._sources if s.id == wanted), None)
 
     def history(self, relative: str, limit: int = DEFAULT_LIMIT) -> History:
         """The changes made to one file of the library, newest first.
 
-        Blocking: it runs git. Remembered per commit of the source, so asking
-        again costs nothing until the library moves on.
+        Blocking: it runs git.
         """
         snapshot = self._snapshot
-        source = snapshot.parts_source
-        root = self._checkouts.get(source or "")
+        root = self._checkouts.get(snapshot.parts_source or "")
         if root is None:
             raise HistoryUnavailable("the library has not been indexed yet")
 
-        commit = next((s.commit for s in snapshot.sources if s.id == source), None)
-        key = (commit, relative, limit)
-        remembered = self._histories.get(key)
-        if remembered is None:
-            origin = next((s for s in self._sources if s.id == source), None)
-            env = credentials(origin.url, self._token) if origin and origin.private else {}
-            remembered = read_history(root, relative, limit, env)
-            if len(self._histories) >= 512:
-                self._histories.clear()  # a cache; losing it only costs a re-read
-            self._histories[key] = remembered
-        return remembered
+        commit = next((s.commit for s in snapshot.sources if s.id == snapshot.parts_source), None)
+        return self._histories.read(root, self._parts_source(), commit, relative, limit)
 
-    # -- lifecycle
+    # -- keeping watch
 
     def start(self) -> None:
         """Begin the first index in the background, then keep watch."""
@@ -169,54 +175,27 @@ class LibraryService:
             self._requested = asyncio.create_task(self._refresh_safely("a requested refresh"))
         return True
 
-    # -- indexing
+    # -- changing and refreshing
 
     async def change(self, write: Write, author: Identity) -> Snapshot:
         """Make a change to the library and publish it.
 
-        The source is brought up to date, `write` changes its files, and the
-        result is committed under `author` and pushed. If somebody else pushed
-        in between, it is done again on top of theirs -- which is also what
-        keeps two parts requested at the same moment from being given the same
-        number. The library is then indexed again, so what is served is what
-        was just written.
+        `write` changes the files of a checkout and returns the commit
+        message; the change is committed under `author` and pushed. The
+        library is then indexed again, so what is served is what was just
+        written.
 
         Holds the same lock as a refresh: nothing else touches the checkout
         while it is being written.
         """
-        if self._publisher is None:
+        if self._writer is None:
             raise PublishError("this deployment is not set up to change the library")
         async with self._lock:
-            await asyncio.to_thread(self._change, write, author)
+            # The source the parts are read from; before the first index
+            # there is no saying which that is, so the first one configured.
+            source = self._parts_source() or self._sources[0]
+            await asyncio.to_thread(self._writer.change, source, write, author)
         return await self.refresh()
-
-    def _change(self, write: Write, author: Identity) -> None:
-        """Blocking: runs git. Called off the event loop."""
-        assert self._publisher is not None
-        source = self._writable_source()
-
-        for _ in range(_PUSH_ATTEMPTS):
-            try:
-                checkout = self._sync(source, self._workdir)
-            except SourceError as exc:
-                raise PublishError(f"the library's repository cannot be reached: {exc}") from exc
-            try:
-                message = write(checkout.path)
-                self._publisher.publish(checkout.path, source, message, author)
-                return
-            except PushRejected:
-                continue  # somebody pushed first; start again from what they pushed
-            except BaseException:
-                # Whatever stopped it, leave no half-written files behind for
-                # the index being served to trip over.
-                self._publisher.discard(checkout.path)
-                raise
-        raise PublishError("the library kept changing while this was being saved; try again")
-
-    def _writable_source(self) -> Source:
-        """The source new parts go to: the one the parts are read from."""
-        wanted = self._snapshot.parts_source
-        return next((s for s in self._sources if s.id == wanted), self._sources[0])
 
     async def refresh(self) -> Snapshot:
         """Sync every source and index the result. Callers queue, not overlap."""
@@ -224,7 +203,9 @@ class LibraryService:
             if not self._sources:
                 return self._snapshot
 
-            snapshot = await asyncio.to_thread(self._index, self._snapshot)
+            indexed = await asyncio.to_thread(self._indexer.index, self._snapshot)
+            snapshot = indexed.snapshot
+            self._checkouts = indexed.checkouts
             self._checked_at = time.time()
 
             if snapshot is self._snapshot:
@@ -244,44 +225,3 @@ class LibraryService:
             self._state = State.READY
             self._error = None
             return snapshot
-
-    def _index(self, current: Snapshot) -> Snapshot:
-        """Blocking: runs git and reads every file. Called off the event loop.
-
-        Returns `current` itself when nothing has changed, so that the caller
-        can tell without comparing anything.
-        """
-        started = time.perf_counter()
-
-        outcomes: list[Checkout | SyncFailure] = []
-        for source in self._sources:
-            try:
-                outcomes.append(self._sync(source, self._workdir))
-            except SourceError as exc:
-                log.warning("source %s failed to sync: %s", source.id, exc)
-                outcomes.append(SyncFailure(source, str(exc)))
-
-        self._checkouts = {o.source.id: o.path for o in outcomes if isinstance(o, Checkout)}
-
-        # Every source at the commit that is already indexed: there is nothing
-        # new to read. A failure anywhere is always worth a fresh look.
-        commits = [o.commit if isinstance(o, Checkout) else None for o in outcomes]
-        indexed = current.indexed_at is not None
-        if indexed and None not in commits and commits == [s.commit for s in current.sources]:
-            return current
-
-        snapshot = replace(
-            build_snapshot(outcomes),
-            indexed_at=time.time(),
-            duration=time.perf_counter() - started,
-        )
-        log.info(
-            "indexed %d source(s) in %.1fs: %d parts, %d symbols, %d errors, %d warnings",
-            len(snapshot.sources),
-            snapshot.duration,
-            snapshot.part_count,
-            snapshot.catalog.symbol_count,
-            len(snapshot.errors),
-            len(snapshot.warnings),
-        )
-        return snapshot

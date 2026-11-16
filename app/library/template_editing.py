@@ -17,35 +17,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from app.domain.templates import RESERVED_FIELDS, Template, TemplateField, placeholders
+from app.library import files
 from app.library.editing import EditError
-from app.library.parts import Template
 from app.library.snapshot import Snapshot
 
 MAX_FIELDS = 40
 MAX_OPTIONS = 60
 
-# Set by the platform from the part itself, wherever the part is placed. A
-# template field with one of these names would fight with that.
-RESERVED_FIELDS = ("IPN", "Datasheet", "Footprint", "Description", "MPN", "Manufacturer")
-
 _CATEGORY = re.compile(r"^[A-Za-z0-9]+$")
-_PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
-
-
-@dataclass(frozen=True)
-class FieldSpec:
-    name: str
-    required: bool = False
-    options: tuple[str, ...] = ()
-    example: str = ""
-    default: str = ""
 
 
 @dataclass(frozen=True)
 class TemplateForm:
-    fields: tuple[FieldSpec, ...] = ()
+    """A template as someone asks for it to be, before it has been checked."""
+
+    fields: tuple[TemplateField, ...] = ()
     value: str = ""
 
 
@@ -61,7 +48,7 @@ def _path(root: Path, category: str) -> Path:
     # The category becomes a file name, so it is held to what one can be.
     if not _CATEGORY.match(category):
         raise EditError([f"{category!r} is not a category code."])
-    return root / "templates" / f"{category}.yaml"
+    return files.template_file(root, category)
 
 
 # -- checking ---------------------------------------------------------------
@@ -100,7 +87,7 @@ def check_template(form: TemplateForm, snapshot: Snapshot, category: str) -> Non
     # A pattern that names a field the template does not have would build a
     # Value with a hole in it, for every part.
     names = {spec.name.strip() for spec in form.fields}
-    for used in dict.fromkeys(match.strip() for match in _PLACEHOLDER.findall(form.value)):
+    for used in placeholders(form.value):
         if used not in names:
             problems.append(f"The value pattern uses {{{used}}}, which is not one of the fields.")
 
@@ -119,68 +106,11 @@ def shortfall(snapshot: Snapshot, category: str) -> Shortfall:
 # -- writing ----------------------------------------------------------------
 
 
-# Text that something reading YAML might take for a number: digits, with a
-# sign, a decimal point or an exponent. "0805" is one of these, and a reader
-# that does not follow this parser's rules would take it for 805.
-_NUMBER_LIKE = re.compile(r"^[-+]?[0-9][0-9_.]*([eE][-+]?[0-9]+)?$")
-
-
-class _Dumper(yaml.SafeDumper):
-    """Quotes what could be mistaken for a number, whichever parser reads it."""
-
-
-def _represent_text(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:
-    style = "'" if _NUMBER_LIKE.match(value) else None
-    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
-
-
-_Dumper.add_representer(str, _represent_text)
-
-
-def _scalar(value: object) -> str:
-    """One value as YAML writes it on a line: quoted only where it has to be.
-
-    "0402" is quoted, because bare it could be read as the number 402, and
-    "1%" is not, because nothing can mistake it for anything else.
-    """
-    dumped = yaml.dump(
-        value, Dumper=_Dumper, default_flow_style=True, allow_unicode=True, width=10_000
-    )
-    return dumped.strip().removesuffix("...").strip()
-
-
-def template_text(category: str, form: TemplateForm) -> str:
-    """The file: which category, how Value is built, then the fields.
-
-    Written by hand rather than dumped, so that each field is a short block
-    and its options are on one line, as a person would write them:
-    `options: [0.1%, 1%, 5%]`.
-    """
-    lines = [f"category: {_scalar(category)}"]
-    if form.value.strip():
-        lines.append(f"value: {_scalar(form.value.strip())}")
-
-    if form.fields:
-        lines += ["", "fields:"]
-    for spec in form.fields:
-        lines.append(f"  - name: {_scalar(spec.name.strip())}")
-        if spec.required:
-            lines.append("    required: true")
-        if spec.options:
-            lines.append(f"    options: {_scalar(list(spec.options))}")
-        if spec.example.strip():
-            lines.append(f"    example: {_scalar(spec.example.strip())}")
-        if spec.default.strip():
-            lines.append(f"    default: {_scalar(spec.default.strip())}")
-    return "\n".join(lines) + "\n"
-
-
 def write_template(root: Path, category: str, name: str, form: TemplateForm) -> str:
     """Create or replace a category's template. Returns the commit message."""
     path = _path(root, category)
     existed = path.exists()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(template_text(category, form), encoding="utf-8", newline="\n")
+    files.write(path, files.template_text(category, form.value, form.fields))
     verb = "Change" if existed else "Add"
     return f"{verb} the template for {category}: {name}"
 
@@ -214,14 +144,11 @@ def form_from(template: Template | None) -> dict[str, Any]:
 
 
 __all__ = [
-    "RESERVED_FIELDS",
-    "FieldSpec",
     "Shortfall",
     "TemplateForm",
     "check_template",
     "delete_template",
     "form_from",
     "shortfall",
-    "template_text",
     "write_template",
 ]

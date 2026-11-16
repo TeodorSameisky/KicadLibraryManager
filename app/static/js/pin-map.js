@@ -4,9 +4,7 @@
  * number can be lit together. Loaded through <img>, each would be a document
  * of its own and out of reach from here.
  */
-(() => {
-  "use strict";
-
+function start() {
   const previews = document.getElementById("previews");
   if (!previews) return;
 
@@ -34,4 +32,6 @@
       node.addEventListener("blur", () => highlight(false));
     }
   }
-})();
+}
+
+start();

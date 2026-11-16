@@ -82,7 +82,7 @@ def test_a_datasheet_link_is_marked_as_leaving_the_app(library_client):
 def test_every_page_has_the_script_that_handles_them(library_client, path):
     html = library_client.get(path).text
 
-    assert html.index("static/js/app.js") < html.index("static/js/external-links.js")
+    assert 'type="module" src="/static/js/external-links.js"' in html
     assert library_client.get("/static/js/external-links.js").status_code == 200
 
 
@@ -96,7 +96,7 @@ def test_the_page_can_tell_whether_it_is_inside_kicad(library_client):
 
     app = library_client.get("/static/js/app.js").text
     assert "function inKicad()" in app
-    assert "inKicad" in app.split("window.App =")[1], "and it is offered to the other scripts"
+    assert "inKicad" in app.split("export {")[1], "and it is offered to the other scripts"
 
 
 @needs_git

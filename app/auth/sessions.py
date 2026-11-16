@@ -12,9 +12,9 @@ sign-ins are not: they live for seconds or minutes, and one lost to a restart
 costs the person a second attempt. Memory stays the first place a session is
 looked for; the database is asked only for one memory does not have.
 
-Held in memory and one SQLite file, which is right for one container and wrong
-for several. Putting it in Redis means reimplementing this class and nothing
-else.
+Held in memory and the database (`app.db`), which is right for one container
+and wrong for several. Putting it in Redis means reimplementing this class and
+nothing else.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Generic, TypeVar
 
 from app.auth.identity import Principal
+from app.db.database import Database, DatabaseUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -133,38 +134,20 @@ class _SessionTable:
     not at every request: signing in must not depend on it.
     """
 
-    def __init__(self, path: Path, clock: Callable[[], float]) -> None:
-        self._path = path
+    def __init__(self, database: Database, clock: Callable[[], float]) -> None:
+        self._database = database
         self._clock = clock
-        self._ready = False
         self._warned = False
 
     @staticmethod
     def _key(session_id: str) -> str:
         return hashlib.sha256(session_id.encode()).hexdigest()
 
-    def _connect(self) -> sqlite3.Connection:
-        if not self._path.parent.is_dir():
-            raise OSError(f"the directory {self._path.parent} does not exist")
-        connection = sqlite3.connect(self._path, timeout=10)
-        if not self._ready:
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS sessions ("
-                " key TEXT PRIMARY KEY, subject TEXT NOT NULL,"
-                " claims TEXT NOT NULL, expires REAL NOT NULL)"
-            )
-            self._ready = True
-        return connection
-
     def _run(self, action: Callable[[sqlite3.Connection], T], default: T) -> T:
         try:
-            connection = self._connect()
-            try:
-                with connection:
-                    return action(connection)
-            finally:
-                connection.close()
-        except (OSError, sqlite3.Error) as exc:
+            with self._database.connect() as connection:
+                return action(connection)
+        except (DatabaseUnavailable, sqlite3.Error) as exc:
             if not self._warned:
                 self._warned = True
                 log.warning(
@@ -222,14 +205,14 @@ class SessionStore:
         login_ttl_seconds: float,
         session_ttl_seconds: float,
         clock: Callable[[], float] = time.time,
-        database: Path | None = None,
+        database: Database | Path | None = None,
     ) -> None:
         self._clock = clock
         self._session_ttl = session_ttl_seconds
         self._nonces: _Expiring[_Nonce] = _Expiring(nonce_ttl_seconds, clock)
         self._logins: _Expiring[PendingLogin] = _Expiring(login_ttl_seconds, clock)
         self._sessions: _Expiring[Session] = _Expiring(session_ttl_seconds, clock)
-        self._table = _SessionTable(database, clock) if database is not None else None
+        self._table = _SessionTable(Database.of(database), clock) if database is not None else None
 
     # -- KiCad's handshake
 

@@ -6,11 +6,9 @@
  * to the same endpoint a script would use, and whatever the server finds
  * wrong is shown as it says it, next to the button.
  */
-(() => {
-  "use strict";
+import { api, el, button, base } from "./app.js";
 
-  const { api, el, button, base } = window.App;
-
+function start() {
   function notice(target, kind, lines, actions = []) {
     const box = el("div", `inline-note${kind ? ` inline-note--${kind}` : ""}`);
     const text = el("div");
@@ -299,4 +297,6 @@
   });
 
   loadChoices().catch((error) => notice(dom.result, "bad", error.message));
-})();
+}
+
+start();

@@ -3,51 +3,45 @@
 These routes are plain functions rather than coroutines. They talk to SQLite,
 which blocks, so they are run on the server's worker threads instead of on the
 event loop that every other request is waiting on.
+
+What uploading, attaching and deleting take is `app.services.boms`. If the
+database cannot be used, the routes that answer in JSON say so through
+`app.web.errors`; the pages show what they can without it.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
 
-from app.auth.sessions import Session
-from app.boms.parse import BomError, parse_bom
 from app.boms.report import BomReport, build_report
-from app.boms.store import Bom, BomExists, BomStore, StoreUnavailable, Usage
-from app.library.parts import Part
+from app.boms.store import Bom, BomExists, BomStore, StoreUnavailable
+from app.domain.parts import Part
+from app.domain.policy import Actor
 from app.library.snapshot import Snapshot
-from app.web.deps import (
-    get_boms,
-    get_snapshot,
-    require_access,
-    require_librarian,
-    require_part,
+from app.services import boms as service
+from app.web.deps import get_actor, get_boms, get_snapshot, require_access, require_part
+from app.web.schemas.boms import (
+    BomAttached,
+    BomConflict,
+    BomDetail,
+    BomList,
+    BomSummary,
+    BomUploaded,
+    DeviceChoice,
+    Upload,
+    WhereUsed,
 )
 from app.web.templating import render
-
-# A BOM of ten thousand lines is under a megabyte.
-MAX_BOM_CHARACTERS = 4 * 1024 * 1024
 
 api = APIRouter(prefix="/api/v1", tags=["boms"])
 pages = APIRouter(include_in_schema=False)
 
 
-def _unavailable(exc: StoreUnavailable) -> HTTPException:
-    return HTTPException(status_code=503, detail="BOMs cannot be stored or read right now.")
-
-
 def _require_bom(bom_id: int, boms: BomStore = Depends(get_boms)) -> Bom:
-    try:
-        bom = boms.get(bom_id)
-    except StoreUnavailable as exc:
-        raise _unavailable(exc) from exc
-    if bom is None:
-        raise HTTPException(status_code=404, detail="There is no such BOM")
-    return bom
+    return service.get_bom(boms, bom_id)
 
 
 def _require_report(
@@ -56,114 +50,35 @@ def _require_report(
     return build_report(bom, snapshot)
 
 
-def _require_device(key: str, snapshot: Snapshot) -> str:
-    """A device key that is in the product tree, or "" for none."""
-    key = key.strip()
-    if key and snapshot.products.device(key) is None:
-        raise HTTPException(status_code=422, detail=f"There is no device {key!r} in the products.")
-    return key
-
-
 # -- as JSON ----------------------------------------------------------------
 
 
-def _summary(bom: Bom) -> dict[str, Any]:
-    return {
-        "id": bom.id,
-        "project": bom.project,
-        "revision": bom.revision,
-        "filename": bom.filename,
-        "note": bom.note,
-        "uploaded_at": bom.uploaded_at,
-        "uploaded_by": bom.uploaded_by,
-        "device": bom.device,
-        "lines": bom.line_count,
-        "components": bom.component_count,
-    }
-
-
-def _usage(usage: Usage) -> dict[str, Any]:
-    return {
-        "bom": _summary(usage.bom),
-        "quantity": usage.quantity,
-        "references": list(usage.references),
-        "dnp": usage.dnp,
-    }
-
-
-class Upload(BaseModel):
-    """A BOM exported from KiCad, as text.
-
-    Sent as JSON rather than as a form upload, so that a script -- or a KiCad
-    plugin, one day -- can post one as easily as the page does.
-    """
-
-    project: str = Field(min_length=1, max_length=200)
-    revision: str = Field("", max_length=50)
-    note: str = Field("", max_length=2000)
-    filename: str = Field("", max_length=255)
-    content: str = Field(min_length=1, max_length=MAX_BOM_CHARACTERS)
-    # The device this is the BOM of, as "family/device" in the product tree;
-    # empty when it is not for one of them.
-    device: str = Field("", max_length=200)
-    # Uploading a project's revision a second time replaces the first only
-    # when this is set: overwriting a record should be chosen, not stumbled into.
-    replace: bool = False
-
-
 @api.get("/boms")
-def list_boms(boms: BomStore = Depends(get_boms)) -> dict[str, Any]:
-    try:
-        return {"boms": [_summary(bom) for bom in boms.list()]}
-    except StoreUnavailable as exc:
-        raise _unavailable(exc) from exc
+def list_boms(boms: BomStore = Depends(get_boms)) -> BomList:
+    return BomList(boms=[BomSummary.of(bom) for bom in boms.list()])
 
 
-@api.post("/boms", status_code=201)
+@api.post(
+    "/boms", status_code=201, response_model=BomUploaded, responses={409: {"model": BomConflict}}
+)
 def upload_bom(
     upload: Upload,
     boms: BomStore = Depends(get_boms),
     snapshot: Snapshot = Depends(get_snapshot),
-    session: Session | None = Depends(require_access),
-) -> Any:
-    device = _require_device(upload.device, snapshot)
-    project, revision = " ".join(upload.project.split()), " ".join(upload.revision.split())
-    if not project:
-        raise HTTPException(status_code=422, detail="The project needs a name.")
-
+    actor: Actor = Depends(get_actor),
+) -> BomUploaded | JSONResponse:
+    """Read a BOM exported from KiCad and keep it. One per project and revision."""
     try:
-        parsed = parse_bom(upload.content)
-    except BomError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    try:
-        bom = boms.save(
-            parsed,
-            project=project,
-            revision=revision,
-            filename=upload.filename,
-            note=upload.note.strip(),
-            uploaded_by=session.display_name if session else "",
-            source=upload.content,
-            device=device,
-            replace_existing=upload.replace,
-        )
+        bom, warnings = service.upload_bom(boms, snapshot, upload.asked(), actor=actor)
     except BomExists as exc:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "detail": f"A BOM for {exc.existing.label} is already stored.",
-                "existing": _summary(exc.existing),
-            },
+        # Answered here and not with the rest: the page asks whether to
+        # replace it, and needs to say what it would be replacing.
+        conflict = BomConflict(
+            detail=f"A BOM for {exc.existing.label} is already stored.",
+            existing=BomSummary.of(exc.existing),
         )
-    except StoreUnavailable as exc:
-        raise _unavailable(exc) from exc
-
-    return {**_summary(bom), "warnings": list(parsed.warnings)}
-
-
-class DeviceChoice(BaseModel):
-    device: str = Field("", max_length=200)
+        return JSONResponse(status_code=409, content=conflict.model_dump())
+    return BomUploaded.of_upload(bom, warnings)
 
 
 @api.put("/boms/{bom_id}/device")
@@ -172,44 +87,15 @@ def attach_bom(
     bom: Bom = Depends(_require_bom),
     boms: BomStore = Depends(get_boms),
     snapshot: Snapshot = Depends(get_snapshot),
-) -> dict[str, Any]:
+) -> BomAttached:
     """Say which device a stored BOM is the BOM of, or take it off one."""
-    device = _require_device(choice.device, snapshot)
-    try:
-        boms.attach(bom.id, device)
-    except StoreUnavailable as exc:
-        raise _unavailable(exc) from exc
-    return {"id": bom.id, "device": device}
+    return BomAttached(id=bom.id, device=service.attach_bom(boms, snapshot, bom, choice.device))
 
 
 @api.get("/boms/{bom_id}")
-def get_bom(report: BomReport = Depends(_require_report)) -> dict[str, Any]:
+def get_bom(report: BomReport = Depends(_require_report)) -> BomDetail:
     """A BOM with every line looked up in the library as it is now."""
-    return {
-        **_summary(report.bom),
-        "parts": report.part_count,
-        "problems": report.problems,
-        "cautions": report.cautions,
-        "items": [
-            {
-                "references": list(row.line.references),
-                "quantity": row.line.quantity,
-                "dnp": row.line.dnp,
-                "ipn": row.line.ipn,
-                "value": row.line.value,
-                "footprint": row.line.footprint,
-                "known": row.part is not None,
-                "description": row.description,
-                "status": row.part.status if row.part else None,
-                "mpn": row.preferred_mpn or None,
-                "manufacturer": row.source.manufacturer if row.source else None,
-                "lifecycle": row.source.lifecycle if row.source else None,
-                "alternates": list(row.alternates),
-                "remarks": [{"level": r.level, "text": r.text} for r in row.remarks],
-            }
-            for row in report.lines
-        ],
-    }
+    return BomDetail.of_report(report)
 
 
 def _attachment_name(bom: Bom, suffix: str) -> str:
@@ -240,25 +126,19 @@ def bom_source(bom: Bom = Depends(_require_bom), boms: BomStore = Depends(get_bo
     return _csv(boms.source(bom.id) or "", _attachment_name(bom, "-as-uploaded.csv"))
 
 
-@api.delete("/boms/{bom_id}", status_code=204, dependencies=[Depends(require_librarian)])
-def delete_bom(bom: Bom = Depends(_require_bom), boms: BomStore = Depends(get_boms)) -> Response:
+@api.delete("/boms/{bom_id}", status_code=204)
+def delete_bom(
+    bom_id: int, boms: BomStore = Depends(get_boms), actor: Actor = Depends(get_actor)
+) -> Response:
     """Throw a record away: a librarian's to do, since it cannot be undone."""
-    try:
-        boms.delete(bom.id)
-    except StoreUnavailable as exc:
-        raise _unavailable(exc) from exc
+    service.delete_bom(boms, bom_id, actor=actor)
     return Response(status_code=204)
 
 
 @api.get("/parts/{ipn}/where-used")
-def where_used(
-    part: Part = Depends(require_part), boms: BomStore = Depends(get_boms)
-) -> dict[str, Any]:
+def where_used(part: Part = Depends(require_part), boms: BomStore = Depends(get_boms)) -> WhereUsed:
     """Every stored BOM this part is on."""
-    try:
-        return {"ipn": part.ipn, "used_in": [_usage(usage) for usage in boms.where_used(part.ipn)]}
-    except StoreUnavailable as exc:
-        raise _unavailable(exc) from exc
+    return WhereUsed.of(part, boms.where_used(part.ipn))
 
 
 # -- as pages ---------------------------------------------------------------

@@ -6,11 +6,9 @@
  * request form shows them in. Saving posts JSON to the endpoint a script
  * would use, and whatever the server finds wrong is shown as it says it.
  */
-(() => {
-  "use strict";
+import { api, el, link, button, base } from "./app.js";
 
-  const { api, el, link, button, base } = window.App;
-
+function start() {
   const form = document.getElementById("template-form");
   if (!form) return;
 
@@ -167,4 +165,6 @@
       );
     });
   }
-})();
+}
+
+start();

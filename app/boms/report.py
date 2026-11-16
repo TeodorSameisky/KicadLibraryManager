@@ -15,7 +15,7 @@ from functools import cached_property
 
 from app.boms.parse import BomLine
 from app.boms.store import Bom
-from app.library.parts import Mpn, Part
+from app.domain.parts import Lifecycle, Mpn, Part, PartStatus
 from app.library.snapshot import Snapshot
 
 BAD = "bad"
@@ -74,18 +74,18 @@ def _remarks(line: BomLine, part: Part | None, source: Mpn | None) -> list[Remar
         return [Remark(BAD, "not in the library")]
 
     found: list[Remark] = []
-    if part.status == "obsolete":
+    if part.status == PartStatus.OBSOLETE:
         found.append(Remark(BAD, "obsolete part"))
-    elif part.status != "approved":
+    elif part.status != PartStatus.APPROVED:
         found.append(Remark(WARN, f"{part.status} part"))
 
     if not part.mpns:
         found.append(Remark(WARN, "no source"))
     elif source is None:
         found.append(Remark(WARN, "source not in the library"))
-    elif source.lifecycle == "obsolete":
+    elif source.lifecycle == Lifecycle.OBSOLETE:
         found.append(Remark(BAD, "source obsolete"))
-    elif source.lifecycle == "nrnd":
+    elif source.lifecycle == Lifecycle.NRND:
         found.append(Remark(WARN, "source not for new designs"))
     return found
 
@@ -145,14 +145,15 @@ def build_report(bom: Bom, snapshot: Snapshot) -> BomReport:
     lines = []
     for line in bom.lines:
         part = snapshot.part(line.ipn) if line.ipn else None
-        source = snapshot.mpn(part.preferred_mpn) if part else None
+        preferred = part.preferred_mpn if part else None
+        source = snapshot.mpn(preferred)
         lines.append(
             ReportLine(
                 line=line,
                 part=part,
                 source=source,
                 alternates=tuple(
-                    ref.mpn for ref in (part.mpns if part else ()) if ref.mpn != part.preferred_mpn
+                    ref.mpn for ref in (part.mpns if part else ()) if ref.mpn != preferred
                 ),
                 remarks=tuple(_remarks(line, part, source)),
             )

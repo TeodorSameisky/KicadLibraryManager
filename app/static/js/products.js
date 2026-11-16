@@ -4,9 +4,7 @@
  * family is open while a filter is on, so that what matched can be seen, and
  * goes back to how the reader left it when the filter is cleared.
  */
-(() => {
-  "use strict";
-
+function start() {
   const search = document.getElementById("product-search");
   const tag = document.getElementById("product-tag");
   const count = document.getElementById("product-count");
@@ -58,4 +56,6 @@
   if (tag) tag.addEventListener("change", apply);
   // Enter in the search box is not a request to leave the page.
   document.getElementById("product-filter").addEventListener("submit", (e) => e.preventDefault());
-})();
+}
+
+start();

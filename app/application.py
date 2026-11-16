@@ -20,15 +20,17 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import __version__
 from app.auth.oidc import OidcClient
 from app.auth.sessions import SessionStore
-from app.boms.backup import Backups, keep_backups
 from app.boms.store import BomStore
 from app.config import Settings
+from app.db.backup import Backups, keep_backups
+from app.db.database import Database
+from app.errors import AppError
 from app.library.publish import Identity, Publisher
 from app.library.service import LibraryService
 from app.library.sources import sync as sync_source
 from app.observability import RequestContextMiddleware
 from app.security import SecurityHeadersMiddleware
-from app.web.errors import http_error
+from app.web.errors import app_error, http_error
 from app.web.routes import backup as backup_routes
 from app.web.routes import boms as bom_routes
 from app.web.routes import catalog, pages, provider, session, system, template_admin
@@ -75,16 +77,18 @@ def create_app(
         audience=settings.oidc_audience,
     )
 
-    boms = boms or BomStore(Path(settings.database_path))
-    backups = backups or Backups(boms.path, settings.backup_path, settings.backup_keep)
+    # One database, handed to everything that keeps something in it.
+    boms = boms or BomStore(Database(Path(settings.database_path)))
+    database = boms.database
+    backups = backups or Backups(database.path, settings.backup_path, settings.backup_keep)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         for problem in settings.problems():
             log.error("configuration: %s", problem)
         # Said now rather than at the first upload, which may be weeks away.
-        if (problem := boms.problem()) is not None:
-            log.error("storage: %s", problem)
+        if (unusable := database.problem()) is not None:
+            log.error("storage: %s", unusable)
         # In the background: cloning a library takes longer than a container
         # is given to become healthy.
         library.start()
@@ -107,6 +111,7 @@ def create_app(
     app.state.settings = settings
     app.state.library = library
     app.state.identity = identity
+    app.state.database = database
     app.state.boms = boms
     app.state.backups = backups
     app.state.sessions = SessionStore(
@@ -115,7 +120,7 @@ def create_app(
         session_ttl_seconds=settings.session_ttl_seconds,
         # The same file as the BOMs: one place to back up, and one place for
         # the storage check at startup to look at.
-        database=boms.path,
+        database=database,
     )
 
     # The last one added is the outermost, so the hardening headers also land
@@ -124,6 +129,7 @@ def create_app(
     app.add_middleware(SecurityHeadersMiddleware, settings=settings)
 
     app.add_exception_handler(StarletteHTTPException, http_error)
+    app.add_exception_handler(AppError, app_error)
 
     app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
     for module in (

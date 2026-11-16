@@ -12,10 +12,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
+from app.domain.parts import Mpn, Part, PartStatus
 from app.library.assets import index_repository
 from app.library.catalog import Catalog, asset_issues, part_issues
+from app.library.files import has_parts
 from app.library.issues import Issue, Severity, errors, warnings
-from app.library.parts import PART_STATUSES, Mpn, Part, PartsIndex, has_parts, load_parts
+from app.library.parts import PartsIndex, load_parts
 from app.library.products import Products, load_products
 from app.library.sources import Checkout, Source
 
@@ -146,7 +148,7 @@ class Snapshot:
     @cached_property
     def status_facets(self) -> list[Facet]:
         counts = Counter(part.status for part in self.parts.parts.values())
-        return [Facet(s, s, counts[s]) for s in PART_STATUSES if counts[s]]
+        return [Facet(s.value, s.value, counts[s]) for s in PartStatus if counts[s]]
 
     @cached_property
     def category_facets(self) -> list[Facet]:

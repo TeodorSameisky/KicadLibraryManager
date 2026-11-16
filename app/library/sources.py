@@ -21,7 +21,7 @@ import re
 import shutil
 import stat
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -223,7 +223,7 @@ def _update(source: Source, target: Path, env: Mapping[str, str] | None = None) 
 def _remove(path: Path) -> None:
     """Delete a directory tree, including git's read-only object files."""
 
-    def retry_writable(function, target, _exc):
+    def retry_writable(function: Callable[[str], object], target: str, _exc: object) -> None:
         os.chmod(target, stat.S_IWRITE)
         function(target)
 

@@ -1,21 +1,14 @@
 """BOMs, kept.
 
-One SQLite file. The original upload is stored whole alongside the lines read
-from it, so that nothing a later, better reader could have used is lost.
-
-A connection is opened for each operation and closed after it. That costs
-microseconds and means there is nothing to share between the threads the
-routes run on, and nothing held open across a backup of the file.
-
-The file is created when first needed; the directory it goes in is not. A
-path that points somewhere that does not exist is a mistake to report, not a
-reason to start making directories wherever a setting happens to point.
+In the database (`app.db`), which is where the tables are made. The original
+upload is stored whole alongside the lines read from it, so that nothing a
+later, better reader could have used is lost.
 """
 
 from __future__ import annotations
 
+import builtins
 import sqlite3
-import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -23,39 +16,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app.boms.parse import BomLine, ParsedBom
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS boms (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    project     TEXT NOT NULL,
-    revision    TEXT NOT NULL DEFAULT '',
-    filename    TEXT NOT NULL DEFAULT '',
-    note        TEXT NOT NULL DEFAULT '',
-    uploaded_at REAL NOT NULL,
-    uploaded_by TEXT NOT NULL DEFAULT '',
-    source      TEXT NOT NULL,
-    device      TEXT NOT NULL DEFAULT '',
-    UNIQUE (project, revision)
-);
-
-CREATE TABLE IF NOT EXISTS bom_lines (
-    bom_id    INTEGER NOT NULL REFERENCES boms (id) ON DELETE CASCADE,
-    position  INTEGER NOT NULL,
-    ipn       TEXT,
-    refs      TEXT NOT NULL,
-    quantity  INTEGER NOT NULL,
-    value     TEXT NOT NULL DEFAULT '',
-    footprint TEXT NOT NULL DEFAULT '',
-    dnp       INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (bom_id, position)
-);
-
-CREATE INDEX IF NOT EXISTS bom_lines_by_ipn ON bom_lines (ipn);
-"""
-
-# Added after the first BOMs were stored. A file made before this has no such
-# column, and `CREATE TABLE IF NOT EXISTS` leaves it that way.
-_ADDED_COLUMNS = (("boms", "device", "TEXT NOT NULL DEFAULT ''"),)
+from app.db.database import Database, DatabaseUnavailable
+from app.errors import Conflict, Unavailable
 
 # The same columns wherever a BOM is listed, with its totals worked out.
 _SUMMARY = """
@@ -66,7 +28,7 @@ FROM boms b LEFT JOIN bom_lines l ON l.bom_id = b.id
 """
 
 
-class BomExists(Exception):
+class BomExists(Conflict):
     """A BOM is already stored for this project and revision."""
 
     def __init__(self, existing: Bom) -> None:
@@ -74,8 +36,13 @@ class BomExists(Exception):
         self.existing = existing
 
 
-class StoreUnavailable(Exception):
+class StoreUnavailable(Unavailable):
     """The database cannot be opened or written."""
+
+    def detail(self) -> str:
+        # The reason names a path on the server, which is for whoever runs
+        # it: the status page and the log say it, an answer does not.
+        return "BOMs cannot be stored or read right now."
 
 
 @dataclass(frozen=True)
@@ -115,45 +82,21 @@ def _bom(row: sqlite3.Row) -> Bom:
 
 
 class BomStore:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self._prepared = False
-        self._prepare_lock = threading.Lock()
+    def __init__(self, database: Database | Path) -> None:
+        self.database = Database.of(database)
+
+    @property
+    def path(self) -> Path:
+        return self.database.path
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        if not self.path.parent.is_dir():
-            raise StoreUnavailable(
-                f"the directory for the BOM database does not exist: {self.path.parent}"
-            )
+        """A connection for one operation, which is one transaction."""
         try:
-            connection = sqlite3.connect(self.path, timeout=10)
-        except sqlite3.Error as exc:
-            raise StoreUnavailable(f"the BOM database cannot be opened: {exc}") from exc
-
-        try:
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA foreign_keys = ON")
-            if not self._prepared:
-                with self._prepare_lock:
-                    # Readers do not block the writer, and the writer does not
-                    # block them.
-                    connection.execute("PRAGMA journal_mode = WAL")
-                    connection.executescript(_SCHEMA)
-                    for table, column, definition in _ADDED_COLUMNS:
-                        info = connection.execute(f"PRAGMA table_info({table})")
-                        have = {row["name"] for row in info}
-                        if column not in have:
-                            connection.execute(
-                                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
-                            )
-                    self._prepared = True
-            with connection:  # one transaction: commits, or rolls back on error
+            with self.database.connect() as connection:
                 yield connection
-        except sqlite3.OperationalError as exc:
-            raise StoreUnavailable(f"the BOM database cannot be used: {exc}") from exc
-        finally:
-            connection.close()
+        except DatabaseUnavailable as exc:
+            raise StoreUnavailable(str(exc)) from exc
 
     def problem(self) -> str | None:
         """Why BOMs cannot be stored right now, or None if they can."""
@@ -280,7 +223,8 @@ class BomStore:
             row = connection.execute("SELECT source FROM boms WHERE id = ?", (bom_id,)).fetchone()
         return row["source"] if row else None
 
-    def where_used(self, ipn: str) -> list[Usage]:
+    # `builtins.list`, because inside this class `list` is the method above.
+    def where_used(self, ipn: str) -> builtins.list[Usage]:
         """Every BOM a part is on, by project, each project's newest first."""
         with self._connect() as connection:
             rows = connection.execute(
