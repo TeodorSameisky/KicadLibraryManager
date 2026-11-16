@@ -16,5 +16,6 @@ same call and be held to the same rules.
     changes    what every change to the library's repository has in common
     parts      requesting a part, correcting it, approving and retiring it
     templates  changing what a category asks of its parts
+    manufacturers  keeping the list of who makes what, under one name each
     boms       keeping BOMs, and setting them against the products
 """

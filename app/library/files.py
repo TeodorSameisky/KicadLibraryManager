@@ -1,6 +1,7 @@
 """The library's files: where each kind is kept, and how each is written down.
 
     categories.yaml              the category codes an IPN may start with
+    manufacturers.yaml           the manufacturers, each under one name
     templates/<category>.yaml    the fields a part in that category carries
     mpns/<MPN>.yaml              one manufacturer part
     parts/<category>/<IPN>.yaml  one internal part
@@ -35,6 +36,10 @@ def relative(root: Path, path: Path) -> str:
 
 def categories_file(root: Path) -> Path:
     return root / "categories.yaml"
+
+
+def manufacturers_file(root: Path) -> Path:
+    return root / "manufacturers.yaml"
 
 
 def template_file(root: Path, category: str) -> Path:
@@ -231,3 +236,20 @@ def template_text(category: str, value: str, fields: Sequence[TemplateField]) ->
         if spec.default.strip():
             lines.append(f"    default: {_scalar(spec.default.strip())}")
     return "\n".join(lines) + "\n"
+
+
+def manufacturers_text(entries: Sequence[Mapping[str, Any]]) -> str:
+    """The list of manufacturers: for each, its name, then the other ways it
+    gets written on one line, as a person would write them.
+
+    Anything else an entry holds is carried along under it.
+    """
+    lines: list[str] = []
+    for entry in entries:
+        lines.append(f"- name: {_scalar(entry['name'])}")
+        if entry.get("aliases"):
+            lines.append(f"  aliases: {_scalar(list(entry['aliases']))}")
+        for key, value in entry.items():
+            if key not in ("name", "aliases"):
+                lines.append(f"  {_scalar(key)}: {_scalar(value)}")
+    return "\n".join(lines) + "\n" if lines else "[]\n"

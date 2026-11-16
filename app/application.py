@@ -37,6 +37,7 @@ from app.web.routes import catalog, pages, provider, session, system, template_a
 from app.web.routes import editing as editing_routes
 from app.web.routes import history as history_routes
 from app.web.routes import library as library_routes
+from app.web.routes import manufacturers as manufacturer_routes
 from app.web.routes import products as product_routes
 from app.web.templating import STATIC_DIR, RevalidatedStaticFiles
 
@@ -143,6 +144,7 @@ def create_app(
         backup_routes,
         editing_routes,
         template_admin,
+        manufacturer_routes,
         history_routes,
         pages,
     ):

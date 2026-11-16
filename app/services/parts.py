@@ -12,6 +12,7 @@ whoever asked.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from app.domain import policy, rules
@@ -108,6 +109,24 @@ def check(form: PartForm, snapshot: Snapshot, *, new: bool, category: str | None
         raise EditError(problems)
 
 
+def _under_one_name(form: PartForm, snapshot: Snapshot) -> PartForm:
+    """The form, with each manufacturer under the name the library has for it.
+
+    A new manufacturer part is written down as "Texas Instruments" whether
+    "TI" or "Texas Instruments Inc." was typed. A name the library does not
+    know is kept as typed: the part is still a draft someone can work on, and
+    the issues page says which name needs a place in manufacturers.yaml.
+    """
+    known = snapshot.parts.manufacturers
+    return replace(
+        form,
+        sources=tuple(
+            replace(entry, manufacturer=known.canonical(entry.manufacturer))
+            for entry in form.sources
+        ),
+    )
+
+
 # -- the changes ----------------------------------------------------------------
 
 
@@ -120,6 +139,7 @@ async def request_part(
     """
     changes.require_writable(library)
     check(form, library.snapshot, new=True)
+    form = _under_one_name(form, library.snapshot)
 
     given: dict[str, str] = {}
 
@@ -140,6 +160,7 @@ async def edit_part(
     changes.require_writable(library)
     require_may_edit(actor, part)
     check(form, library.snapshot, new=False, category=part.category)
+    form = _under_one_name(form, library.snapshot)
 
     await changes.publish(
         library, lambda root: editing.write_part(root, part.ipn, form), actor, note=note

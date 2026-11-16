@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from app.domain import rules
+from app.domain.manufacturers import Manufacturer, Manufacturers, name_key, spelling_groups
 from app.domain.parts import IPN_PATTERN, Category, Lifecycle, Mpn, MpnRef, Part, PartStatus
 from app.domain.rules import Finding, Rule
 from app.domain.templates import Template, TemplateField
@@ -28,6 +29,9 @@ _UNREADABLE: Any = object()
 class PartsIndex:
     categories: dict[str, Category] = field(default_factory=dict)
     templates: dict[str, Template] = field(default_factory=dict)  # by category code
+    # The manufacturers the library knows, each under one name. Empty when it
+    # keeps no list: every name is then taken as it was written.
+    manufacturers: Manufacturers = field(default_factory=Manufacturers)
     mpns: dict[str, Mpn] = field(default_factory=dict)
     parts: dict[str, Part] = field(default_factory=dict)
     issues: list[Issue] = field(default_factory=list)
@@ -91,6 +95,9 @@ class _Loader:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.index = PartsIndex()
+        # Who each manufacturer part says makes it, as its file has it, and
+        # the file: what the checks at the end go by.
+        self._made_by: dict[str, tuple[str, str]] = {}
 
     def report(self, issue: Issue) -> None:
         self.index.issues.append(issue)
@@ -210,6 +217,75 @@ class _Loader:
             )
         return tuple(fields)
 
+    # -- manufacturers.yaml
+
+    def load_manufacturers(self) -> None:
+        """The manufacturers the library knows. A library need not keep a
+        list: without one nothing is asked, and nothing is renamed."""
+        path = files.manufacturers_file(self.root)
+        if not path.is_file():
+            return
+
+        data, relative = self.read(path)
+        if data is _UNREADABLE:
+            return
+        if not isinstance(data, list):
+            self.report(
+                Issue.error("bad-manufacturers", "expected a list of manufacturers", relative)
+            )
+            return
+
+        known: list[Manufacturer] = []
+        taken: dict[str, str] = {}  # what a spelling comes to -> whose it is
+        for entry in data:
+            if isinstance(entry, str):  # the shorthand: a name, and no other spellings
+                entry = {"name": entry}
+            if not isinstance(entry, dict) or not str(entry.get("name") or "").strip():
+                self.report(
+                    Issue.error("bad-manufacturer", f"malformed entry: {entry!r}", relative)
+                )
+                continue
+
+            name = str(entry["name"]).strip()
+            if any(listed.name == name for listed in known):
+                self.report(
+                    Issue.error("duplicate-manufacturer", f"{name} is listed twice", relative)
+                )
+                continue
+            raw = entry.get("aliases") or []
+            if not isinstance(raw, list):
+                self.report(
+                    Issue.error("bad-manufacturer", f"{name}: 'aliases' must be a list", relative)
+                )
+                raw = []
+
+            # A spelling can mean one manufacturer only. The first to claim it
+            # keeps it, and the second is said, since it is otherwise a
+            # manufacturer nothing will ever be recognised as.
+            aliases: list[str] = []
+            usable = True
+            for spelling in (name, *(str(alias).strip() for alias in raw)):
+                key = name_key(spelling)
+                owner = taken.get(key)
+                if not key:
+                    continue
+                if owner is not None and owner != name:
+                    said = (
+                        f"{name!r} is another way of writing {owner}, which is already listed"
+                        if spelling == name
+                        else f"{spelling!r} is listed for {name}, and is already {owner}"
+                    )
+                    self.report(Issue.error("duplicate-manufacturer", said, relative))
+                    usable = usable and spelling != name
+                    continue
+                taken[key] = name
+                if spelling != name and spelling not in aliases:
+                    aliases.append(spelling)
+            if usable:
+                known.append(Manufacturer(name, tuple(aliases)))
+
+        self.index.manufacturers = Manufacturers(tuple(known))
+
     # -- mpns/
 
     def load_mpns(self) -> None:
@@ -243,9 +319,13 @@ class _Loader:
                 self.report(Issue.error("duplicate-mpn", f"{mpn} is already defined", relative))
                 continue
 
+            written = str(data.get("manufacturer") or "").strip()
+            self._made_by[mpn] = (written, relative)
             self.index.mpns[mpn] = Mpn(
                 mpn=mpn,
-                manufacturer=str(data.get("manufacturer") or ""),
+                # Under the one name the library has for whoever makes it, if
+                # it has one; as written otherwise.
+                manufacturer=self.index.manufacturers.canonical(written),
                 description=str(data.get("description") or ""),
                 datasheet=str(data.get("datasheet") or ""),
                 lifecycle=lifecycle,
@@ -349,6 +429,34 @@ class _Loader:
 
     # -- what only shows once everything is loaded
 
+    def check_manufacturers(self) -> None:
+        """Who makes each manufacturer part, held to the library's list -- or,
+        where it keeps none, to itself."""
+        known = self.index.manufacturers
+        if known:
+            for mpn, (written, relative) in self._made_by.items():
+                if written and known.resolve(written) is None:
+                    self.report(
+                        Issue.warning(
+                            "unknown-manufacturer",
+                            f"{mpn} is made by {written!r}, which is not in manufacturers.yaml",
+                            relative,
+                        )
+                    )
+            return
+
+        # No list to go by. What can still be said is that one name is
+        # written more than one way, which is where a list starts.
+        for spellings in spelling_groups(written for written, _ in self._made_by.values()):
+            usual, *others = spellings
+            self.report(
+                Issue.warning(
+                    "manufacturer-spelling",
+                    f"{usual!r} is also written {', '.join(repr(other) for other in others)}; "
+                    "manufacturers.yaml can say which name it goes by",
+                )
+            )
+
     def check(self) -> None:
         mpns = self.index.mpns
         for part in self.index.parts.values():
@@ -404,7 +512,9 @@ def load_parts(root: Path) -> PartsIndex:
     loader = _Loader(root)
     loader.load_categories()
     loader.load_templates()
+    loader.load_manufacturers()
     loader.load_mpns()
     loader.load_parts()
+    loader.check_manufacturers()
     loader.check()
     return loader.index

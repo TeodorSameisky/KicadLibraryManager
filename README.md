@@ -83,6 +83,7 @@ in another.
 
 ```
 categories.yaml                              the category codes an IPN may start with
+manufacturers.yaml                           the manufacturers, each under one name (optional)
 templates/<category>.yaml                    the fields a part in that category carries
 products/<family>.yaml                       a product family and the devices in it
 parts/<category>/<IPN>.yaml                  an internal part: 1102-0001
@@ -181,6 +182,57 @@ does this discontinuation reach?" answerable.
 
 IPNs are one numbering scheme, so they are read from one repository: the first
 source that has a `parts/` directory.
+
+### Manufacturers
+
+The same company gets written "Texas Instruments", "TI" and "Texas Instruments
+Inc." by three people on three days. To a reader those are one manufacturer;
+to anything that looks a part up by who makes it they are three. So a library
+may say which manufacturers it knows, each under the one name it goes by:
+
+```yaml
+# manufacturers.yaml
+- name: Texas Instruments
+  aliases: [TI, Texas Instr.]     # the other ways it gets written
+- name: Yageo
+- Würth Elektronik                # the shorthand: a name, no other spellings
+```
+
+- **A name is recognised however it was typed.** Case, accents, punctuation and
+  the legal form at the end are not part of a name: `YAGEO Corp.`, `yageo` and
+  `Yageo Co., Ltd.` are all Yageo, and `Wurth` is `Würth`, without an alias for
+  each. An abbreviation is only known to be one if `aliases` says so. A word
+  like "Semiconductor" *is* part of a name: `ON` and `ON Semiconductor` are
+  not assumed to be the same company.
+- **Everything shows the one name.** A manufacturer part whose file says `TI`
+  is listed, searched, exported and placed as Texas Instruments. The files are
+  not rewritten. Searching for `TI` still finds it.
+- **A new manufacturer part is written down under the one name**, whichever
+  way it was typed in the form, and the form offers the names the library has.
+- **A name the list does not have is not refused.** The part is still a draft
+  someone can work on. It is kept as typed and listed on the issues page as
+  `unknown-manufacturer`, which is the worklist for whoever keeps the list.
+- **A spelling can mean one manufacturer only.** One listed for two is an
+  error; the first to claim it keeps it.
+
+The list is optional. Without one nothing is asked and nothing is renamed --
+but one name written more than one way is still noticed, and reported as
+`manufacturer-spelling`: that is where a list starts.
+
+**Librarians keep the list in the app**, at `/manufacturers`. The page is the
+worklist first and the list second: every name a manufacturer part gives that
+the list does not recognise, the most used first, each with two ways out --
+*Add to the list*, or *It is this one*, which opens a listed manufacturer with
+the name filled in as another way of writing it. Below that is the list itself,
+with how many manufacturer parts each makes. Saving is one commit to the
+repository, in the librarian's name, with an optional note, like any other
+change.
+
+Renaming a manufacturer keeps its old name as another spelling, so the files
+that say the old name still mean it. Taking a manufacturer off the list does
+not touch those files either: they are back on the worklist. Writing the list
+here lays the file out its own way, so a comment in a hand-written one does not
+survive being edited in the app; whatever else an entry holds is kept.
 
 ### Private repositories
 
@@ -679,6 +731,8 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/parts/new`, `/ipn/{ipn}/edit` | The forms for the above | |
 | `PUT`, `DELETE /api/v1/templates/{category}` | Create or replace a category's template, or remove it; librarians | |
 | `/templates`, `/templates/{category}/edit` | Listing and editing templates; librarians | |
+| `/api/v1/manufacturers` | `GET` the manufacturers and the names not on the list; `PUT {was, name, aliases, note}` adds one or changes the one called `was`, `DELETE {name, note}` removes one (librarians) | |
+| `/manufacturers`, `/manufacturers/new`, `/manufacturers/edit?name=` | The worklist and the list; adding and editing a manufacturer; librarians | |
 | `POST /api/v1/library/refresh` | Fetch the sources now and index what changed; librarians | |
 | `POST /api/v1/library/webhook` | The same, for the git host; let in by its signature | ✓ |
 | `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, device, replace}` | |

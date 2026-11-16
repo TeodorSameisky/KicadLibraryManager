@@ -109,6 +109,11 @@ class Snapshot:
                 mpn = self.parts.mpns.get(ref.mpn)
                 if mpn is not None:
                     words.append(mpn.manufacturer)
+                    # Found by the other ways its manufacturer gets written,
+                    # too: someone looking for "TI" means Texas Instruments.
+                    maker = self.parts.manufacturers.resolve(mpn.manufacturer)
+                    if maker is not None:
+                        words.extend(maker.aliases)
             text[part.ipn] = " ".join(words).lower()
         return text
 

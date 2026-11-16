@@ -51,3 +51,8 @@ def may_edit_templates(actor: Actor) -> bool:
 def may_delete_boms(actor: Actor) -> bool:
     """A BOM is a record of what was built, and deleting one cannot be undone."""
     return actor.librarian
+
+
+def may_edit_manufacturers(actor: Actor) -> bool:
+    """The list decides what every manufacturer part's maker is called."""
+    return actor.librarian

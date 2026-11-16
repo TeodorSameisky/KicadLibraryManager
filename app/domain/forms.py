@@ -44,3 +44,11 @@ class TemplateForm:
 
     fields: tuple[TemplateField, ...] = ()
     value: str = ""
+
+
+@dataclass(frozen=True)
+class ManufacturerForm:
+    """A manufacturer as someone asks for it to be listed."""
+
+    name: str
+    aliases: tuple[str, ...] = ()  # the other ways it gets written

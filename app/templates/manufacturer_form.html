@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% set heading = (was if was else "Add a manufacturer") %}
+
+{% block title %}{{ heading }} &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/manufacturers">&larr; Manufacturers</a>
+
+  <header>
+    <div class="title">
+      <h1 class="title--plain">{{ heading }}</h1>
+    </div>
+    <p class="byline">
+      Saving commits the list to the library's repository in your name. Every
+      manufacturer part that names this manufacturer, in any of these ways, is
+      then shown under the one name.
+    </p>
+  </header>
+
+  {% if not writable %}
+    <div class="notice">
+      <p class="notice__title">This deployment cannot change the library</p>
+      <p>It has no token that may push to the library's repository.</p>
+    </div>
+  {% else %}
+    <form class="stack" id="manufacturer-form" novalidate>
+      <div class="form">
+        <div class="field field--wide">
+          <label for="manufacturer-name">Name</label>
+          <input type="text" id="manufacturer-name" maxlength="120" autocomplete="off" required
+                 placeholder="Texas Instruments" />
+          <p class="hint">
+            What it is called everywhere. Capitals, accents, punctuation and the legal
+            form at the end do not matter when a name is recognised: "YAGEO Corp." is
+            Yageo without being listed below.
+          </p>
+        </div>
+      </div>
+
+      <fieldset class="group">
+        <legend>Also written</legend>
+        <p class="hint">
+          The other ways it gets written that a reader would not guess from the
+          name: an abbreviation, a former name, a brand.
+          {% if was %}If you change the name, the old one is kept here.{% endif %}
+        </p>
+        <div id="manufacturer-aliases"></div>
+        <button type="button" class="button" id="add-manufacturer-alias">Add a spelling</button>
+      </fieldset>
+
+      <div class="form">
+        <div class="field field--wide">
+          <label for="manufacturer-note">What did you change, and why? <span class="muted">(optional)</span></label>
+          <textarea id="manufacturer-note" rows="3" maxlength="1000"
+                    placeholder="TI is how most of our datasheets name them"></textarea>
+          <p class="hint">Kept with the change in the library's history, next to your name.</p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="button" id="manufacturer-submit">
+          {{- "Save the manufacturer" if was else "Add the manufacturer" -}}
+        </button>
+        {% if was %}
+          <button type="button" class="button button--danger" id="manufacturer-remove">Remove from the list</button>
+        {% endif %}
+      </div>
+      <div id="manufacturer-result" aria-live="polite"></div>
+    </form>
+
+    <script type="application/json" id="manufacturer-data">{{ data | tojson }}</script>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if writable %}
+    <script type="module" src="{{ root_path }}/static/js/manufacturer-form.js"></script>
+  {% endif %}
+{% endblock %}

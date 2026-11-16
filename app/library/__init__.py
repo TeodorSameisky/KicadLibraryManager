@@ -13,6 +13,7 @@ previews   the same part, drawn
 
 editing    what an accepted part form does to the files
 template_editing   and what an accepted template form does
+manufacturer_editing   and what a change to the list of manufacturers does
 publish    committing a change in someone's name, and pushing it
 history    what was changed in a file, put into words
 

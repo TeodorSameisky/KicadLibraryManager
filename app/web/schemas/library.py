@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.forms import PartForm, SourceEntry, TemplateForm
+from app.domain.forms import ManufacturerForm, PartForm, SourceEntry, TemplateForm
 from app.domain.parts import Lifecycle, Part, PartStatus
 from app.domain.templates import Template, TemplateField
 from app.library.history import History
 from app.library.placement import AssetBundle
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
+from app.services import manufacturers as manufacturer_service
 from app.services import templates
 from app.services.changes import MAX_NOTE
 from app.services.templates import Shortfall
@@ -362,6 +363,9 @@ class Choices(BaseModel):
     footprints: list[str]
     templates: dict[str, TemplateOut]  # by category code
     mpns: list[MpnChoice]
+    # Who may be named as making a new manufacturer part: the manufacturers
+    # the library knows, and whoever its manufacturer parts already name.
+    manufacturers: list[str]
 
     @classmethod
     def of(cls, snapshot: Snapshot, *, writable: bool) -> Choices:
@@ -384,6 +388,13 @@ class Choices(BaseModel):
                 MpnChoice(mpn=mpn.mpn, manufacturer=mpn.manufacturer, lifecycle=mpn.lifecycle)
                 for mpn in sorted(snapshot.parts.mpns.values(), key=lambda m: m.mpn)
             ],
+            manufacturers=sorted(
+                {
+                    *snapshot.parts.manufacturers.names,
+                    *(mpn.manufacturer for mpn in snapshot.parts.mpns.values() if mpn.manufacturer),
+                },
+                key=str.casefold,
+            ),
         )
 
 
@@ -482,6 +493,73 @@ class TemplateOutcome(BaseModel):
     @classmethod
     def of(cls, category: str, short: Shortfall) -> TemplateOutcome:
         return cls(category=category, parts=short.of, falling_short=short.parts)
+
+
+# -- manufacturers --------------------------------------------------------------
+
+
+class ManufacturerOut(BaseModel):
+    name: str  # what it is called, everywhere
+    aliases: list[str]  # the other ways it gets written
+    parts: int  # how many manufacturer parts it makes
+
+
+class UnlistedOut(BaseModel):
+    """A name some manufacturer part gives that the list does not recognise."""
+
+    name: str  # as it is most often written
+    spellings: list[str]  # every way it is written, that one first
+    parts: int  # how many manufacturer parts give it
+
+
+class ManufacturerList(BaseModel):
+    """The manufacturers the library knows, and the names it does not."""
+
+    writable: bool
+    manufacturers: list[ManufacturerOut]  # by name
+    unlisted: list[UnlistedOut]  # the most used first
+
+    @classmethod
+    def of(cls, overview: manufacturer_service.Overview, *, writable: bool) -> ManufacturerList:
+        return cls(
+            writable=writable,
+            manufacturers=[
+                ManufacturerOut(
+                    name=listed.manufacturer.name,
+                    aliases=list(listed.manufacturer.aliases),
+                    parts=listed.parts,
+                )
+                for listed in overview.listed
+            ],
+            unlisted=[
+                UnlistedOut(name=found.name, spellings=list(found.spellings), parts=found.parts)
+                for found in overview.unlisted
+            ],
+        )
+
+
+class ManufacturerBody(BaseModel):
+    """A manufacturer as someone asks for it to be listed."""
+
+    # The name it is listed under now, to change that one; left out to add one.
+    was: str | None = Field(None, max_length=manufacturer_service.MAX_NAME)
+    name: str = Field(max_length=200)
+    aliases: list[str] = Field(
+        default_factory=list, max_length=manufacturer_service.MAX_ALIASES + 1
+    )
+    note: str = Field("", max_length=MAX_NOTE)
+
+    def form(self) -> ManufacturerForm:
+        return ManufacturerForm(
+            name=self.name,
+            # Blank spellings are the empty boxes of a form, not spellings.
+            aliases=tuple(alias.strip() for alias in self.aliases if alias.strip()),
+        )
+
+
+class ManufacturerRemoval(BaseModel):
+    name: str = Field(max_length=manufacturer_service.MAX_NAME)
+    note: str = Field("", max_length=MAX_NOTE)
 
 
 # -- history --------------------------------------------------------------------

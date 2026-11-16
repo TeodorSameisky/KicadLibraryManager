@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Manufacturers &middot; {{ provider_name }}{% endblock %}
+
+{% block content %}
+  <header class="masthead">
+    <div class="masthead__title">
+      <h1>Manufacturers</h1>
+      {% with here = "Manufacturers" %}{% include "_nav.html" %}{% endwith %}
+    </div>
+  </header>
+
+  <p class="lede">
+    One company gets written more than one way. This list says which name each
+    manufacturer goes by, and the other ways it is written, so that it is shown,
+    searched and looked up under one name. It is a file in the library's
+    repository, and changing it is a commit in your name.
+  </p>
+
+  {% if not writable %}
+    <div class="notice">
+      <p class="notice__title">This deployment cannot change the library</p>
+      <p>It has no token that may push to the library's repository.</p>
+    </div>
+  {% endif %}
+
+  {% if overview.unlisted %}
+    <h2 class="section">Not in the list</h2>
+    <p class="hint">
+      Names that manufacturer parts give and the list does not recognise. Each is
+      either a manufacturer to add, or another way of writing one that is listed.
+    </p>
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Name as written</th>
+            <th scope="col" class="num">Manufacturer parts</th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for found in overview.unlisted %}
+            <tr>
+              <td>
+                <strong>{{ found.name }}</strong>
+                {% if found.spellings | length > 1 %}
+                  <span class="small muted block">also written {{ found.spellings[1:] | join(", ") }}</span>
+                {% endif %}
+              </td>
+              <td class="num">{{ found.parts }}</td>
+              <td>
+                {% if writable %}
+                  <form class="row" method="get" action="{{ root_path }}/manufacturers/edit">
+                    <a class="button" href="{{ root_path }}/manufacturers/new?name={{ found.name | urlencode }}">Add to the list</a>
+                    {% if overview.listed %}
+                      <input type="hidden" name="alias" value="{{ found.name }}" />
+                      <select name="name" aria-label="The manufacturer {{ found.name }} is another way of writing">
+                        {% for listed in overview.listed %}
+                          <option value="{{ listed.manufacturer.name }}">{{ listed.manufacturer.name }}</option>
+                        {% endfor %}
+                      </select>
+                      <button type="submit" class="button">It is this one</button>
+                    {% endif %}
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  <h2 class="section">In the list</h2>
+  {% if overview.listed %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Also written</th>
+            <th scope="col" class="num">Manufacturer parts</th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for listed in overview.listed %}
+            <tr>
+              <td><strong>{{ listed.manufacturer.name }}</strong></td>
+              <td>
+                {% if listed.manufacturer.aliases %}
+                  {{ listed.manufacturer.aliases | join(", ") }}
+                {% else %}
+                  <span class="muted">&mdash;</span>
+                {% endif %}
+              </td>
+              <td class="num">{{ listed.parts }}</td>
+              <td class="num">
+                {% if writable %}
+                  <a class="button" href="{{ root_path }}/manufacturers/edit?name={{ listed.manufacturer.name | urlencode }}">Edit</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">
+      The library keeps no list yet, so every name is taken as it was written.
+      The first manufacturer added starts one.
+    </p>
+  {% endif %}
+
+  {% if writable %}
+    <p><a class="button" href="{{ root_path }}/manufacturers/new">Add a manufacturer</a></p>
+  {% endif %}
+{% endblock %}

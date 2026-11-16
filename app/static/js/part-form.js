@@ -189,6 +189,9 @@ function start() {
 
     const about = el("span", "row__about");
     const manufacturer = input("Manufacturer", source.manufacturer, 120);
+    // Offered the names the library already has, so that one manufacturer
+    // is not typed a second way. Another name can still be typed.
+    manufacturer.setAttribute("list", "manufacturers");
     const datasheet = input("Datasheet address", source.datasheet, 500);
     const lifecycle = el("select");
     lifecycle.setAttribute("aria-label", "Lifecycle");
@@ -230,6 +233,7 @@ function start() {
     fill("symbols", offered.symbols);
     fill("footprints", offered.footprints);
     fill("mpns", offered.mpns.map((mpn) => mpn.mpn));
+    fill("manufacturers", offered.manufacturers);
     known = new Map(offered.mpns.map((mpn) => [mpn.mpn, mpn]));
     templates = offered.templates || {};
 
