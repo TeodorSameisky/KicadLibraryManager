@@ -135,6 +135,24 @@ class Settings:
     backup_keep: int = 14
     backup_directory: str = ""
 
+    # -- suppliers
+    # DigiKey's Product Information API: the client id and secret of an
+    # application registered at developer.digikey.com. Without both, DigiKey
+    # is not asked anything.
+    digikey_client_id: str | None = None
+    digikey_client_secret: str | None = None
+    # https://sandbox-api.digikey.com answers the same way with made-up data.
+    digikey_api_url: str = "https://api.digikey.com"
+    # Whose prices and stock: the country's site, its language and currency.
+    digikey_site: str = "US"
+    digikey_language: str = "en"
+    digikey_currency: str = "USD"
+    # How many searches a day may be sent to it. DigiKey allows a registered
+    # application a thousand; this app stops itself before DigiKey has to.
+    digikey_daily_limit: int = 1000
+    # How long a supplier's answer holds before the same thing is asked again.
+    supplier_cache_hours: int = 24
+
     # -- what the discovery document advertises
     allow_insecure_localhost: bool = True
     max_download_bytes: int = 64 * 1024 * 1024
@@ -194,6 +212,14 @@ class Settings:
             database_path=env.text("DATABASE_PATH", "/data/library-manager.db"),
             backup_keep=max(0, env.integer("BACKUP_KEEP", 14)),
             backup_directory=env.text("BACKUP_DIRECTORY"),
+            digikey_client_id=env.optional("DIGIKEY_CLIENT_ID"),
+            digikey_client_secret=env.optional("DIGIKEY_CLIENT_SECRET"),
+            digikey_api_url=env.text("DIGIKEY_API_URL", "https://api.digikey.com").rstrip("/"),
+            digikey_site=env.text("DIGIKEY_LOCALE_SITE", "US").upper(),
+            digikey_language=env.text("DIGIKEY_LOCALE_LANGUAGE", "en").lower(),
+            digikey_currency=env.text("DIGIKEY_LOCALE_CURRENCY", "USD").upper(),
+            digikey_daily_limit=max(0, env.integer("DIGIKEY_DAILY_LIMIT", 1000)),
+            supplier_cache_hours=max(1, env.integer("SUPPLIER_CACHE_HOURS", 24)),
             allow_insecure_localhost=env.flag("ALLOW_INSECURE_LOCALHOST", True),
             max_download_bytes=env.integer("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
             supported_asset_types=env.words(
@@ -335,6 +361,14 @@ class Settings:
             found.append(
                 "COOKIE_SECURE is on but PUBLIC_URL is http, so the session cookie "
                 "is never sent back"
+            )
+
+        if bool(self.digikey_client_id) != bool(self.digikey_client_secret):
+            absent = "DIGIKEY_CLIENT_SECRET" if self.digikey_client_id else "DIGIKEY_CLIENT_ID"
+            found.append(f"{absent} is not set, so DigiKey cannot be asked: it needs both")
+        if not self.digikey_api_url.startswith("https://"):
+            found.append(
+                "DIGIKEY_API_URL must be an https address: the client secret is sent to it"
             )
 
         if not (self.capability_direct_downloads or self.capability_inline_payloads):

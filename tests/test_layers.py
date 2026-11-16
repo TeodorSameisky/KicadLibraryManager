@@ -22,7 +22,8 @@ MAY_USE = {
     "library": {"domain", "errors", "kicad"},
     "auth": {"db", "domain"},
     "boms": {"db", "domain", "errors", "library"},
-    "services": {"boms", "domain", "errors", "library"},
+    "suppliers": {"db", "domain", "errors"},
+    "services": {"boms", "db", "domain", "errors", "library", "suppliers"},
 }
 
 

@@ -16,12 +16,14 @@ from app.domain.parts import Part
 from app.library import previews
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
+from app.services.supply import Supply
 from app.web.deps import (
     current_session,
     get_boms,
     get_library,
     get_settings,
     get_snapshot,
+    get_supply,
     require_access,
     require_part,
 )
@@ -73,6 +75,7 @@ def status_page(
         checked_at=library.checked_at,
         refresh_minutes=settings.library_refresh_minutes,
         webhook=bool(settings.webhook_secret),
+        suppliers=request.app.state.supply.usage(),
         metadata_url=f"{settings.public_url}/.well-known/kicad-remote-provider",
     )
 
@@ -106,6 +109,7 @@ def part_page(
     snapshot: Snapshot = Depends(get_snapshot),
     settings: Settings = Depends(get_settings),
     boms: BomStore = Depends(get_boms),
+    supply: Supply = Depends(get_supply),
 ) -> Response:
     """A part's page: where the Datasheet field of every placed symbol leads."""
     try:
@@ -127,6 +131,9 @@ def part_page(
         footprint_svg=previews.footprint_svg(part, snapshot),
         has_model=previews.model_path(part, snapshot) is not None,
         usages=usages,
+        # Whether to leave room for what suppliers say. It is asked for by the
+        # page once it is on screen, not here: a supplier takes its time.
+        supply_enabled=supply.enabled,
     )
 
 

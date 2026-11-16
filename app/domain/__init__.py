@@ -14,4 +14,5 @@ repository on disk.
     forms      a part or a template as someone asks for it to be, unchecked
     rules      what is asked of a part, said once for the library and the forms
     policy     who may change what
+    supply     what a supplier says about a manufacturer part, in one shape
 """

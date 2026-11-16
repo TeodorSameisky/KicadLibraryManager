@@ -89,8 +89,33 @@ def _baseline(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE boms ADD COLUMN device TEXT NOT NULL DEFAULT ''")
 
 
+# What suppliers were asked and what they answered, and how often each was
+# asked on each day. See `app.suppliers.store`.
+_suppliers = sql(
+    """
+    CREATE TABLE supplier_answers (
+        key        TEXT PRIMARY KEY,   -- a hash of the supplier and what was asked
+        supplier   TEXT NOT NULL,
+        asked      TEXT NOT NULL,      -- what was asked, for whoever reads the file
+        status     INTEGER NOT NULL,   -- the HTTP status it answered with
+        body       TEXT NOT NULL,      -- the answer, as it came
+        fetched_at REAL NOT NULL,
+        expires_at REAL NOT NULL
+    )
+    """,
+    "CREATE INDEX supplier_answers_by_supplier ON supplier_answers (supplier)",
+    """
+    CREATE TABLE supplier_calls (
+        supplier TEXT NOT NULL,
+        day      TEXT NOT NULL,        -- in UTC, as suppliers count theirs
+        calls    INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (supplier, day)
+    )
+    """,
+)
+
 # In order. Add to the end; never change or remove one that has been released.
-MIGRATIONS: tuple[Migration, ...] = (_baseline,)
+MIGRATIONS: tuple[Migration, ...] = (_baseline, _suppliers)
 
 
 def version(connection: sqlite3.Connection) -> int:

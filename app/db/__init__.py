@@ -3,7 +3,7 @@
 The library is in git because it is authored and reviewed. What is not --
 the BOMs people upload, who is signed in -- is kept here. Each thing that is
 kept has a store of its own, next to the code that uses it (`app.boms.store`,
-`app.auth.sessions`), and none of them opens the file itself: they are handed
+`app.auth.sessions`, `app.suppliers.store`), and none of them opens the file itself: they are handed
 a `Database` and ask it for a connection.
 
     database    where the file is, how it is opened, what happens if it cannot be

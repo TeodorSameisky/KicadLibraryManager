@@ -12,6 +12,9 @@ from app.db.database import Database, DatabaseUnavailable
 from app.db.migrations import MIGRATIONS, sql, version
 from tests.test_boms import KICAD_DEFAULT
 
+# Everything that is kept, each with a store of its own.
+TABLES = {"boms", "bom_lines", "sessions", "supplier_answers", "supplier_calls"}
+
 
 def tables(path) -> set[str]:
     with sqlite3.connect(path) as connection:
@@ -33,7 +36,7 @@ def test_a_new_database_is_made_with_every_table_when_first_used(tmp_path):
 
     assert database.problem() is None
 
-    assert tables(database.path) == {"boms", "bom_lines", "sessions"}
+    assert tables(database.path) == TABLES
     assert step(database.path) == len(MIGRATIONS)
 
 
@@ -156,5 +159,5 @@ def test_a_database_from_before_steps_were_numbered_is_taken_as_it_is(tmp_path):
 
     assert [(bom.project, bom.device, bom.line_count) for bom in kept] == [("Old", "", 1)]
     assert store.get(kept[0].id).lines[0].references == ("R1", "R2")
-    assert tables(path) == {"boms", "bom_lines", "sessions"}
+    assert tables(path) == TABLES
     assert step(path) == len(MIGRATIONS)

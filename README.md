@@ -15,6 +15,7 @@ where it is used.
 - [The library](#the-library)
 - [Requesting and approving parts](#requesting-and-approving-parts)
 - [BOMs and where used](#boms-and-where-used)
+- [Suppliers](#suppliers)
 - [Configuration](#configuration)
 - [Authentication](#authentication)
 - [Deployment](#deployment)
@@ -535,6 +536,78 @@ To restore, stop the app, replace the database file with a backup (or a
 download), and start it again. Sessions are not in a copy, so everyone signs in
 once more.
 
+## Suppliers
+
+The library says which manufacturer parts may be bought for a part. Whether
+one *can* be, today, and what it costs, is a supplier's to say, and changes
+daily. So a part's page asks: under *Supply* it shows, for each manufacturer
+part and each supplier, what is in stock, the supplier's status for it, the
+price of one piece when buying 1, 10, 100 and 1000, and the manufacturer's
+lead time, with a link to the supplier's page.
+
+What a supplier says is shown beside what the library says and never written
+into it. Where the two disagree for the worse -- the library has a part as
+active and the supplier as obsolete, or not for new designs -- the supplier's
+status is marked. What follows from that is a person's to decide.
+
+### Asking, and not asking twice
+
+A supplier allows only so many calls a day, so a call is not made lightly:
+
+- **The page asks once it is on screen**, not while it is being made. A
+  supplier takes its time to answer, and the page does not wait on it.
+- **An answer is kept**, in the database, under a hash of which supplier was
+  asked and what. The same thing is not asked again while the answer holds:
+  `SUPPLIER_CACHE_HOURS`, a day by default. That a supplier does not list a
+  part is an answer too, and is kept the same way. A supplier is therefore
+  called once a day for each manufacturer part that somebody looks at, however
+  often it is looked at; parts nobody opens cost nothing.
+- **Every call is counted**, per supplier and day, against a limit
+  (`DIGIKEY_DAILY_LIMIT`). When the day's calls are used up nothing more is
+  asked until the next day (in UTC, as suppliers count). An answer that no
+  longer holds is then shown anyway, with the day it is from: old is better
+  than nothing.
+- **A supplier that fails is left alone for ten minutes**, and what is kept is
+  shown meanwhile.
+
+The status page shows, for each supplier, how many calls have gone to it today
+out of how many, how many answers are kept, and when it was last asked. What
+is kept is the answer as the supplier gave it, and it is read again each time
+it is shown, so that a better reader can be put to answers already paid for.
+Copies of the database are made without these answers: they can be had again
+by asking.
+
+### DigiKey
+
+Register an application at [developer.digikey.com](https://developer.digikey.com),
+subscribe it to **Product Information v4**, and give this app its client id
+and secret:
+
+| Variable | |
+| --- | --- |
+| `DIGIKEY_CLIENT_ID`, `DIGIKEY_CLIENT_SECRET` | The application's keys. Without both, DigiKey is asked nothing. Set them in the deployment's environment; they do not belong in the repository. |
+| `DIGIKEY_LOCALE_SITE`, `DIGIKEY_LOCALE_LANGUAGE`, `DIGIKEY_LOCALE_CURRENCY` | Whose prices and stock: `US`, `en`, `USD` unless said otherwise. For Germany: `DE`, `en` or `de`, `EUR`. |
+| `DIGIKEY_DAILY_LIMIT` | How many searches a day may be sent. 1000, which is what DigiKey allows a registered application; this app stops itself before DigiKey has to. |
+| `DIGIKEY_API_URL` | `https://sandbox-api.digikey.com` answers the same way with made-up data, for trying the keys out. |
+| `SUPPLIER_CACHE_HOURS` | How long an answer holds before the same thing is asked again. 24. |
+
+A part is found by searching for its manufacturer's part number
+(`POST /products/v4/search/keyword`). Only a product that goes by exactly
+that number is taken for it; where one number is two manufacturers' products,
+the one from the part's manufacturer is meant, which is where the
+[list of manufacturers](#manufacturers) earns its keep: DigiKey has its own
+name for each. Prices are those of the packaging with the smallest order, from
+DigiKey's own stock rather than a marketplace seller's.
+
+### Another supplier
+
+A supplier is one class in `app/suppliers/` that does two things: *fetch*,
+which sends one question and returns what came back, and *read*, which says
+what such an answer means as an offer. Whether to ask at all -- the kept
+answers, the count, the limit -- is `app/services/supply.py`, and is the same
+for every supplier. Adding one is that class, and a line in `app/application.py`
+that builds it from the settings.
+
 ## Configuration
 
 Everything is set through environment variables; [.env.example](.env.example)
@@ -741,6 +814,7 @@ unhandled error is logged in full and answered with nothing but that id.
 | `PUT /api/v1/boms/{id}/device` | Say which device a stored BOM is the BOM of: `{device: "akd/mv-3"}`, or `""` for none | |
 | `/api/v1/products` | The product tree, each device with its BOMs, and those on none | |
 | `/api/v1/parts/{ipn}/where-used` | The stored BOMs a part is on | |
+| `/api/v1/parts/{ipn}/supply` | What each supplier says about the part's manufacturer parts: stock, status, prices | |
 | `/ipn/{ipn}` | The part's page; where `Datasheet` points | |
 | `/ipn/{ipn}/history`, `/api/v1/parts/{ipn}/history` | What was changed in the part, by whom, and when | |
 | `/boms`, `/boms/{id}` | Uploading BOMs; one BOM against the library | |
@@ -791,6 +865,7 @@ app/
   errors.py          the kinds of thing that can go wrong, for every layer to raise
   web/               HTTP: routes, pages, request-scoped dependencies, errors as answers
   services/          what can be done: one function for each action, no HTTP
+  suppliers/         the suppliers that can be asked about a manufacturer part
   auth/              the OIDC provider, sessions, safe redirects
   boms/              reading KiCad BOMs, keeping them, setting them against the library
   db/                the database: how it is opened, its tables as numbered steps, backups

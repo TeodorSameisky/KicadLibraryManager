@@ -7,9 +7,10 @@ a directory beside the database, keeping the last few; and on request, as a
 download a librarian can put somewhere that is not this server.
 
 A copy is made with SQLite's own backup, which is consistent while the app is
-writing -- copying the file would not be. Sessions are left out of it: a copy
-is for keeping and handing around, and it should hold records, not who was
-signed in when.
+writing -- copying the file would not be. Two things are left out of it. The
+sessions: a copy is for keeping and handing around, and it should hold
+records, not who was signed in when. And what suppliers answered, which can
+be asked again and would otherwise be most of the file.
 """
 
 from __future__ import annotations
@@ -38,6 +39,11 @@ CHECK_EVERY_SECONDS = 3600
 # A backup this old is due another. A little under a day, so that a restart
 # at the same time each day does not skip one.
 DUE_AFTER_SECONDS = 20 * 3600
+
+
+# Tables a copy is made without. Their rows, that is: the tables stay, so
+# that a restored copy is a database the app can open.
+_LEFT_OUT = ("sessions", "supplier_answers")
 
 
 class BackupError(Unavailable):
@@ -78,13 +84,15 @@ def copy_database(database: Path, destination: Path) -> None:
             target = sqlite3.connect(partial)
             try:
                 source.backup(target)
-                # Who was signed in is not something to keep or hand around.
-                has_sessions = target.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
-                ).fetchone()
-                if has_sessions:
-                    target.execute("DELETE FROM sessions")
-                    target.commit()
+                # Who was signed in is not something to keep or hand around,
+                # and a supplier's answers can be had again by asking.
+                for table in _LEFT_OUT:
+                    there = target.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+                    ).fetchone()
+                    if there:
+                        target.execute(f"DELETE FROM {table}")
+                        target.commit()
                 target.execute("VACUUM")
             finally:
                 target.close()

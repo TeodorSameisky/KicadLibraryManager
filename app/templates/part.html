@@ -164,6 +164,16 @@
     <p class="muted">No manufacturer parts are listed for this part.</p>
   {% endif %}
 
+  {# What suppliers say about those manufacturer parts. Filled in by supply.js
+     once the page is on screen: a supplier takes its time to answer. Only
+     where this deployment has a supplier to ask. #}
+  {% if supply_enabled and sources %}
+    <h2 class="section">Supply</h2>
+    <div id="supply" data-ipn="{{ part.ipn }}" aria-live="polite">
+      <p class="muted">Asking the suppliers</p>
+    </div>
+  {% endif %}
+
   {# None means the list could not be read, which is not the same as empty
      and must not be shown as "used nowhere". #}
   {% if usages is not none %}
@@ -226,6 +236,9 @@
   <script type="module" src="{{ root_path }}/static/js/part-place.js"></script>
   {% if writable and may_edit(part) %}
     <script type="module" src="{{ root_path }}/static/js/part-form.js"></script>
+  {% endif %}
+  {% if supply_enabled and sources %}
+    <script type="module" src="{{ root_path }}/static/js/supply.js"></script>
   {% endif %}
   {% if symbol_svg and footprint_svg %}
     <script type="module" src="{{ root_path }}/static/js/pin-map.js"></script>

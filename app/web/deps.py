@@ -22,6 +22,7 @@ from app.domain.policy import Actor
 from app.errors import NotAllowed, NotFound
 from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
+from app.services.supply import Supply
 from app.web.errors import NotSignedIn
 
 
@@ -47,6 +48,10 @@ def get_boms(request: Request) -> BomStore:
 
 def get_backups(request: Request) -> Backups:
     return cast(Backups, request.app.state.backups)
+
+
+def get_supply(request: Request) -> Supply:
+    return cast(Supply, request.app.state.supply)
 
 
 def get_snapshot(library: LibraryService = Depends(get_library)) -> Snapshot:

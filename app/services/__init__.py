@@ -18,4 +18,5 @@ same call and be held to the same rules.
     templates  changing what a category asks of its parts
     manufacturers  keeping the list of who makes what, under one name each
     boms       keeping BOMs, and setting them against the products
+    supply     asking suppliers about manufacturer parts, without asking twice
 """

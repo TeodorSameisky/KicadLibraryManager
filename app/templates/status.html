@@ -132,6 +132,51 @@
     </p>
   {% endif %}
 
+  <h2 class="section">Suppliers</h2>
+  <p class="byline">
+    Asked about a part's manufacturer parts when its page is opened. An answer
+    is kept, and the same thing is not asked again while it holds, so a
+    supplier is called once a day for each part that is looked at.
+  </p>
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Supplier</th>
+          <th scope="col">Calls today</th>
+          <th scope="col" class="num">Answers kept</th>
+          <th scope="col">Last asked</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for supplier in suppliers %}
+          <tr>
+            <td><strong>{{ supplier.name }}</strong></td>
+            {% if supplier.configured %}
+              <td>
+                {{ supplier.calls_today }} of {{ supplier.limit }}
+                {% if supplier.calls_today >= supplier.limit %}
+                  <span class="tag tag--bad">used up</span>
+                  <span class="small muted block">not asked again until tomorrow (UTC); what is kept is shown</span>
+                {% elif supplier.calls_today * 10 >= supplier.limit * 8 %}
+                  <span class="tag tag--warn">nearly used up</span>
+                {% endif %}
+              </td>
+              <td class="num">{{ supplier.answers }}</td>
+              <td>{{ (supplier.last_asked | moment) if supplier.last_asked else "never" }}</td>
+            {% else %}
+              <td colspan="3" class="muted">
+                not set up: it is asked nothing until
+                <span class="mono">{{ supplier.id | upper }}_CLIENT_ID</span> and
+                <span class="mono">{{ supplier.id | upper }}_CLIENT_SECRET</span> are set
+              </td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
   <h2 class="section">Deployment</h2>
   <dl class="spec">
     <div><dt>Version</dt><dd>{{ version }}</dd></div>

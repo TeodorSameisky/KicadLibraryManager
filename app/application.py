@@ -30,6 +30,9 @@ from app.library.service import LibraryService
 from app.library.sources import sync as sync_source
 from app.observability import RequestContextMiddleware
 from app.security import SecurityHeadersMiddleware
+from app.services.supply import Supply
+from app.suppliers.digikey import DigiKey
+from app.suppliers.store import SupplierStore
 from app.web.errors import app_error, http_error
 from app.web.routes import backup as backup_routes
 from app.web.routes import boms as bom_routes
@@ -39,6 +42,7 @@ from app.web.routes import history as history_routes
 from app.web.routes import library as library_routes
 from app.web.routes import manufacturers as manufacturer_routes
 from app.web.routes import products as product_routes
+from app.web.routes import supply as supply_routes
 from app.web.templating import STATIC_DIR, RevalidatedStaticFiles
 
 log = logging.getLogger(__name__)
@@ -51,6 +55,7 @@ def create_app(
     identity: OidcClient | None = None,
     boms: BomStore | None = None,
     backups: Backups | None = None,
+    supply: Supply | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
 
@@ -115,6 +120,23 @@ def create_app(
     app.state.database = database
     app.state.boms = boms
     app.state.backups = backups
+    # Every supplier there is, whether or not this deployment has its keys:
+    # one without is listed on the status page as not set up, and not asked.
+    app.state.supply = supply or Supply(
+        [
+            DigiKey(
+                settings.digikey_client_id,
+                settings.digikey_client_secret,
+                base_url=settings.digikey_api_url,
+                site=settings.digikey_site,
+                language=settings.digikey_language,
+                currency=settings.digikey_currency,
+            )
+        ],
+        SupplierStore(database),
+        limits={DigiKey.id: settings.digikey_daily_limit},
+        holds_for_seconds=settings.supplier_cache_hours * 3600,
+    )
     app.state.sessions = SessionStore(
         nonce_ttl_seconds=settings.nonce_ttl_seconds,
         login_ttl_seconds=settings.login_ttl_seconds,
@@ -141,6 +163,7 @@ def create_app(
         library_routes,
         bom_routes,
         product_routes,
+        supply_routes,
         backup_routes,
         editing_routes,
         template_admin,
