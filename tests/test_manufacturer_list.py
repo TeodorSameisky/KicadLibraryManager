@@ -390,3 +390,239 @@ def test_a_library_that_cannot_be_written_shows_the_list_and_offers_nothing(serv
     assert "Texas Instruments" in page and "cannot change the library" in page
     assert "/manufacturers/new" not in page and "/manufacturers/edit" not in page
     assert "manufacturer-form.js" not in grace.get("/manufacturers/new").text
+
+
+# -- a listed manufacturer, written another way ---------------------------------
+#
+# Recognised, and shown under the list's name everywhere. The file still says
+# something else: that is reported, and a librarian can have the files
+# rewritten.
+
+
+def test_a_listed_manufacturer_written_another_way_is_reported(tree):
+    snapshot = listing(tree, A="TI", B="Texas Instruments Inc.", C="Texas Instruments", D="Kemet")
+
+    found = {issue.path: issue for issue in snapshot.issues if issue.kind == "manufacturer-alias"}
+
+    assert sorted(found) == ["mpns/A.yaml", "mpns/B.yaml"], "not the one that says the name"
+    assert found["mpns/A.yaml"].severity.value == "warning"
+    assert found["mpns/A.yaml"].message.startswith(
+        "A is made by 'TI', which is another way of writing 'Texas Instruments'"
+    )
+    # Still under the one name, and still knowing what its file says.
+    made = snapshot.mpn("A")
+    assert (made.manufacturer, made.manufacturer_written, made.written_otherwise) == (
+        "Texas Instruments",
+        "TI",
+        True,
+    )
+    assert snapshot.mpn("C").written_otherwise is False
+    assert snapshot.mpn("D").written_otherwise is False, "not listed at all: another worklist"
+
+
+def test_without_a_list_nothing_is_written_another_way(tree):
+    snapshot = listing(tree, None, A="TI", B="Texas Instruments")
+
+    assert not [issue for issue in snapshot.issues if issue.kind == "manufacturer-alias"]
+    assert manufacturers.overview(snapshot).written_otherwise == ()
+
+
+def test_the_worklist_says_which_manufacturers_are_written_another_way(tree):
+    snapshot = listing(
+        tree, A="TI", B="TI", C="Texas Instr.", D="Texas Instruments", E="YAGEO Corp.", F="Kemet"
+    )
+
+    otherwise = manufacturers.overview(snapshot).written_otherwise
+
+    assert [(found.name, found.spellings, found.parts) for found in otherwise] == [
+        ("Texas Instruments", ("TI", "Texas Instr."), 3),
+        ("Yageo", ("YAGEO Corp.",), 1),
+    ]
+
+
+def test_the_files_are_rewritten_to_say_the_list_s_name(tree):
+    listing(tree, A="TI", B="Texas Instruments", C="yageo", D="Kemet")
+
+    subject, rewritten = editing.use_listed_names(tree.root)
+
+    assert (subject, rewritten) == (
+        "Write manufacturers by their listed names in 2 manufacturer parts",
+        ["A", "C"],
+    )
+    assert (tree.root / "mpns/A.yaml").read_text(encoding="utf-8") == mpn("A", "Texas Instruments")
+    assert (tree.root / "mpns/C.yaml").read_text(encoding="utf-8") == mpn("C", "Yageo")
+    assert "manufacturer: Kemet" in (tree.root / "mpns/D.yaml").read_text(encoding="utf-8")
+    assert not [i for i in tree.snapshot().issues if i.kind == "manufacturer-alias"]
+
+    with pytest.raises(EditError, match="already names its maker as the list does"):
+        editing.use_listed_names(tree.root)
+
+
+def test_one_manufacturer_s_files_can_be_rewritten_and_the_others_left(tree):
+    listing(tree, A="TI", C="yageo")
+
+    subject, rewritten = editing.use_listed_names(tree.root, "Yageo")
+
+    assert (subject, rewritten) == ("Write Yageo by its listed name in 1 manufacturer part", ["C"])
+    assert "manufacturer: TI" in (tree.root / "mpns/A.yaml").read_text(encoding="utf-8")
+
+    with pytest.raises(EditError, match="made by Yageo already"):
+        editing.use_listed_names(tree.root, "Yageo")
+
+
+@pytest.mark.parametrize(
+    "line,after",
+    [
+        ("manufacturer: TI", "manufacturer: Texas Instruments"),
+        (
+            "manufacturer:   TI   # as the reel says",
+            "manufacturer:   Texas Instruments   # as the reel says",
+        ),
+        ("manufacturer: 'TI'", "manufacturer: Texas Instruments"),
+        ('manufacturer: "TI"  # quoted', "manufacturer: Texas Instruments  # quoted"),
+    ],
+)
+def test_only_the_name_is_changed_in_a_file_written_by_hand(tree, line, after):
+    listing(tree)
+    text = f"# Bought on reels.\r\nmpn: A\r\n{line}\r\nlifecycle: active\r\nnote: 'made by: TI'\r\n"
+    (tree.root / "mpns/A.yaml").write_bytes(text.encode())
+
+    editing.use_listed_names(tree.root)
+
+    assert (tree.root / "mpns/A.yaml").read_bytes().decode() == text.replace(
+        line, after
+    ), "its comments, its other lines and its line endings are as they were"
+
+
+def test_a_file_whose_line_cannot_be_changed_in_place_is_written_out_whole(tree):
+    listing(tree)
+    tree.write("mpns/A.yaml", "mpn: A\nmanufacturer: >-\n  TI\nlifecycle: active\nextra: kept\n")
+
+    editing.use_listed_names(tree.root)
+
+    assert (tree.root / "mpns/A.yaml").read_text(encoding="utf-8") == (
+        "mpn: A\nmanufacturer: Texas Instruments\nlifecycle: active\nextra: kept\n"
+    )
+
+
+def test_a_name_that_needs_quoting_is_quoted(tree):
+    listing(tree, "- name: 'Würth: Elektronik'\n  aliases: [WE]\n", A="WE")
+
+    editing.use_listed_names(tree.root)
+
+    assert tree.snapshot().mpn("A").manufacturer_written == "Würth: Elektronik"
+
+
+@pytest.fixture()
+async def aliased(service, repository):  # noqa: F811
+    repository.push_from_elsewhere("manufacturers.yaml", LIST)
+    repository.push_from_elsewhere("mpns/LM358.yaml", mpn("LM358", "TI"))
+    repository.push_from_elsewhere("mpns/TL072.yaml", mpn("TL072", "Texas Instr."))
+    repository.push_from_elsewhere("mpns/RC2.yaml", mpn("RC2", "YAGEO"))
+    await service.refresh()
+    return service
+
+
+async def test_a_librarian_has_the_files_rewritten_in_one_commit(aliased, repository):  # noqa: F811
+    after, rewritten = await manufacturers.use_listed_names(
+        aliased, name="Texas Instruments", note="Tidying up.", actor=GRACE
+    )
+
+    assert rewritten == ("LM358", "TL072")
+    assert [found.name for found in after.written_otherwise] == ["Yageo"], "the rest is still to do"
+    assert repository.show("mpns/LM358.yaml") == mpn("LM358", "Texas Instruments").strip()
+    assert "manufacturer: YAGEO" in repository.show("mpns/RC2.yaml")
+    assert repository.last("%an") == "Grace Hopper"
+    assert repository.last("%B").splitlines() == [
+        "Write Texas Instruments by its listed name in 2 manufacturer parts",
+        "",
+        "Tidying up.",
+    ]
+    assert "aliases: [TI, Texas Instr.]" in repository.show(
+        "manufacturers.yaml"
+    ), "the spelling stays in the list"
+
+    everything, rest = await manufacturers.use_listed_names(aliased, actor=GRACE)
+    assert rest == ("RC2",) and everything.written_otherwise == ()
+    assert not [i for i in aliased.snapshot.issues if i.kind == "manufacturer-alias"]
+
+
+async def test_rewriting_is_a_librarian_s_and_needs_something_to_rewrite(aliased, repository):  # noqa: F811
+    before = repository.commits()
+
+    with pytest.raises(NotAllowed):
+        await manufacturers.use_listed_names(aliased, actor=ADA)
+    with pytest.raises(NotFound):
+        await manufacturers.use_listed_names(aliased, name="Kemet", actor=GRACE)
+    with pytest.raises(EditError, match="already names its maker"):
+        await manufacturers.use_listed_names(aliased, name="Würth Elektronik", actor=GRACE)
+
+    assert repository.commits() == before
+
+
+@pytest.fixture()
+def aliased_site(serve, repository):  # noqa: F811
+    repository.push_from_elsewhere("manufacturers.yaml", LIST)
+    repository.push_from_elsewhere("mpns/LM358.yaml", mpn("LM358", "TI"))
+    repository.push_from_elsewhere("mpns/RC2.yaml", mpn("RC2", "YAGEO"))
+    return serve()
+
+
+def test_the_files_are_rewritten_over_the_api(aliased_site, repository):  # noqa: F811
+    grace = sign_in_librarian(aliased_site)
+
+    listed = grace.get("/api/v1/manufacturers").json()
+    assert listed["written_otherwise"] == [
+        {"name": "Texas Instruments", "spellings": ["TI"], "parts": 1},
+        {"name": "Yageo", "spellings": ["YAGEO"], "parts": 1},
+    ]
+
+    one = grace.post("/api/v1/manufacturers/rewrite", json={"name": "Yageo"})
+    assert one.status_code == 200
+    assert one.json()["rewritten"] == ["RC2"]
+    assert [found["name"] for found in one.json()["written_otherwise"]] == ["Texas Instruments"]
+    assert repository.last("%s") == "Write Yageo by its listed name in 1 manufacturer part"
+
+    rest = grace.post("/api/v1/manufacturers/rewrite", json={})
+    assert rest.json()["rewritten"] == ["LM358"] and rest.json()["written_otherwise"] == []
+
+    nothing = grace.post("/api/v1/manufacturers/rewrite", json={})
+    assert nothing.status_code == 422
+    assert "already names its maker" in nothing.json()["problems"][0]
+    assert grace.post("/api/v1/manufacturers/rewrite", json={"name": "Kemet"}).status_code == 404
+
+
+def test_someone_who_is_not_a_librarian_does_not_rewrite(aliased_site, repository):  # noqa: F811
+    before = repository.commits()
+
+    assert sign_in(aliased_site).post("/api/v1/manufacturers/rewrite", json={}).status_code == 403
+    assert repository.commits() == before
+
+
+def test_the_page_offers_to_rewrite_what_is_written_another_way(aliased_site):
+    page = sign_in_librarian(aliased_site).get("/manufacturers").text
+
+    assert "Written another way" in page and 'id="written-otherwise"' in page
+    assert '<tr data-manufacturer="Texas Instruments">' in page
+    assert 'data-rewrite="Yageo">Write as Yageo</button>' in page
+    assert "Rewrite all 2 manufacturer parts" in page
+    assert 'type="module" src="/static/js/manufacturers.js"' in page
+
+
+def test_a_page_with_nothing_written_another_way_says_nothing_of_it(site):
+    page = sign_in_librarian(site).get("/manufacturers").text
+
+    assert "Written another way" not in page and "manufacturers.js" not in page
+
+
+def test_the_issues_page_sends_a_librarian_to_the_fix(aliased_site):
+    issues = sign_in(aliased_site).get("/api/v1/issues").json()["issues"]
+    assert sorted(i["path"] for i in issues if i["kind"] == "manufacturer-alias") == [
+        "mpns/LM358.yaml",
+        "mpns/RC2.yaml",
+    ]
+
+    assert 'data-can-fix="false"' in sign_in(aliased_site).get("/issues").text
+    assert 'data-can-fix="true"' in sign_in_librarian(aliased_site).get("/issues").text
+    script = aliased_site.get("/static/js/issues.js").text
+    assert '"manufacturer-alias"' in script and "/manufacturers#written-otherwise" in script

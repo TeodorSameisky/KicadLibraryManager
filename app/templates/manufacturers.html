@@ -72,6 +72,52 @@
     </div>
   {% endif %}
 
+  {% if overview.written_otherwise %}
+    <section id="written-otherwise">
+      <h2 class="section">Written another way</h2>
+      <p class="hint">
+        Manufacturer parts whose files name a listed manufacturer by another
+        spelling. They are recognised, and shown under the list's name; the
+        files still say something else. Rewriting puts the list's name in the
+        files, in one commit in your name. The list itself is not changed.
+      </p>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Manufacturer</th>
+              <th scope="col">Written as</th>
+              <th scope="col" class="num">Manufacturer parts</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for found in overview.written_otherwise %}
+              <tr data-manufacturer="{{ found.name }}">
+                <td><strong>{{ found.name }}</strong></td>
+                <td>{{ found.spellings | join(", ") }}</td>
+                <td class="num">{{ found.parts }}</td>
+                <td class="num">
+                  {% if writable %}
+                    <button type="button" class="button" data-rewrite="{{ found.name }}">Write as {{ found.name }}</button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if writable and overview.written_otherwise | length > 1 %}
+        <p>
+          <button type="button" class="button" data-rewrite-all>
+            Rewrite all {{ overview.written_otherwise | sum(attribute="parts") }} manufacturer parts
+          </button>
+        </p>
+      {% endif %}
+      <div id="rewrite-result" aria-live="polite"></div>
+    </section>
+  {% endif %}
+
   <h2 class="section">In the list</h2>
   {% if overview.listed %}
     <div class="table-scroll">
@@ -115,5 +161,11 @@
 
   {% if writable %}
     <p><a class="button" href="{{ root_path }}/manufacturers/new">Add a manufacturer</a></p>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if writable and overview.written_otherwise %}
+    <script type="module" src="{{ root_path }}/static/js/manufacturers.js"></script>
   {% endif %}
 {% endblock %}

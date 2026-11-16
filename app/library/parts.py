@@ -326,6 +326,8 @@ class _Loader:
                 # Under the one name the library has for whoever makes it, if
                 # it has one; as written otherwise.
                 manufacturer=self.index.manufacturers.canonical(written),
+                manufacturer_written=written,
+                path=relative,
                 description=str(data.get("description") or ""),
                 datasheet=str(data.get("datasheet") or ""),
                 lifecycle=lifecycle,
@@ -435,11 +437,25 @@ class _Loader:
         known = self.index.manufacturers
         if known:
             for mpn, (written, relative) in self._made_by.items():
-                if written and known.resolve(written) is None:
+                listed = known.resolve(written) if written else None
+                if written and listed is None:
                     self.report(
                         Issue.warning(
                             "unknown-manufacturer",
                             f"{mpn} is made by {written!r}, which is not in manufacturers.yaml",
+                            relative,
+                        )
+                    )
+                elif listed is not None and written != listed.name:
+                    # Recognised, and shown under the right name everywhere --
+                    # but the file still says something else, and whoever
+                    # reads the file, or greps the repository, sees that.
+                    self.report(
+                        Issue.warning(
+                            "manufacturer-alias",
+                            f"{mpn} is made by {written!r}, which is another way of writing "
+                            f"{listed.name!r}; a librarian can rewrite it on the "
+                            "manufacturers page",
                             relative,
                         )
                     )

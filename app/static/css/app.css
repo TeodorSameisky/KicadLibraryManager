@@ -461,6 +461,8 @@ a.masthead__status { text-decoration: underline; }
 .select--on select { border-color: var(--ink); color: var(--ink); font-weight: 600; }
 .select--on::after { border-color: var(--ink); }
 
+.issue-group__fix { margin: 0.5rem 0 1rem; }
+
 /* -- parameters: what a category's parts are told apart by.
    A name and a dropdown each, under the filters, on a rule of their own. */
 

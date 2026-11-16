@@ -7,11 +7,17 @@ the library's repository, in the name of whoever made it.
 What the list is kept *for* is the names it does not have yet: every
 manufacturer part that says who makes it in a way the list does not
 recognise. `overview` is that worklist, beside the list itself.
+
+A spelling the list does recognise is shown under the right name everywhere,
+and the file that uses it still says something else. Those are a second
+worklist, and `use_listed_names` is what clears it: the files are rewritten
+to say the name the list gives.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.domain import policy
 from app.domain.forms import ManufacturerForm
@@ -47,9 +53,20 @@ class Unlisted:
 
 
 @dataclass(frozen=True)
+class WrittenOtherwise:
+    """A listed manufacturer that some manufacturer parts name by another
+    spelling. They are recognised; their files still say something else."""
+
+    name: str  # the name the list gives
+    spellings: tuple[str, ...]  # the other ways it is written, the most used first
+    parts: int  # how many manufacturer parts write it one of those ways
+
+
+@dataclass(frozen=True)
 class Overview:
     listed: tuple[Listed, ...]  # by name
     unlisted: tuple[Unlisted, ...]  # the most used first
+    written_otherwise: tuple[WrittenOtherwise, ...] = ()  # by name
 
 
 def overview(snapshot: Snapshot) -> Overview:
@@ -58,6 +75,7 @@ def overview(snapshot: Snapshot) -> Overview:
     known = snapshot.parts.manufacturers
     made: dict[str, int] = {}
     strangers: dict[str, dict[str, int]] = {}  # what a name comes to -> its spellings
+    otherwise: dict[str, dict[str, int]] = {}  # a listed name -> the other ways it is written
 
     for mpn in snapshot.parts.mpns.values():
         if not mpn.manufacturer:
@@ -65,6 +83,10 @@ def overview(snapshot: Snapshot) -> Overview:
         found = known.resolve(mpn.manufacturer)
         if found is not None:
             made[found.name] = made.get(found.name, 0) + 1
+            if mpn.written_otherwise:
+                spellings = otherwise.setdefault(found.name, {})
+                written = mpn.manufacturer_written
+                spellings[written] = spellings.get(written, 0) + 1
         else:
             spellings = strangers.setdefault(name_key(mpn.manufacturer), {})
             spellings[mpn.manufacturer] = spellings.get(mpn.manufacturer, 0) + 1
@@ -82,6 +104,14 @@ def overview(snapshot: Snapshot) -> Overview:
             for manufacturer in sorted(known.known, key=lambda m: m.name.casefold())
         ),
         unlisted=tuple(sorted(unlisted, key=lambda u: (-u.parts, u.name.casefold()))),
+        written_otherwise=tuple(
+            WrittenOtherwise(
+                name=name,
+                spellings=tuple(sorted(spellings, key=lambda s: (-spellings[s], s))),
+                parts=sum(spellings.values()),
+            )
+            for name, spellings in sorted(otherwise.items(), key=lambda item: item[0].casefold())
+        ),
     )
 
 
@@ -193,6 +223,32 @@ async def save_manufacturer(
         note=note,
     )
     return overview(after)
+
+
+async def use_listed_names(
+    library: LibraryService, *, name: str | None = None, note: str = "", actor: Actor
+) -> tuple[Overview, tuple[str, ...]]:
+    """Rewrite the manufacturer parts that name a listed manufacturer by
+    another spelling, so that their files say the list's name: those of the
+    manufacturer called `name`, or all of them. One commit.
+
+    The spelling stays in the list: the next file to use it is recognised,
+    and reported, the same way. Returns the list as it is afterwards and the
+    manufacturer parts that were rewritten.
+    """
+    _require_may_change(library, actor)
+    if name is not None:
+        find(library.snapshot, name)
+
+    rewritten: list[str] = []
+
+    def write(root: Path) -> str:
+        subject, changed = editing.use_listed_names(root, name)
+        rewritten[:] = changed
+        return subject
+
+    after = await changes.publish(library, write, actor, note=note)
+    return overview(after), tuple(rewritten)
 
 
 async def remove_manufacturer(

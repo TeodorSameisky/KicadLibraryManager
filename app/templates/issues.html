@@ -22,7 +22,9 @@
     </div>
   </div>
 
-  <div id="issues" aria-live="polite">
+  {# Whether this reader can do something about the issues that have a fix
+     in the app: a librarian, where the app may write to the library. #}
+  <div id="issues" aria-live="polite" data-can-fix="{{ 'true' if librarian and writable else 'false' }}">
     <div class="state"><p class="state__title">Loading</p></div>
   </div>
 {% endblock %}

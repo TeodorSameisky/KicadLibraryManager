@@ -13,12 +13,14 @@ and an entry with no name, which was an error to begin with, is not kept.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from app.library import files
 from app.library.editing import EditError
+from app.library.parts import load_parts
 
 
 def _entries(root: Path) -> list[dict[str, Any]]:
@@ -89,6 +91,85 @@ def write_manufacturer(root: Path, was: str | None, name: str, aliases: Sequence
 
     _save(root, entries)
     return subject
+
+
+# -- the manufacturer parts that write a listed name another way ----------------
+
+# The line of a manufacturer part's file that says who makes it: at the left
+# margin, a value, and perhaps a comment after it.
+_MADE_BY = re.compile(
+    r"""^(?P<key>manufacturer[ \t]*:[ \t]*)
+        (?P<value>'(?:[^']|'')*'|"(?:[^"\\]|\\.)*"|[^#\r\n]*?)
+        (?P<rest>[ \t]*(?:[ \t]\#[^\r\n]*)?)(?P<end>\r?)$""",
+    re.MULTILINE | re.VERBOSE,
+)
+
+
+def _with_name(text: str, name: str) -> str | None:
+    """A manufacturer part's file with its maker's name replaced and nothing
+    else touched -- not its comments, not its line endings. None if the line
+    cannot be found as one line, which a file written by hand may manage."""
+    found = _MADE_BY.findall(text)
+    if len(found) != 1:
+        return None
+    return _MADE_BY.sub(
+        lambda line: f"{line['key']}{files._scalar(name)}{line['rest']}{line['end']}", text
+    )
+
+
+def _rename_maker(path: Path, written: str, name: str) -> None:
+    try:
+        with path.open(encoding="utf-8", newline="") as file:  # line endings as they are
+            text = file.read()
+        before = files.parse(text)
+    except (OSError, UnicodeDecodeError, files.Unreadable) as exc:
+        raise EditError([f"{path.name} cannot be read: {exc}"]) from exc
+    if not isinstance(before, dict) or str(before.get("manufacturer") or "").strip() != written:
+        raise EditError([f"{path.name} no longer says it is made by {written}."])
+
+    wanted = {**before, "manufacturer": name}
+    after = _with_name(text, name)
+    try:
+        kept = after is not None and files.parse(after) == wanted
+    except files.Unreadable:
+        kept = False
+    if after is not None and kept:
+        with path.open("w", encoding="utf-8", newline="") as file:
+            file.write(after)
+    else:
+        # Not a line this can change in place. Written out whole, then: its
+        # comments are lost, and what it says is right.
+        files.write(path, files.block(wanted))
+
+
+def use_listed_names(root: Path, only: str | None = None) -> tuple[str, list[str]]:
+    """Rewrite every manufacturer part that names a listed manufacturer by
+    another spelling, so that its file says the name the list gives -- for
+    one manufacturer, or for all of them.
+
+    Goes by the files as they are in `root` and not by any index made
+    earlier: what is rewritten is what is wrong now. Returns the commit's
+    subject and the manufacturer parts that were rewritten.
+    """
+    index = load_parts(root)
+    rewritten: list[str] = []
+    for mpn in sorted(index.mpns.values(), key=lambda mpn: mpn.mpn):
+        if not mpn.written_otherwise or index.manufacturers.resolve(mpn.manufacturer) is None:
+            continue
+        if only is not None and mpn.manufacturer != only:
+            continue
+        _rename_maker(root / mpn.path, mpn.manufacturer_written, mpn.manufacturer)
+        rewritten.append(mpn.mpn)
+
+    if not rewritten:
+        whose = f"made by {only}" if only is not None else "in the library"
+        raise EditError(
+            [f"Every manufacturer part {whose} already names its maker as the list does."]
+        )
+    parts = "1 manufacturer part" if len(rewritten) == 1 else f"{len(rewritten)} manufacturer parts"
+    if only is not None:
+        return f"Write {only} by its listed name in {parts}", rewritten
+    return f"Write manufacturers by their listed names in {parts}", rewritten
 
 
 def delete_manufacturer(root: Path, name: str) -> str:

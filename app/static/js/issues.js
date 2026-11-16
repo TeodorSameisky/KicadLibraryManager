@@ -4,7 +4,7 @@
  * screen. It is grouped by the kind of problem: the same mistake made in two
  * hundred files is one thing to fix, not two hundred.
  */
-import { api, el, button, stateBox, plural } from "./app.js";
+import { api, el, link, button, stateBox, plural } from "./app.js";
 
 const LIMIT = 1000;
 
@@ -39,6 +39,16 @@ function renderFilter(totals) {
     })
   );
 }
+
+/* The kinds of problem the app itself can put right, and where. Offered to
+   whoever may do it; everybody else reads what is wrong, as with the rest. */
+const FIXES = {
+  "manufacturer-alias": {
+    path: "/manufacturers#written-otherwise",
+    says: "Rewrite them on the manufacturers page",
+  },
+};
+const canFix = dom.list.dataset.canFix === "true";
 
 /* One group per kind of problem, errors first, then the most common. */
 function grouped(issues) {
@@ -85,6 +95,12 @@ function renderGroup(group) {
   scroll.append(table);
 
   box.append(head, scroll);
+  const fix = FIXES[group.kind];
+  if (fix && canFix) {
+    const action = el("p", "issue-group__fix");
+    action.append(link(fix.path, "button", fix.says));
+    box.append(action);
+  }
   return box;
 }
 

@@ -207,8 +207,12 @@ may say which manufacturers it knows, each under the one name it goes by:
   like "Semiconductor" *is* part of a name: `ON` and `ON Semiconductor` are
   not assumed to be the same company.
 - **Everything shows the one name.** A manufacturer part whose file says `TI`
-  is listed, searched, exported and placed as Texas Instruments. The files are
-  not rewritten. Searching for `TI` still finds it.
+  is listed, searched, exported and placed as Texas Instruments. Searching for
+  `TI` still finds it.
+- **A file that says another spelling is reported.** It is recognised, and the
+  file still says something else, which is what anyone reading the repository
+  sees. Each such manufacturer part is on the issues page as
+  `manufacturer-alias`, and a librarian can have the files rewritten (below).
 - **A new manufacturer part is written down under the one name**, whichever
   way it was typed in the form, and the form offers the names the library has.
 - **A name the list does not have is not refused.** The part is still a draft
@@ -230,8 +234,22 @@ with how many manufacturer parts each makes. Saving is one commit to the
 repository, in the librarian's name, with an optional note, like any other
 change.
 
+**Written another way.** Between the worklist and the list, the page shows the
+listed manufacturers that some manufacturer parts name by another spelling,
+with the spellings and how many parts use them. *Write as Texas Instruments*
+rewrites those parts' files to say the list's name; *Rewrite all* does it for
+every manufacturer at once. Either is one commit in the librarian's name. Only
+the `manufacturer:` line of each file is changed: its comments, its other lines
+and its line endings are left as they are. (A file where that line cannot be
+changed in place -- a value folded over several lines -- is written out whole,
+and loses its comments.) The list itself is not changed: a spelling it has
+stays in it, so the next file to use it is recognised, and reported, the same
+way. On the issues page the `manufacturer-alias` group has a button that leads
+here, for a librarian.
+
 Renaming a manufacturer keeps its old name as another spelling, so the files
-that say the old name still mean it. Taking a manufacturer off the list does
+that say the old name still mean it -- and are then reported as written
+another way, until they are rewritten. Taking a manufacturer off the list does
 not touch those files either: they are back on the worklist. Writing the list
 here lays the file out its own way, so a comment in a hand-written one does not
 survive being edited in the app; whatever else an entry holds is kept.
@@ -865,6 +883,7 @@ unhandled error is logged in full and answered with nothing but that id.
 | `PUT`, `DELETE /api/v1/templates/{category}` | Create or replace a category's template, or remove it; librarians | |
 | `/templates`, `/templates/{category}/edit` | Listing and editing templates; librarians | |
 | `/api/v1/manufacturers` | `GET` the manufacturers and the names not on the list; `PUT {was, name, aliases, note}` adds one or changes the one called `was`, `DELETE {name, note}` removes one (librarians) | |
+| `POST /api/v1/manufacturers/rewrite` | `{name, note}`: rewrite the manufacturer parts that name a listed manufacturer by another spelling so that their files say the list's name; without `name`, for every manufacturer (librarians) | |
 | `/manufacturers`, `/manufacturers/new`, `/manufacturers/edit?name=` | The worklist and the list; adding and editing a manufacturer; librarians | |
 | `POST /api/v1/library/refresh` | Fetch the sources now and index what changed; librarians | |
 | `POST /api/v1/library/webhook` | The same, for the git host; let in by its signature | ✓ |

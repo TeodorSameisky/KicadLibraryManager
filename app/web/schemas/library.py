@@ -546,12 +546,22 @@ class UnlistedOut(BaseModel):
     parts: int  # how many manufacturer parts give it
 
 
+class WrittenOtherwiseOut(BaseModel):
+    """A listed manufacturer that some manufacturer parts name by another
+    spelling: recognised, and not what their files should say."""
+
+    name: str  # the name the list gives
+    spellings: list[str]  # the other ways it is written, the most used first
+    parts: int  # how many manufacturer parts write it one of those ways
+
+
 class ManufacturerList(BaseModel):
     """The manufacturers the library knows, and the names it does not."""
 
     writable: bool
     manufacturers: list[ManufacturerOut]  # by name
     unlisted: list[UnlistedOut]  # the most used first
+    written_otherwise: list[WrittenOtherwiseOut]  # by name
 
     @classmethod
     def of(cls, overview: manufacturer_service.Overview, *, writable: bool) -> ManufacturerList:
@@ -569,7 +579,28 @@ class ManufacturerList(BaseModel):
                 UnlistedOut(name=found.name, spellings=list(found.spellings), parts=found.parts)
                 for found in overview.unlisted
             ],
+            written_otherwise=[
+                WrittenOtherwiseOut(
+                    name=found.name, spellings=list(found.spellings), parts=found.parts
+                )
+                for found in overview.written_otherwise
+            ],
         )
+
+
+class ManufacturerRewrite(BaseModel):
+    """Which manufacturer parts to rewrite so that they name their maker as
+    the list does."""
+
+    # The manufacturer whose parts to rewrite; left out for every one.
+    name: str | None = Field(None, max_length=manufacturer_service.MAX_NAME)
+    note: str = Field("", max_length=MAX_NOTE)
+
+
+class ManufacturerRewritten(ManufacturerList):
+    """The list after a rewrite, and what was rewritten."""
+
+    rewritten: list[str]  # the manufacturer parts whose files were changed
 
 
 class ManufacturerBody(BaseModel):

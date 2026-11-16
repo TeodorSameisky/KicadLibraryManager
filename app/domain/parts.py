@@ -61,6 +61,17 @@ class Mpn:
     # One of `Lifecycle`, unless the file says something else: that is
     # reported as an issue, and the part is still shown as it was written.
     lifecycle: str = Lifecycle.UNKNOWN.value
+    # Who makes it, as its file has it. `manufacturer` is the one name the
+    # library knows that manufacturer by; this is what was typed, which may
+    # be another way of writing it.
+    manufacturer_written: str = ""
+    path: str = ""  # relative to the repository it came from
+
+    @property
+    def written_otherwise(self) -> bool:
+        """Whether its file names its maker other than by the library's name
+        for it: recognised, and still not what the file should say."""
+        return bool(self.manufacturer_written) and self.manufacturer_written != self.manufacturer
 
     @property
     def datasheet_url(self) -> str | None:

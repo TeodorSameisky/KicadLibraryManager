@@ -19,7 +19,13 @@ from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
 from app.services import manufacturers
 from app.web.deps import get_actor, get_library, get_snapshot, require_access, require_librarian
-from app.web.schemas.library import ManufacturerBody, ManufacturerList, ManufacturerRemoval
+from app.web.schemas.library import (
+    ManufacturerBody,
+    ManufacturerList,
+    ManufacturerRemoval,
+    ManufacturerRewrite,
+    ManufacturerRewritten,
+)
 from app.web.templating import render
 
 api = APIRouter(prefix="/api/v1/manufacturers", tags=["manufacturers"])
@@ -60,6 +66,21 @@ async def remove_manufacturer(
     """Take a manufacturer off the list."""
     after = await manufacturers.remove_manufacturer(library, body.name, note=body.note, actor=actor)
     return ManufacturerList.of(after, writable=library.writable)
+
+
+@api.post("/rewrite")
+async def use_listed_names(
+    body: ManufacturerRewrite,
+    library: LibraryService = Depends(get_library),
+    actor: Actor = Depends(get_actor),
+) -> ManufacturerRewritten:
+    """Rewrite the manufacturer parts that name a listed manufacturer by
+    another spelling, so that their files say the list's name."""
+    after, rewritten = await manufacturers.use_listed_names(
+        library, name=body.name, note=body.note, actor=actor
+    )
+    listed = ManufacturerList.of(after, writable=library.writable)
+    return ManufacturerRewritten(**listed.model_dump(), rewritten=list(rewritten))
 
 
 # -- as pages ---------------------------------------------------------------
