@@ -167,8 +167,10 @@
             {% else %}
               <td colspan="3" class="muted">
                 not set up: it is asked nothing until
-                <span class="mono">{{ supplier.id | upper }}_CLIENT_ID</span> and
-                <span class="mono">{{ supplier.id | upper }}_CLIENT_SECRET</span> are set
+                {% for key in supplier.keys -%}
+                  <span class="mono">{{ key }}</span>{{ " and " if not loop.last }}
+                {%- endfor %}
+                {{ "are" if supplier.keys | length > 1 else "is" }} set
               </td>
             {% endif %}
           </tr>
@@ -178,8 +180,8 @@
               <td colspan="3">
                 {{ supplier.failure }}
                 <span class="small muted block">
-                  {{ supplier.failed_at | moment }}. A question it failed is not
-                  asked again for ten minutes; restarting the app asks at once.
+                  {{ supplier.failed_at | moment }}. It is left alone for a while
+                  after that, ten minutes at most; restarting the app asks at once.
                 </span>
               </td>
             </tr>

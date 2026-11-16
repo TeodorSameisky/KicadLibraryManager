@@ -27,10 +27,14 @@ from typing import Any
 
 import httpx
 
-from app.domain.manufacturers import Manufacturers, name_key
-from app.domain.parts import Lifecycle, is_web_address
+from app.domain.manufacturers import Manufacturers
+from app.domain.parts import Lifecycle
 from app.domain.supply import Offer, PriceBreak, Query
 from app.suppliers.base import Fetched, SupplierError
+from app.suppliers.reading import address as _address
+from app.suppliers.reading import meant
+from app.suppliers.reading import number as _number
+from app.suppliers.reading import whole as _whole
 
 log = logging.getLogger(__name__)
 
@@ -46,27 +50,6 @@ _LIMIT = 10
 
 # How much of DigiKey's reason for not answering is quoted.
 _SAID_LENGTH = 300
-
-
-def _number(text: object) -> str:
-    """A part number as it is compared: without case or the spaces around it."""
-    return str(text or "").strip().upper()
-
-
-def _whole(value: object) -> int | None:
-    """A count, from a number or from text that is one. DigiKey sends both."""
-    try:
-        return int(float(str(value)))
-    except (TypeError, ValueError):
-        return None
-
-
-def _address(value: object) -> str | None:
-    """A link out of an answer, if it is one a page can safely follow."""
-    text = str(value or "").strip()
-    if text.startswith("//"):  # DigiKey's own media, written without the scheme
-        text = f"https:{text}"
-    return text if is_web_address(text) else None
 
 
 def lifecycle_of(status: str, *, discontinued: bool = False, end_of_life: bool = False) -> str:
@@ -90,6 +73,7 @@ def lifecycle_of(status: str, *, discontinued: bool = False, end_of_life: bool =
 class DigiKey:
     id = "digikey"
     name = "DigiKey"
+    keys = ("DIGIKEY_CLIENT_ID", "DIGIKEY_CLIENT_SECRET")
 
     def __init__(
         self,
@@ -289,34 +273,26 @@ class DigiKey:
     def _meant(
         data: Mapping[str, Any], query: Query, manufacturers: Manufacturers
     ) -> Mapping[str, Any] | None:
-        """The product the query is about, among what the search found.
-
-        It has to go by exactly the number asked for: a search also returns
-        what is merely like it. Where several do -- one number, two makers --
-        the one from the manufacturer asked for is meant. Where only one
-        does, it is taken even if DigiKey calls its maker something the
-        library does not recognise: a number is very nearly a name.
-        """
-        found: list[Mapping[str, Any]] = []
+        """The product the query is about, among what the search found: see
+        `reading.meant`. DigiKey lists what it found in two places."""
+        listed: list[Mapping[str, Any]] = []
         for group in ("ExactMatches", "Products"):
-            listed = data.get(group)
-            for product in listed if isinstance(listed, list) else []:
-                same_number = isinstance(product, dict) and _number(
-                    product.get("ManufacturerProductNumber")
-                ) == _number(query.mpn)
-                if same_number and product not in found:
-                    found.append(product)
-        if not found:
-            return None
+            products = data.get(group)
+            listed.extend(
+                p for p in (products if isinstance(products, list) else []) if isinstance(p, dict)
+            )
 
-        wanted = name_key(manufacturers.canonical(query.manufacturer))
-        if wanted:
-            for product in found:
-                maker = product.get("Manufacturer")
-                theirs = str(maker.get("Name") or "") if isinstance(maker, dict) else ""
-                if name_key(manufacturers.canonical(theirs)) == wanted:
-                    return product
-        return found[0] if len(found) == 1 else None
+        def maker(product: Mapping[str, Any]) -> object:
+            made_by = product.get("Manufacturer")
+            return made_by.get("Name") if isinstance(made_by, dict) else ""
+
+        return meant(
+            listed,
+            query,
+            manufacturers,
+            number_of=lambda product: product.get("ManufacturerProductNumber"),
+            maker_of=maker,
+        )
 
     @staticmethod
     def _to_buy(product: Mapping[str, Any]) -> Mapping[str, Any]:

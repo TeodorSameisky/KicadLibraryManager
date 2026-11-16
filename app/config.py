@@ -150,6 +150,22 @@ class Settings:
     # How many searches a day may be sent to it. DigiKey allows a registered
     # application a thousand; this app stops itself before DigiKey has to.
     digikey_daily_limit: int = 1000
+    # Mouser's Search API: the key of an account registered for it at
+    # mouser.com/api-hub. The key decides whose prices: Mouser ties it to
+    # the account's country and currency. Without it, Mouser is not asked.
+    mouser_api_key: str | None = None
+    mouser_api_url: str = "https://api.mouser.com"
+    mouser_daily_limit: int = 1000
+    # Farnell's (and Newark's, and element14's) Product Search API: the key
+    # of an application registered at partner.element14.com.
+    farnell_api_key: str | None = None
+    farnell_api_url: str = "https://api.element14.com"
+    # Which country's catalogue: de.farnell.com, uk.farnell.com, www.newark.com.
+    farnell_store: str = "uk.farnell.com"
+    # What that store's prices are in. Farnell does not say; worked out from
+    # the store unless given.
+    farnell_currency: str | None = None
+    farnell_daily_limit: int = 1000
     # How long a supplier's answer holds before the same thing is asked again.
     supplier_cache_hours: int = 24
 
@@ -219,6 +235,14 @@ class Settings:
             digikey_language=env.text("DIGIKEY_LOCALE_LANGUAGE", "en").lower(),
             digikey_currency=env.text("DIGIKEY_LOCALE_CURRENCY", "USD").upper(),
             digikey_daily_limit=max(0, env.integer("DIGIKEY_DAILY_LIMIT", 1000)),
+            mouser_api_key=env.optional("MOUSER_API_KEY"),
+            mouser_api_url=env.text("MOUSER_API_URL", "https://api.mouser.com").rstrip("/"),
+            mouser_daily_limit=max(0, env.integer("MOUSER_DAILY_LIMIT", 1000)),
+            farnell_api_key=env.optional("FARNELL_API_KEY"),
+            farnell_api_url=env.text("FARNELL_API_URL", "https://api.element14.com").rstrip("/"),
+            farnell_store=env.text("FARNELL_STORE", "uk.farnell.com").lower(),
+            farnell_currency=(env.optional("FARNELL_CURRENCY") or "").upper() or None,
+            farnell_daily_limit=max(0, env.integer("FARNELL_DAILY_LIMIT", 1000)),
             supplier_cache_hours=max(1, env.integer("SUPPLIER_CACHE_HOURS", 24)),
             allow_insecure_localhost=env.flag("ALLOW_INSECURE_LOCALHOST", True),
             max_download_bytes=env.integer("MAX_DOWNLOAD_BYTES", 64 * 1024 * 1024),
@@ -370,6 +394,12 @@ class Settings:
             found.append(
                 "DIGIKEY_API_URL must be an https address: the client secret is sent to it"
             )
+        for name, address in (
+            ("MOUSER_API_URL", self.mouser_api_url),
+            ("FARNELL_API_URL", self.farnell_api_url),
+        ):
+            if not address.startswith("https://"):
+                found.append(f"{name} must be an https address: the API key is sent to it")
 
         if not (self.capability_direct_downloads or self.capability_inline_payloads):
             found.append(

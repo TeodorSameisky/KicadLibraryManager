@@ -50,7 +50,7 @@ function start() {
   /* Why a supplier says nothing about a part, in a row of its own width. */
   const SILENT = {
     "not-found": "does not list it",
-    "over-limit": "not asked: today's calls to it are used up",
+    "over-limit": "not asked: the calls it allows are used up for now",
     failed: "did not answer; the status page says why",
   };
 

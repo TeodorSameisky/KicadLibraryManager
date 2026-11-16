@@ -77,6 +77,11 @@ def configure_logging(level: str = "INFO", *, json_output: bool = False) -> None
         logger.propagate = True
     logging.getLogger("uvicorn.access").disabled = True
 
+    # httpx logs every request it makes with its whole address, and two of
+    # the suppliers want their key in the address. Its warnings still show.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
 
 class RequestContextMiddleware:
     """Gives each request an id, logs how it went, and absorbs crashes.

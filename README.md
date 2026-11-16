@@ -645,12 +645,21 @@ A supplier allows only so many calls a day, so a call is not made lightly:
   called once a day for each manufacturer part that somebody looks at, however
   often it is looked at; parts nobody opens cost nothing.
 - **Every call is counted**, per supplier and day, against a limit
-  (`DIGIKEY_DAILY_LIMIT`). When the day's calls are used up nothing more is
-  asked until the next day (in UTC, as suppliers count). An answer that no
-  longer holds is then shown anyway, with the day it is from: old is better
-  than nothing.
+  (`DIGIKEY_DAILY_LIMIT`, `MOUSER_DAILY_LIMIT`, `FARNELL_DAILY_LIMIT`). When
+  the day's calls are used up nothing more is asked until the next day (in
+  UTC, as suppliers count). An answer that no longer holds is then shown
+  anyway, with the day it is from: old is better than nothing.
+- **A supplier is not called more often than it allows.** Mouser allows
+  thirty calls a minute and Farnell two a second, besides so many a day. A
+  wait of a second or so is waited out; a longer one is not a page's to sit
+  through, and the page says the calls are used up for now. A call that was
+  not made is not counted.
 - **A supplier that fails is left alone for ten minutes**, and what is kept is
-  shown meanwhile.
+  shown meanwhile. One that says it has been called too often is left alone
+  altogether for that long, whatever is asked.
+- **A refusal is not kept as an answer.** Mouser answers a key it does not
+  know with HTTP 200 and the reason inside; kept, that would read "Mouser does
+  not list it" for a day.
 
 The status page shows, for each supplier, how many calls have gone to it today
 out of how many, how many answers are kept, and when it was last asked -- and,
@@ -685,14 +694,76 @@ the one from the part's manufacturer is meant, which is where the
 name for each. Prices are those of the packaging with the smallest order, from
 DigiKey's own stock rather than a marketplace seller's.
 
+### Mouser
+
+Register for the **Search API** at Mouser's API hub
+([mouser.com/api-hub](https://www.mouser.com/api-hub/)) and give this app the
+key:
+
+| Variable | |
+| --- | --- |
+| `MOUSER_API_KEY` | The Search API key. Without it, Mouser is asked nothing. A key for the Cart or Order API is a different key and is refused. |
+| `MOUSER_DAILY_LIMIT` | How many searches a day may be sent. 1000. |
+| `MOUSER_API_URL` | `https://api.mouser.com` unless said otherwise. |
+
+There is no setting for the country or the currency: Mouser ties a key to the
+account it was made for, and answers with that account's prices.
+
+A part is found by the part number search (`POST /api/v1/search/partnumber`),
+which returns every part whose number *begins* with what was asked; the one
+that goes by exactly the number, from the part's manufacturer, is picked out
+of that. Where one number is sold in several forms, the one with the smallest
+order is shown. Mouser says a lifecycle only where there is something to say,
+so a part with none is taken for active.
+
+Mouser wants its key in the address of the request. Nothing that could quote
+that address is passed on with the key in it, and the HTTP client's own log of
+requests is turned down so that it is not written to the log either.
+
+### Farnell
+
+Farnell, Newark and element14 are one catalogue behind one API. Register an
+application at [partner.element14.com](https://partner.element14.com) for the
+**Product Search API** and give this app its key:
+
+| Variable | |
+| --- | --- |
+| `FARNELL_API_KEY` | The application's key. Without it, Farnell is asked nothing. A new key is not active until its registration has been confirmed. |
+| `FARNELL_STORE` | Which country's catalogue, and so whose stock and prices: `uk.farnell.com` unless said otherwise. For Germany `de.farnell.com`; for the United States `www.newark.com`. |
+| `FARNELL_CURRENCY` | What that store's prices are in. Farnell's answer does not say, so it is worked out from the store -- the euro for `de.farnell.com`, pounds for `uk.farnell.com` -- and can be said here for a store this app does not know. It is a label for the prices; it converts nothing. |
+| `FARNELL_DAILY_LIMIT` | How many searches a day may be sent. 1000. |
+| `FARNELL_API_URL` | `https://api.element14.com` unless said otherwise. |
+
+A part is found by its manufacturer's part number
+(`GET /catalog/products?term=manuPartNum:...`). One number is often several
+products -- on a reel, as cut tape -- and the one shown is the one with the
+smallest order that has a price. Farnell often does not sell by the piece, so
+the price *at 1* may be empty where the smallest order is ten.
+
+That Farnell no longer stocks a part is Farnell's decision; only "no longer
+manufactured" is taken for obsolete. The link goes to the product's own page
+where the answer gives one, and otherwise to the store's search for the order
+code, which leads there.
+
+### What is not known yet
+
+Mouser and Farnell, like DigiKey, were written from the suppliers' public
+documentation and tested against stand-ins that answer as the documentation
+shows -- and, for a key they do not know, as the real services did when asked.
+Neither has been run with a real key. The calls a minute and a day each
+allows are as generally stated for a free account, not taken from a document:
+the limits are settings for that reason.
+
 ### Another supplier
 
 A supplier is one class in `app/suppliers/` that does two things: *fetch*,
 which sends one question and returns what came back, and *read*, which says
 what such an answer means as an offer. Whether to ask at all -- the kept
 answers, the count, the limit -- is `app/services/supply.py`, and is the same
-for every supplier. Adding one is that class, and a line in `app/application.py`
-that builds it from the settings.
+for every supplier. What reading any supplier's answer has in common -- which
+of the products found is the one meant, a price written for people as a
+number -- is `app/suppliers/reading.py`. Adding one is that class, and a line
+in `app/application.py` that builds it from the settings.
 
 ## Configuration
 

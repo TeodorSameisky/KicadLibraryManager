@@ -13,10 +13,25 @@ from app.errors import UpstreamFailed
 class SupplierError(UpstreamFailed):
     """A supplier could not be asked, or did not answer. The message is for
     whoever runs the app -- the log, and the status page: it may quote what
-    the supplier said, and never holds a key."""
+    the supplier said, and never holds a key.
+
+    `retry_after` is how long, in seconds, to leave the supplier alone, where
+    the failure itself says; otherwise that is `app.services.supply`'s to
+    decide.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
     def detail(self) -> str:
         return "The supplier did not answer."
+
+
+class TooManyCalls(SupplierError):
+    """The supplier says it has been called too often: so many a second, or
+    so many a day. Nothing more is sent to it for a while, whatever is asked:
+    its count is ahead of this app's."""
 
 
 @dataclass(frozen=True)
@@ -57,6 +72,12 @@ class Supplier(Protocol):
         ...
 
     @property
+    def keys(self) -> tuple[str, ...]:
+        """The settings that hold its keys, by name: what whoever runs the app
+        has to set for it to be asked. Names only, never what they hold."""
+        ...
+
+    @property
     def configured(self) -> bool:
         """Whether this deployment has what it takes to ask it: its keys."""
         ...
@@ -74,8 +95,10 @@ class Supplier(Protocol):
     def fetch(self, query: Query) -> Fetched:
         """Ask the supplier. One call over the network, and blocking.
 
-        Raises `SupplierError` if it could not be reached at all. Whatever it
-        answered, even to refuse, is returned and not raised.
+        Raises `SupplierError` if it could not be reached at all, or said in
+        so many words that it will not answer -- `TooManyCalls` where the
+        reason is how often it has been asked. Anything else it answered is
+        returned and not raised.
         """
         ...
 

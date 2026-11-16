@@ -7,6 +7,8 @@ things are looked at, the same way for every supplier:
     are today's calls used up?     then it is not asked, and an old answer,
                                    if there is one, is shown as old
     did it just fail?              then it is left alone for a few minutes
+    has it been called too often   then a moment is waited, or it is not
+    in the last minute?            asked this time
 
 Only then is the call made, and counted. What comes back is kept as the
 supplier gave it; `Supplier.read` says what it means each time it is shown,
@@ -21,6 +23,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -30,13 +33,26 @@ from app.domain.manufacturers import Manufacturers
 from app.domain.parts import Mpn, Part
 from app.domain.supply import Offer, Query
 from app.library.snapshot import Snapshot
-from app.suppliers.base import Supplier, SupplierError
+from app.suppliers.base import Supplier, SupplierError, TooManyCalls
 from app.suppliers.store import Kept, SupplierStore
 
 log = logging.getLogger(__name__)
 
 # How long a supplier is left alone after it failed to answer a question.
 RETRY_AFTER_SECONDS = 600
+
+# How long a page is made to wait for a supplier's allowance to come round
+# again. Longer than this and it is told the calls are used up for now.
+PATIENCE_SECONDS = 1.5
+
+
+@dataclass(frozen=True)
+class Rate:
+    """How often a supplier lets itself be called: so many calls in so many
+    seconds. Mouser allows thirty a minute, Farnell two a second."""
+
+    calls: int
+    seconds: float
 
 
 def _reason(what: str, said: str) -> str:
@@ -47,7 +63,7 @@ def _reason(what: str, said: str) -> str:
 class State(StrEnum):
     FOUND = "found"  # the supplier has the part: there is an offer
     NOT_FOUND = "not-found"  # it was asked, and does not list it
-    OVER_LIMIT = "over-limit"  # not asked: today's calls are used up
+    OVER_LIMIT = "over-limit"  # not asked: the calls it allows are used up, for now
     FAILED = "failed"  # asked, and it did not answer
 
 
@@ -85,6 +101,8 @@ class SupplierUsage:
     limit: int  # how many calls a day it may be sent
     answers: int  # how many answers are kept
     last_asked: float | None
+    # The settings that hold its keys, by name: what to set for it to be asked.
+    keys: tuple[str, ...] = ()
     # The last time it did not answer, and why, unless it has answered since.
     failed_at: float | None = None
     failure: str = ""
@@ -98,13 +116,20 @@ class Supply:
         *,
         limits: Mapping[str, int],
         holds_for_seconds: float,
+        rates: Mapping[str, Rate] | None = None,
         clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._suppliers = tuple(suppliers)
         self._store = store
         self._limits = dict(limits)
         self._holds_for = holds_for_seconds
         self._clock = clock
+        self._sleep = sleep
+        # How often each may be called, for those that say, and when its
+        # latest calls went out. In memory: a restart forgets a minute.
+        self._rates = dict(rates or {})
+        self._sent: dict[str, deque[float]] = {supplier.id: deque() for supplier in self._suppliers}
         # One question at a time to each supplier: two people opening the
         # same page must not make the same call twice.
         self._locks = {supplier.id: threading.Lock() for supplier in self._suppliers}
@@ -157,15 +182,36 @@ class Supply:
             if self._store.calls(supplier.id, now) >= self.limit(supplier):
                 return fall_back(State.OVER_LIMIT)
 
+            # So many a minute, or a second, for a supplier that counts
+            # that too. A short wait is waited out; a long one is not a page's
+            # to sit through.
+            wait = self._wait_for(supplier.id, now)
+            if wait > PATIENCE_SECONDS:
+                return fall_back(State.OVER_LIMIT)
+            if wait > 0:
+                self._sleep(wait)
+                now = self._clock()
+
             # Counted before it is made: a call that fails halfway was still
             # a call to the supplier.
             self._store.count_call(supplier.id, now)
+            if supplier.id in self._rates:
+                self._sent[supplier.id].append(now)
             try:
                 fetched = supplier.fetch(query)
+            except TooManyCalls as exc:
+                # Its count is ahead of this one. Nothing more is sent to it
+                # for a while, whatever is asked.
+                log.warning("%s was not asked about %s: %s", supplier.name, query.mpn, exc)
+                self._failures[supplier.id] = (now, str(exc))
+                self._left_alone[(supplier.id, "")] = now + (exc.retry_after or RETRY_AFTER_SECONDS)
+                return fall_back(State.OVER_LIMIT)
             except SupplierError as exc:
                 log.warning("%s could not be asked about %s: %s", supplier.name, query.mpn, exc)
                 self._failures[supplier.id] = (now, str(exc))
-                self._left_alone[(supplier.id, asked)] = now + RETRY_AFTER_SECONDS
+                self._left_alone[(supplier.id, asked)] = now + (
+                    exc.retry_after or RETRY_AFTER_SECONDS
+                )
                 return fall_back(State.FAILED)
 
             if fetched.answered:
@@ -206,6 +252,18 @@ class Supply:
             )
             self._left_alone[(supplier.id, asked)] = now + RETRY_AFTER_SECONDS
             return fall_back(State.FAILED)
+
+    def _wait_for(self, supplier: str, now: float) -> float:
+        """How long until this supplier may be called again by its own
+        count of calls a minute: nothing, for one that keeps no such count
+        or has not used it up."""
+        rate = self._rates.get(supplier)
+        if rate is None:
+            return 0.0
+        sent = self._sent[supplier]
+        while sent and sent[0] <= now - rate.seconds:
+            sent.popleft()
+        return 0.0 if len(sent) < rate.calls else sent[0] + rate.seconds - now
 
     def _alone(self, supplier: str, asked: str, now: float) -> bool:
         return any(
@@ -270,6 +328,7 @@ class Supply:
                     limit=self.limit(supplier),
                     answers=answers,
                     last_asked=last,
+                    keys=tuple(supplier.keys),
                     failed_at=failed_at,
                     failure=failure,
                 )

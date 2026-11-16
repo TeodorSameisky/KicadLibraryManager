@@ -30,8 +30,10 @@ from app.library.service import LibraryService
 from app.library.sources import sync as sync_source
 from app.observability import RequestContextMiddleware
 from app.security import SecurityHeadersMiddleware
-from app.services.supply import Supply
+from app.services.supply import Rate, Supply
 from app.suppliers.digikey import DigiKey
+from app.suppliers.farnell import Farnell
+from app.suppliers.mouser import Mouser
 from app.suppliers.store import SupplierStore
 from app.web.errors import app_error, http_error
 from app.web.routes import backup as backup_routes
@@ -131,10 +133,24 @@ def create_app(
                 site=settings.digikey_site,
                 language=settings.digikey_language,
                 currency=settings.digikey_currency,
-            )
+            ),
+            Mouser(settings.mouser_api_key, base_url=settings.mouser_api_url),
+            Farnell(
+                settings.farnell_api_key,
+                store=settings.farnell_store,
+                currency=settings.farnell_currency,
+                base_url=settings.farnell_api_url,
+            ),
         ],
         SupplierStore(database),
-        limits={DigiKey.id: settings.digikey_daily_limit},
+        limits={
+            DigiKey.id: settings.digikey_daily_limit,
+            Mouser.id: settings.mouser_daily_limit,
+            Farnell.id: settings.farnell_daily_limit,
+        },
+        # What each allows besides so many a day. Mouser: thirty a minute.
+        # Farnell: two a second.
+        rates={Mouser.id: Rate(30, 60.0), Farnell.id: Rate(2, 1.0)},
         holds_for_seconds=settings.supplier_cache_hours * 3600,
     )
     app.state.sessions = SessionStore(
