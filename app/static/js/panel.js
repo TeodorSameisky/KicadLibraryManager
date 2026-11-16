@@ -197,13 +197,14 @@ function partRow(part) {
   const note = el("div", "part__note");
   note.hidden = true;
 
-  const place = button("button", "Place", () => placePart(part.ipn, place, note));
-  place.setAttribute("aria-label", `Place ${part.ipn} into KiCad`);
+  // Not called `place`: that is the function that does the placing.
+  const placer = button("button", "Place", () => placePart(part.ipn, placer, note));
+  placer.setAttribute("aria-label", `Place ${part.ipn} into KiCad`);
   const action = el("span", "part__action");
-  action.append(place);
+  action.append(placer);
 
   row.append(thumb, name, description, source, action, note);
-  return { element: row, place };
+  return { element: row, place: placer };
 }
 
 /* "12 of 40 matches" beats "12 of 4000": the size of the catalog says
@@ -303,9 +304,9 @@ function setNote(note, kind, message) {
   note.hidden = !message;
 }
 
-async function placePart(ipn, place, note) {
-  place.disabled = true;
-  place.textContent = "Placing";
+async function placePart(ipn, placer, note) {
+  placer.disabled = true;
+  placer.textContent = "Placing";
   setNote(note, null, "");
 
   try {
@@ -314,14 +315,14 @@ async function placePart(ipn, place, note) {
       onWarnings: (found) => setNote(note, "warn", found.join(" ")),
     });
 
-    place.textContent = "Placed";
-    setTimeout(() => { place.textContent = "Place"; }, 1500);
+    placer.textContent = "Placed";
+    setTimeout(() => { placer.textContent = "Place"; }, 1500);
   } catch (error) {
     log(`Could not place ${ipn}: ${error.message}`);
     setNote(note, "error", error.message);
-    place.textContent = "Place";
+    placer.textContent = "Place";
   } finally {
-    place.disabled = false;
+    placer.disabled = false;
   }
 }
 

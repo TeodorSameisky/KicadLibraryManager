@@ -1,5 +1,6 @@
 """Placing a part from its own page, which only KiCad's panel offers."""
 
+import pathlib
 import re
 
 import pytest
@@ -74,3 +75,67 @@ def test_the_placing_code_is_one_module_that_both_pages_import(library_client):
 @pytest.mark.parametrize("script", ["place.js", "part-place.js"])
 def test_the_scripts_are_served(library_client, script):
     assert library_client.get(f"/static/js/{script}").status_code == 200
+
+
+# -- a module must not give one of its imports' names to something else -----------
+#
+# The catalog's row once called its button `place`, and handed it to a function
+# as a parameter of that name. Inside, `place(ipn)` was then the button and not
+# the import: "place is not a function", and only on a click inside KiCad, which
+# no test makes. Nothing checks these scripts but this.
+
+_IMPORT = re.compile(r"import\s*\{([^}]*)\}\s*from")
+_DECLARED = re.compile(r"\b(?:const|let|var)\s+(\w+)\b")
+_DESTRUCTURED = re.compile(r"\b(?:const|let|var)\s*[\[{]([^\]}=]*)[\]}]\s*=")
+_FUNCTION = re.compile(r"\bfunction\s*(\w*)\s*\(([^)]*)\)")
+_ARROW = re.compile(r"\(([^()]*)\)\s*=>")
+_LONE_ARROW = re.compile(r"(?<![\w.)])(\w+)\s*=>")
+_CAUGHT = re.compile(r"\bcatch\s*\(\s*(\w+)\s*\)")
+
+
+def _names(listed):
+    for word in listed.split(","):
+        word = word.split("=")[0].split(":")[-1].strip().lstrip(".").strip("{}[] ")
+        if word.isidentifier():
+            yield word
+
+
+def shadowed(source):
+    """The names a script imports and then declares again, as a variable or a
+    parameter. Rough -- it reads text, not syntax -- and errs towards saying so."""
+    imported = {
+        name.split(" as ")[-1].strip()
+        for listed in _IMPORT.findall(source)
+        for name in listed.split(",")
+        if name.strip()
+    }
+    body = _IMPORT.sub("", source)
+    declared = set(_DECLARED.findall(body)) | set(_CAUGHT.findall(body))
+    declared |= set(_LONE_ARROW.findall(body))
+    for listed in _DESTRUCTURED.findall(body):
+        declared |= set(_names(listed))
+    for name, parameters in _FUNCTION.findall(body):
+        declared |= {name} | set(_names(parameters))
+    for parameters in _ARROW.findall(body):
+        declared |= set(_names(parameters))
+    return sorted(imported & declared)
+
+
+def test_the_check_sees_a_parameter_that_takes_an_import_s_name():
+    broken = (
+        'import { place } from "./place.js";\n'
+        "async function placePart(ipn, place, note) { await place(ipn); }\n"
+    )
+    assert shadowed(broken) == ["place"]
+    assert shadowed(broken.replace("ipn, place, note", "ipn, placer, note")) == []
+    assert shadowed('import { el } from "./app.js";\nconst el = 1;') == ["el"]
+    assert shadowed('import { el } from "./app.js";\nitems.map((el) => el);') == ["el"]
+    assert shadowed('import { el } from "./app.js";\nitems.map(el => el);') == ["el"]
+
+
+def test_no_script_gives_an_import_s_name_to_something_else():
+    scripts = sorted((pathlib.Path(__file__).parent.parent / "app/static/js").glob("*.js"))
+    assert len(scripts) > 10
+    assert {script.name: shadowed(script.read_text(encoding="utf-8")) for script in scripts} == {
+        script.name: [] for script in scripts
+    }
