@@ -526,8 +526,9 @@ replaces it, after asking.
 ### What a BOM costs
 
 A stored BOM's *Cost* page works out what building a number of boards costs,
-from what the [suppliers](#suppliers) say. Type how many boards; each fitted
-line is then bought where it costs least for the quantity needed:
+from what the [suppliers](#suppliers) say. Type how many boards, and the
+costing is worked out again as the number changes; each fitted line is bought
+where it costs least for the quantity needed:
 
 - **What is bought is what is needed, or the fewest that can be.** Ten boards
   of a part used twice is twenty. A supplier that sells no fewer than ten, or

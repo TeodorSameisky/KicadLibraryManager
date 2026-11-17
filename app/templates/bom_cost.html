@@ -17,15 +17,14 @@
     </p>
   </header>
 
+  {# The costing is worked out again as the number changes: it asks nobody,
+     so there is nothing to confirm. Without the script, Enter sends it. #}
   <h2 class="section">How many to build</h2>
-  <form class="form" method="get" action="{{ root_path }}/boms/{{ bom.id }}/cost">
+  <form class="form" id="cost-boards" method="get" action="{{ root_path }}/boms/{{ bom.id }}/cost">
     <div class="field field--short">
       <label for="boards">Boards</label>
       <input type="number" id="boards" name="boards" min="1" max="{{ max_boards }}" step="1"
              value="{{ costing.boards }}" inputmode="numeric" />
-    </div>
-    <div class="field field--action">
-      <button type="submit" class="button">Work it out</button>
     </div>
   </form>
 
@@ -41,8 +40,7 @@
   {% else %}
     {# Outside what is replaced as answers come in, so that it keeps its state
        while the suppliers are being asked. #}
-    <div class="actions" id="cost-ask" data-bom-id="{{ bom.id }}" data-boards="{{ costing.boards }}"
-         data-unasked="{{ costing.unasked }}">
+    <div class="actions" id="cost-ask" data-bom-id="{{ bom.id }}" data-unasked="{{ costing.unasked }}">
       <button type="button" class="button" id="cost-ask-start" {{ "hidden" if not costing.unasked }}>Ask the suppliers</button>
       <button type="button" class="button" id="cost-ask-stop" hidden>Stop asking</button>
       <span class="muted" id="cost-ask-progress" aria-live="polite"></span>
@@ -166,15 +164,14 @@
         </tbody>
       </table>
     </div>
-  </div>
 
-  <div class="actions">
-    <a class="button" href="{{ root_path }}/api/v1/boms/{{ bom.id }}/cost.csv?boards={{ costing.boards }}">Download the costing</a>
+    {# In here, so that it downloads the costing for the number on screen. #}
+    <div class="actions">
+      <a class="button" href="{{ root_path }}/api/v1/boms/{{ bom.id }}/cost.csv?boards={{ costing.boards }}">Download the costing</a>
+    </div>
   </div>
 {% endblock %}
 
 {% block scripts %}
-  {% if costing.suppliers %}
-    <script type="module" src="{{ root_path }}/static/js/bom-cost.js"></script>
-  {% endif %}
+  <script type="module" src="{{ root_path }}/static/js/bom-cost.js"></script>
 {% endblock %}

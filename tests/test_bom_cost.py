@@ -500,6 +500,11 @@ def test_the_cost_page_and_its_download(site):
     assert "Cost of Amplifier" in page and 'value="10"' in page
     assert "0.90 EUR" in flat and "0.09 EUR" in flat and "2 of 5" in flat
     assert 'id="cost-ask"' in page and "bom-cost.js" in page
+    # Worked out again as the number changes: there is nothing to press.
+    assert 'type="submit"' not in page and "Work it out" not in page
+    assert (
+        'cost.csv?boards=10"' in page.split('id="costing"', 1)[1]
+    ), "the download is replaced with the costing, so it is for the number on screen"
     assert "4 of 4 supplier answers are here." in flat
     assert 'id="cost-ask-start" hidden' in page, "nothing is left to ask"
 
@@ -517,3 +522,23 @@ def test_the_cost_page_and_its_download(site):
 def test_the_cost_needs_a_session(client):
     assert client.get("/api/v1/boms/1/cost").status_code == 401
     assert client.post("/api/v1/boms/1/cost/ask").status_code == 401
+
+
+def test_the_cost_page_without_a_supplier_still_follows_the_number_of_boards(
+    make_client, tree, library, tmp_path
+):
+    client = sign_in(make_client(tree))
+    client.app.state.supply = Supply(
+        [Seller("north", {}, configured=False)],
+        SupplierStore(Database(tmp_path / "suppliers.db")),
+        limits={},
+        holds_for_seconds=DAY,
+    )
+    bom_id = client.post(
+        "/api/v1/boms", json={"project": "Amplifier", "revision": "A", "content": BOM}
+    ).json()["id"]
+
+    page = client.get(f"/boms/{bom_id}/cost").text
+
+    assert "No supplier is set up" in page and 'id="cost-ask"' not in page
+    assert "bom-cost.js" in page and 'id="cost-boards"' in page
