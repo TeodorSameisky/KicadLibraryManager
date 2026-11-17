@@ -36,6 +36,7 @@ from app.suppliers.farnell import Farnell
 from app.suppliers.mouser import Mouser
 from app.suppliers.store import SupplierStore
 from app.web.errors import app_error, http_error
+from app.web.routes import assets as asset_routes
 from app.web.routes import backup as backup_routes
 from app.web.routes import boms as bom_routes
 from app.web.routes import catalog, pages, provider, session, system, template_admin
@@ -184,6 +185,7 @@ def create_app(
         editing_routes,
         template_admin,
         manufacturer_routes,
+        asset_routes,
         history_routes,
         pages,
     ):

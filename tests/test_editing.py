@@ -141,7 +141,9 @@ def test_a_new_part_is_written_as_a_draft_the_library_can_read(tree):
         "  preferred: true\n"
     )
     index = load_parts(tree.root)
-    assert index.issues == []
+    # Read back without a fault. What is said of it is that it prefers what
+    # 1102-0001 prefers, which the standard library's one MPN makes it do.
+    assert [issue.kind for issue in index.issues] == ["duplicate-part"]
     assert index.parts["1102-0002"].status == "draft"
 
 
@@ -480,7 +482,12 @@ def test_the_form_is_offered_what_the_library_has(web):
     assert offered["symbols"] == ["Passives:R", "Passives:R_0603"]
     assert offered["footprints"] == ["Passives:R_0603_1608Metric"]
     assert offered["mpns"] == [
-        {"mpn": "RC0603FR-0710KL", "manufacturer": "Yageo", "lifecycle": "active"}
+        {
+            "mpn": "RC0603FR-0710KL",
+            "manufacturer": "Yageo",
+            "lifecycle": "active",
+            "used_by": ["1102-0001"],
+        }
     ]
 
 

@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.duplicates import Alike, Candidate
 from app.domain.forms import ManufacturerForm, PartForm, SourceEntry, TemplateForm
 from app.domain.parameters import Parameter
 from app.domain.parts import Lifecycle, Part, PartStatus
@@ -417,6 +418,8 @@ class MpnChoice(BaseModel):
     mpn: str
     manufacturer: str
     lifecycle: str
+    # The parts that already list it, by IPN: shown as soon as it is typed.
+    used_by: list[str]
 
 
 class Choices(BaseModel):
@@ -435,6 +438,10 @@ class Choices(BaseModel):
     @classmethod
     def of(cls, snapshot: Snapshot, *, writable: bool) -> Choices:
         indexes = snapshot.catalog.indexes.values()
+        users: dict[str, list[str]] = {}
+        for part in snapshot.parts.parts.values():
+            for ref in part.mpns:
+                users.setdefault(ref.mpn, []).append(part.ipn)
         return cls(
             writable=writable,
             categories=[
@@ -450,7 +457,12 @@ class Choices(BaseModel):
                 for code, template in sorted(snapshot.parts.templates.items())
             },
             mpns=[
-                MpnChoice(mpn=mpn.mpn, manufacturer=mpn.manufacturer, lifecycle=mpn.lifecycle)
+                MpnChoice(
+                    mpn=mpn.mpn,
+                    manufacturer=mpn.manufacturer,
+                    lifecycle=mpn.lifecycle,
+                    used_by=sorted(users.get(mpn.mpn, ())),
+                )
                 for mpn in sorted(snapshot.parts.mpns.values(), key=lambda m: m.mpn)
             ],
             manufacturers=sorted(
@@ -501,6 +513,55 @@ class PartBody(BaseModel):
                 )
                 for source in self.sources
             ),
+        )
+
+
+class AlikeBody(BaseModel):
+    """A part as it is being asked for or edited, to be held up against the
+    library."""
+
+    ipn: str = Field("", max_length=40)  # the part being edited, if it is one
+    category: str = Field("", max_length=32)
+    description: str = Field("", max_length=300)
+    footprint: str = Field("", max_length=200)
+    fields: dict[str, str] = Field(default_factory=dict, max_length=60)
+    mpns: list[str] = Field(default_factory=list, max_length=40)
+
+    def candidate(self) -> Candidate:
+        return Candidate(
+            ipn=self.ipn,
+            category=self.category,
+            description=self.description,
+            footprint=self.footprint.strip(),
+            fields={name[:100]: value[:200] for name, value in self.fields.items()},
+            mpns=[mpn[:120] for mpn in self.mpns],
+        )
+
+
+class AlikePart(BaseModel):
+    ipn: str
+    description: str
+    status: str
+    reasons: list[str]
+
+
+class AlikeList(BaseModel):
+    """Parts the library already has that look like the one being asked for."""
+
+    parts: list[AlikePart]
+
+    @classmethod
+    def of(cls, found: Sequence[Alike]) -> AlikeList:
+        return cls(
+            parts=[
+                AlikePart(
+                    ipn=each.part.ipn,
+                    description=each.part.description,
+                    status=each.part.status,
+                    reasons=list(each.reasons),
+                )
+                for each in found
+            ]
         )
 
 

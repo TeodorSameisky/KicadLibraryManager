@@ -15,7 +15,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from app.domain import policy, rules
+from app.domain import duplicates, policy, rules
+from app.domain.duplicates import Alike, Candidate
 from app.domain.forms import PartForm
 from app.domain.parts import Lifecycle, Part, is_web_address
 from app.domain.policy import Actor
@@ -125,6 +126,12 @@ def _under_one_name(form: PartForm, snapshot: Snapshot) -> PartForm:
             for entry in form.sources
         ),
     )
+
+
+def alike(snapshot: Snapshot, candidate: Candidate) -> list[Alike]:
+    """The parts the library already has that look like the one being asked
+    for: to be looked at before another number is given out."""
+    return duplicates.alike(candidate, snapshot.parts.parts.values())
 
 
 # -- the changes ----------------------------------------------------------------

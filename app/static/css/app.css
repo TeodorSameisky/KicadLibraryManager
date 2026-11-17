@@ -418,6 +418,7 @@ a.masthead__status { text-decoration: underline; }
 }
 
 .tab:hover { color: var(--ink); }
+a.tab { text-decoration: none; }
 .tab--on { border-bottom-color: var(--ink); color: var(--ink); font-weight: 600; }
 
 .tab__count { margin-left: 0.3rem; color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; }

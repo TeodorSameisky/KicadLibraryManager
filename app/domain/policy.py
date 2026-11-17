@@ -1,10 +1,11 @@
 """Who may change what.
 
 Anyone who can reach the library may read it, upload a BOM, request a part,
-and correct a draft. What decides something, or throws a record away, is a
-librarian's to do: approving a part, changing or retiring an approved one,
-editing a category's template, refreshing the index, deleting a BOM, taking a
-copy of the database.
+correct a draft, and add a symbol, footprint or 3D model it does not have.
+What decides something, or throws a record away, is a librarian's to do:
+approving a part, changing or retiring an approved one, editing a category's
+template, replacing or removing a symbol, footprint or 3D model, refreshing
+the index, deleting a BOM, taking a copy of the database.
 
 The rules are here so that a route, a page and a script are all told the same
 thing. Who counts as a librarian is not decided here: that depends on how
@@ -55,4 +56,10 @@ def may_delete_boms(actor: Actor) -> bool:
 
 def may_edit_manufacturers(actor: Actor) -> bool:
     """The list decides what every manufacturer part's maker is called."""
+    return actor.librarian
+
+
+def may_replace_assets(actor: Actor) -> bool:
+    """A symbol or footprint that is replaced changes every part drawn with it;
+    one that is removed is gone from every schematic still to be drawn."""
     return actor.librarian

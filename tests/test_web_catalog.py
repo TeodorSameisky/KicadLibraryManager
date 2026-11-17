@@ -273,7 +273,9 @@ def test_issues_are_listed_with_where_to_look(serve, tree):
 
     body = serve().get("/api/v1/issues").json()
 
-    assert (body["total"], body["returned"], body["errors"], body["warnings"]) == (2, 2, 1, 1)
+    # The warnings: 1102-0003 has no description, and 1102-0002, a copy of
+    # 1102-0001, prefers what it prefers.
+    assert (body["total"], body["returned"], body["errors"], body["warnings"]) == (3, 3, 1, 2)
     assert body["issues"][0] == {
         "severity": "error",
         "kind": "missing-footprint",
@@ -301,7 +303,7 @@ def test_issues_are_narrowed_by_severity_but_counted_for_the_library(serve, tree
     only_errors = client.get("/api/v1/issues?severity=error").json()
 
     assert [issue["severity"] for issue in only_errors["issues"]] == ["error"]
-    assert (only_errors["total"], only_errors["errors"], only_errors["warnings"]) == (1, 1, 1)
+    assert (only_errors["total"], only_errors["errors"], only_errors["warnings"]) == (1, 1, 2)
     assert client.get("/api/v1/issues?limit=1").json()["returned"] == 1
     assert client.get("/api/v1/issues?severity=fatal").status_code == 422
 

@@ -18,7 +18,14 @@ from app.library.service import LibraryService
 from app.library.snapshot import Snapshot
 from app.services import parts
 from app.web.deps import get_actor, get_library, get_snapshot, require_access, require_part
-from app.web.schemas.library import Choices, PartBody, PartRef, StatusBody
+from app.web.schemas.library import (
+    AlikeBody,
+    AlikeList,
+    Choices,
+    PartBody,
+    PartRef,
+    StatusBody,
+)
 from app.web.templating import render
 
 api = APIRouter(prefix="/api/v1", tags=["editing"])
@@ -34,6 +41,16 @@ async def choices(
 ) -> Choices:
     """What a part can be made from: for the form's lists."""
     return Choices.of(snapshot, writable=library.writable)
+
+
+@api.post("/parts/alike")
+async def alike_parts(body: AlikeBody, snapshot: Snapshot = Depends(get_snapshot)) -> AlikeList:
+    """Parts the library already has that look like this one.
+
+    Asked while a part is being filled in, so that a part the library has is
+    found before it is requested a second time. Refuses nothing.
+    """
+    return AlikeList.of(parts.alike(snapshot, body.candidate()))
 
 
 @api.post("/parts", status_code=201)

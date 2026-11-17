@@ -10,9 +10,10 @@ import logging
 from pathlib import Path
 
 from app.domain.parts import Part
+from app.kicad import symbol as symbol_tree
 from app.kicad.render import render_footprint, render_symbol
 from app.kicad.sexpr import ParseError, loads
-from app.library.assets import Footprint
+from app.library.assets import BrokenInheritance, Footprint
 from app.library.placement import PlacementError, PlacementOptions, placed_symbol
 from app.library.refs import LibraryRef, model_key
 from app.library.snapshot import Snapshot
@@ -66,3 +67,31 @@ def model_path(part: Part, snapshot: Snapshot) -> Path | None:
         ):
             return model.path
     return None
+
+
+# -- an asset on its own, not as a part draws it --------------------------------
+
+
+def library_symbol_svg(snapshot: Snapshot, ref: LibraryRef) -> str | None:
+    """A symbol as the library has it, with what it derives from filled in."""
+    try:
+        chain = snapshot.catalog.symbol_ancestry(ref)
+        nodes = []
+        for symbol in reversed(chain):
+            node = loads(symbol.path.read_text(encoding="utf-8")).child("symbol")
+            if node is None:
+                return None
+            nodes.append(node)
+        return render_symbol(symbol_tree.flatten(nodes, ref.name), str(ref))
+    except (LookupError, BrokenInheritance, OSError, UnicodeDecodeError, ParseError) as exc:
+        log.info("no preview for symbol %s: %s", ref, exc)
+        return None
+
+
+def library_footprint_svg(footprint: Footprint) -> str | None:
+    try:
+        tree = loads(footprint.path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ParseError) as exc:
+        log.warning("no preview for footprint %s:%s: %s", footprint.library, footprint.name, exc)
+        return None
+    return render_footprint(tree, f"{footprint.library}:{footprint.name}")

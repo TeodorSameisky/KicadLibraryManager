@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Upload to the library &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/library">&larr; Library</a>
+
+  <header>
+    <div class="title"><h1 class="title--plain">Upload symbols, footprints and 3D models</h1></div>
+    <p class="byline">
+      Added to the library's repository in your name, in one commit. A part can then
+      be requested with them.
+    </p>
+  </header>
+
+  {% if not writable %}
+    <div class="notice">
+      <p class="notice__title">This deployment cannot change the library</p>
+      <p>It has no token that may push to the library's repository. Files are added there directly.</p>
+    </div>
+  {% else %}
+    <form class="stack" id="upload-form" novalidate>
+      <div class="form">
+        <div class="field">
+          <label for="upload-library">Library</label>
+          <input type="text" id="upload-library" list="upload-libraries" maxlength="64"
+                 autocomplete="off" required value="{{ library }}" placeholder="Passives" />
+          <datalist id="upload-libraries">
+            {% for name in libraries %}<option value="{{ name }}"></option>{% endfor %}
+          </datalist>
+        </div>
+        <div class="field field--file field--wide">
+          <label for="upload-files">Files</label>
+          <input type="file" id="upload-files" multiple required
+                 accept=".kicad_sym,.kicad_mod,.step,.stp,.wrl" />
+        </div>
+      </div>
+      <p class="hint">
+        A symbol file (.kicad_sym), a footprint (.kicad_mod) and its 3D model (.step or
+        .wrl), together, as a vendor's download has them: unpack the archive first. Each
+        goes into the library named above, before the colon: <span class="mono">Library:Name</span>.
+        A footprint is pointed at the 3D model uploaded with it.
+      </p>
+
+      {# What the files would add, drawn, with what is wrong: see library-upload.js. #}
+      <div id="upload-plan" aria-live="polite"></div>
+
+      <div class="form" id="upload-confirm" hidden>
+        <div class="field field--wide">
+          <label for="upload-note">What are these for? <span class="muted">(optional)</span></label>
+          <textarea id="upload-note" rows="2" maxlength="1000"
+                    placeholder="Footprint for the TPS62840 regulator, from TI's download"></textarea>
+          <p class="hint">Kept with the change in the library's history, next to your name.</p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="button" id="upload-submit" disabled>Add to the library</button>
+      </div>
+      <div id="upload-result" aria-live="polite"></div>
+    </form>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if writable %}
+    <script type="module" src="{{ root_path }}/static/js/library-upload.js"></script>
+  {% endif %}
+{% endblock %}

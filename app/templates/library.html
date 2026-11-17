@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Library &middot; {{ provider_name }}{% endblock %}
+
+{% block content %}
+  <header class="masthead">
+    <div class="masthead__title">
+      <h1>Symbols, footprints and 3D models</h1>
+      {% with here = "Library" %}{% include "_nav.html" %}{% endwith %}
+    </div>
+  </header>
+
+  <p class="lede">
+    What parts are drawn with. A part names a symbol and a footprint; a footprint
+    names its 3D model. Each is a file in a library's repository.
+    {% if writable %}
+      One the library does not have yet can be
+      <a href="{{ root_path }}/library/upload">uploaded</a>.
+    {% endif %}
+  </p>
+
+  <form class="toolbar" method="get" action="{{ root_path }}/library" role="search">
+    <input type="hidden" name="kind" value="{{ kind.value }}" />
+    <div class="search">
+      <label class="visually-hidden" for="asset-search">Search the library</label>
+      <input type="search" id="asset-search" name="q" value="{{ query }}" autocomplete="off"
+             spellcheck="false" placeholder="Search by name or library" />
+      <span class="search__count">
+        {%- if listing.total > listing.rows | length -%}
+          {{ listing.rows | length }} of {{ listing.total }}
+        {%- else -%}
+          {{ listing.total }}
+        {%- endif -%}
+      </span>
+    </div>
+    <div class="filters">
+      <nav class="tabs" aria-label="Kind">
+        {% for each in kinds %}
+          <a class="tab{% if each == kind %} tab--on{% endif %}"
+             href="{{ root_path }}/library?kind={{ each.value }}{% if query %}&amp;q={{ query | urlencode }}{% endif %}"
+             {% if each == kind %}aria-current="page"{% endif %}>
+            {{- {"symbol": "Symbols", "footprint": "Footprints", "model": "3D models"}[each.value] -}}
+            <span class="tab__count">{{ counts[each] }}</span>
+          </a>
+        {% endfor %}
+      </nav>
+    </div>
+  </form>
+
+  {% if listing.rows %}
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Source</th>
+            <th scope="col">{{ "Used by footprints" if kind.value == "model" else "Used by parts" }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in listing.rows %}
+            <tr>
+              <td>
+                <a class="mono" href="{{ root_path }}/library/{{ kind.value }}/{{ row.ref | urlencode }}">{{ row.ref }}</a>
+              </td>
+              <td class="muted">{{ row.source }}</td>
+              <td>
+                {% if row.used_by %}
+                  {{ row.used_by | length }}
+                  <span class="muted">&middot; {{ row.used_by[:3] | join(", ") }}{% if row.used_by | length > 3 %}, &hellip;{% endif %}</span>
+                {% else %}
+                  <span class="muted">none</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if listing.total > listing.rows | length %}
+      <p class="hint">
+        The first {{ listing.rows | length }} of {{ listing.total }} are shown. Search to narrow them down.
+      </p>
+    {% endif %}
+  {% else %}
+    <div class="state">
+      <p class="state__title">
+        {{- "Nothing matches the search" if query else "The library has none of these yet" -}}
+      </p>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% set row = detail.row %}
+{% set label = {"symbol": "Symbol", "footprint": "Footprint", "model": "3D model"}[row.kind.value] %}
+
+{% block title %}{{ row.ref }} &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/library?kind={{ row.kind.value }}">&larr; Library</a>
+
+  <header>
+    <div class="title"><h1 class="title--plain mono">{{ row.ref }}</h1></div>
+    <p class="byline">{{ label }} in {{ row.source }} &middot; <span class="mono">{{ row.path }}</span></p>
+  </header>
+
+  {% if may_replace or may_remove %}
+    <div class="actions web-only">
+      {% if may_replace %}
+        <a class="button" href="{{ root_path }}/library/upload?library={{ row.library | urlencode }}">Replace</a>
+      {% endif %}
+      {% if may_remove %}
+        <button type="button" class="button button--danger" id="asset-remove"
+                data-kind="{{ row.kind.value }}" data-ref="{{ row.ref }}">Remove</button>
+      {% endif %}
+    </div>
+    <div id="asset-result" aria-live="polite"></div>
+  {% endif %}
+
+  {% if detail.drawing %}
+    <div class="sheet">
+      <figure class="sheet__cell">
+        <figcaption>{{ label }}</figcaption>
+        <div class="sheet__drawing">{{ detail.drawing | safe }}</div>
+      </figure>
+    </div>
+  {% endif %}
+
+  {% if row.kind.value == "model" %}
+    <h2 class="section">Used by footprints</h2>
+    {% if row.used_by %}
+      <ul>
+        {% for ref in row.used_by %}
+          <li><a class="mono" href="{{ root_path }}/library/footprint/{{ ref | urlencode }}">{{ ref }}</a></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No footprint names it.</p>
+    {% endif %}
+  {% else %}
+    <h2 class="section">Used by parts</h2>
+    {% if row.used_by %}
+      <ul>
+        {% for ipn in row.used_by %}
+          <li><a class="mono" href="{{ root_path }}/ipn/{{ ipn | urlencode }}">{{ ipn }}</a></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No part is drawn with it.</p>
+    {% endif %}
+  {% endif %}
+
+  {% if detail.derived %}
+    <h2 class="section">Symbols derived from it</h2>
+    <ul>
+      {% for ref in detail.derived %}
+        <li><a class="mono" href="{{ root_path }}/library/symbol/{{ ref | urlencode }}">{{ ref }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if row.kind.value == "footprint" %}
+    <h2 class="section">3D model</h2>
+    {% if detail.models %}
+      <ul>
+        {% for reference, present in detail.models %}
+          <li>
+            <span class="mono">{{ reference }}</span>
+            {% if not present %}<span class="tag tag--warn">not in the library</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">It names none.</p>
+    {% endif %}
+  {% endif %}
+
+  {% if may_replace and not may_remove %}
+    <p class="hint">
+      Something uses it, so it cannot be removed. Replacing it changes everything
+      drawn with it, the next time that is placed.
+    </p>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if may_remove %}
+    <script type="module" src="{{ root_path }}/static/js/library-asset.js"></script>
+  {% endif %}
+{% endblock %}

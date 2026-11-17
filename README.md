@@ -15,6 +15,7 @@ where it is used.
 - [The library](#the-library)
 - [Finding a part](#finding-a-part)
 - [Requesting and approving parts](#requesting-and-approving-parts)
+- [Symbols, footprints and 3D models](#symbols-footprints-and-3d-models)
 - [BOMs and where used](#boms-and-where-used)
 - [Suppliers](#suppliers)
 - [Configuration](#configuration)
@@ -414,6 +415,29 @@ the library, and the pages do not offer to change it. Parts are written to the
 source the parts are read from. Files this app writes are laid out its own
 way; a comment in a hand-written part file does not survive an edit made here.
 
+**Is it there already?** With no ERP behind it, this library is the part
+master, and the usual way a part master decays is the same part under two
+numbers. So while a part is being filled in, the form holds it up against the
+library and lists what looks like it, with why:
+
+- **It lists the same manufacturer part** -- in any category. The manufacturer
+  part's row says at once which parts already list it.
+- **It is in the same category, with the same footprint, and every field both
+  carry says the same.** Values are compared as what they stand for: `4k7` is
+  `4.7k`, `100mW` is `0.1W`. A field only one of them carries is not held
+  against them, so a part asked for with less said about it is still found.
+- **It is described the same way.**
+
+Nothing is refused: a part that looks like another may differ in what nobody
+wrote down. The parts listed open in a new tab, so the form is not lost.
+
+The library is checked against itself the same way, more strictly, and what
+it finds is on the issues page as `duplicate-part`: two parts in one category
+with the same footprint and the same fields, all of them, or that prefer the
+same manufacturer part. It is said of the later number, the one that should
+not have been given. A retired part is left out: a replacement looking like
+what it replaced is the point of it.
+
 ### Links to other sites
 
 A datasheet, or a commit on the git host, is a link to another site. In a
@@ -437,8 +461,9 @@ in the system browser. That is worth asking its developers for.
 ### What the panel shows
 
 Inside KiCad's panel only the catalog and the parts are shown. Managing the
-library -- BOMs, products, templates, requesting or approving a part, the
-issues, a part's history -- is done in a browser, and what leads to it is not
+library -- BOMs, products, templates, uploading symbols and footprints,
+requesting or approving a part, the issues, a part's history -- is done in a
+browser, and what leads to it is not
 offered in the panel, which has no way back from such a page. A part's *where
 used* is shown there, since it matters when choosing a part, but its projects
 are named, not linked, as a BOM is a page for a browser.
@@ -492,6 +517,76 @@ filter sends everything, which is slower but works.
 A clone made before this existed has no history, and shows no history rather
 than claiming every part was created at once. It is replaced, in full, the next
 time the library is refreshed: expect one fresh clone after upgrading.
+
+## Symbols, footprints and 3D models
+
+A part names a symbol and a footprint. If the library did not have them, a
+part that needed a new package could not be asked for here, and was asked for
+somewhere else. So they can be uploaded too, the way they usually arrive -- a
+vendor's download, or what someone drew in KiCad's editors -- and the library
+can be looked through and kept from a browser.
+
+**Looking.** `/library` lists the symbols, footprints and 3D models of every
+source, with what uses each: parts for a symbol or footprint, footprints for a
+model. Each opens a page with its drawing, its file, and what uses it.
+
+**Uploading.** At `/library/upload`: a library's name, and the files -- a
+`.kicad_sym`, a `.kicad_mod`, a `.step` or `.wrl`, several at once. As soon as
+they are chosen they are read and shown, drawn, with where each would go and
+what is wrong, and nothing is changed until *Add to the library*. That is one
+commit, in the name of whoever added them, with an optional note. The part
+form links here, and reads its lists again when it is come back to, so a
+symbol uploaded in another tab can be chosen at once. After an upload the page
+offers to request a part with what was just added.
+
+Each file goes where the library keeps that kind of thing, under the name
+given, laid out as the repository already is (`symbols/`, `footprints/` and
+`3dmodels/`, or at the top as KiCad's own repositories are):
+
+```
+symbols/Regulators.kicad_symdir/TPS62840.kicad_sym
+footprints/Regulators.pretty/SON-6_1.5x1.5mm.kicad_mod
+3dmodels/Regulators.3dshapes/SON-6.step
+```
+
+What is written is what was uploaded, changed only where it has to be:
+
+- **A symbol file is split**, one symbol to a file, as the library keeps them.
+  Each keeps the version line of the file it came from, so KiCad reads it by
+  the same rules. A symbol that derives from another needs that one uploaded
+  with it or in the library already.
+- **A footprint is pointed at its 3D model.** A vendor's footprint names its
+  model wherever the vendor kept it (`${KIPRJMOD}/vendor/SON-6.step`). If a
+  model of that file name is uploaded with it, the footprint is made to name it
+  where it now is, through the variable the library's other footprints use
+  (`${KICAD10_3DMODEL_DIR}` if they use none). A footprint that names no model,
+  uploaded with exactly one, is given it at its origin, and the page says to
+  check in KiCad's footprint editor that it sits right. A model the footprint
+  names that is neither uploaded nor in the library is said, not refused: the
+  part places without one.
+- **What the library has exactly as uploaded is left alone**, and said: a
+  vendor's download often repeats a footprint the library took last time.
+
+Refused, with the reason: a library name that is not letters, digits and
+`_ . + -`; a KiCad 5 file (`.lib`, or a footprint starting `(module`), which
+KiCad's editors convert by opening and saving it; an archive, which is to be
+unpacked first; a name that cannot be a file's; a symbol, footprint or model
+another source already has under that name, since the first source configured
+would be used and the upload would be hidden. Symbol and footprint files may be
+up to 2 MB, models 20 MB, and 20 files at once.
+
+**Who may.** Anyone signed in may add what the library does not have: a part
+cannot be requested without its symbol, and waiting on a librarian for one
+would send the request elsewhere. *Replacing* what is there is a librarian's,
+since it changes every part drawn with it; the page names those parts before
+asking. *Removing* one is a librarian's too, and only once nothing uses it --
+no part, no symbol deriving from it, no footprint naming the model.
+
+Uploads go to the source the parts are read from. A repository whose
+`.gitattributes` sends 3D models to Git LFS has its models refused, with the
+reason: the app does not write LFS, and a model committed as an ordinary file
+would sit where every clone expects a pointer. Such a model is added with git,
+and its footprint can then be uploaded alone.
 
 ## BOMs and where used
 
@@ -1005,6 +1100,12 @@ unhandled error is logged in full and answered with nothing but that id.
 | `POST /api/v1/parts/{ipn}/status` | Approve, retire or return to draft; librarians | |
 | `/api/v1/library/choices` | The categories, symbols, footprints and manufacturer parts a form offers | |
 | `/parts/new`, `/ipn/{ipn}/edit` | The forms for the above | |
+| `POST /api/v1/parts/alike` | `{ipn, category, description, footprint, fields, mpns}`: the parts the library already has that look like this one, and why | |
+| `/api/v1/assets?kind=&q=&limit=` | The symbols, footprints or 3D models, each with what uses it | |
+| `POST /api/v1/assets/check` | `{library, files: [{name, content}]}`, content as base64: what the files would add and replace, drawn, and what stands in the way; changes nothing | |
+| `POST /api/v1/assets` | The same, with `replace` and `note`: add them, as one commit. Replacing is for librarians | |
+| `DELETE /api/v1/assets/{kind}/{ref}` | Remove a symbol, footprint or 3D model that nothing uses; librarians | |
+| `/library`, `/library/{kind}/{ref}`, `/library/upload` | The library's drawings, one of them, and uploading | |
 | `PUT`, `DELETE /api/v1/templates/{category}` | Create or replace a category's template, or remove it; librarians | |
 | `/templates`, `/templates/{category}/edit` | Listing and editing templates; librarians | |
 | `/api/v1/manufacturers` | `GET` the manufacturers and the names not on the list; `PUT {was, name, aliases, note}` adds one or changes the one called `was`, `DELETE {name, note}` removes one (librarians) | |

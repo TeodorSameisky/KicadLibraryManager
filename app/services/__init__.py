@@ -16,6 +16,7 @@ same call and be held to the same rules.
     changes    what every change to the library's repository has in common
     search     finding parts: by words, and by what they say about themselves
     parts      requesting a part, correcting it, approving and retiring it
+    assets     adding symbols, footprints and 3D models, and taking them out
     templates  changing what a category asks of its parts
     manufacturers  keeping the list of who makes what, under one name each
     boms       keeping BOMs, and setting them against the products

@@ -6,7 +6,7 @@
  * to the same endpoint a script would use, and whatever the server finds
  * wrong is shown as it says it, next to the button.
  */
-import { api, el, button, base } from "./app.js";
+import { api, el, link, button, base } from "./app.js";
 
 function start() {
   function notice(target, kind, lines, actions = []) {
@@ -81,6 +81,7 @@ function start() {
     note: document.getElementById("part-note"),
     submit: document.getElementById("part-submit"),
     result: document.getElementById("part-result"),
+    alike: document.getElementById("part-alike"),
   };
   let known = new Map(); // manufacturer parts the library already has, by number
   let templates = {}; // by category code: the fields a part there carries
@@ -204,8 +205,12 @@ function start() {
     function describe() {
       const existing = known.get(mpn.value.trim());
       details.hidden = Boolean(existing) || !mpn.value.trim();
+      // Which parts already list it: the first sign that the part being
+      // asked for may be one the library has.
+      const others = existing ? existing.used_by.filter((ipn) => ipn !== initial.ipn) : [];
+      const users = others.length ? ` · already on ${others.join(", ")}` : "";
       about.textContent = existing
-        ? `${existing.manufacturer || "in the library"} · ${existing.lifecycle}`
+        ? `${existing.manufacturer || "in the library"} · ${existing.lifecycle}${users}`
         : mpn.value.trim() ? "new to the library" : "";
     }
     mpn.addEventListener("input", describe);
@@ -228,7 +233,9 @@ function start() {
     document.getElementById(list).replaceChildren(...values.map((value) => new Option(value)));
   }
 
-  async function loadChoices() {
+  /* The lists the form offers. Read again when the page is come back to,
+     since what was missing may have been uploaded meanwhile in another tab. */
+  async function loadLists() {
     const offered = await api("/api/v1/library/choices");
     fill("symbols", offered.symbols);
     fill("footprints", offered.footprints);
@@ -236,6 +243,11 @@ function start() {
     fill("manufacturers", offered.manufacturers);
     known = new Map(offered.mpns.map((mpn) => [mpn.mpn, mpn]));
     templates = offered.templates || {};
+    return offered;
+  }
+
+  async function loadChoices() {
+    const offered = await loadLists();
 
     if (dom.category) {
       dom.category.append(new Option("Choose a category", ""));
@@ -247,6 +259,76 @@ function start() {
     }
     layOutFields(readFields());
     for (const row of dom.sources.children) row.describe();
+  }
+
+  // ----------------------------------------------- parts like this one
+
+  /* Held up against the library as it is filled in, so that a part the
+     library already has is found before it is asked for again. Nothing is
+     refused: whether it is the same part is the person's to say. */
+  let alikeTimer = null;
+  let alikeAsked = 0;
+
+  function showAlike(found) {
+    if (!found.length) return dom.alike.replaceChildren();
+    const box = el("div", "notice");
+    box.append(
+      el("p", "notice__title", found.length === 1
+        ? "The library may already have this part"
+        : `The library may already have this part: ${found.length} look like it`),
+      el("p", null, "Look at these before asking for another number. They open in a new tab."),
+    );
+    const table = el("table", "table");
+    const head = el("tr");
+    for (const name of ["Part", "Description", "Status", "Why"]) {
+      const th = el("th", null, name);
+      th.scope = "col";
+      head.append(th);
+    }
+    table.append(el("thead"), el("tbody"));
+    table.tHead.append(head);
+    for (const part of found) {
+      const row = el("tr");
+      const number = link(`/ipn/${encodeURIComponent(part.ipn)}`, "mono", part.ipn);
+      number.target = "_blank";
+      number.rel = "noopener";
+      const cell = el("td");
+      cell.append(number);
+      row.append(cell, el("td", null, part.description), el("td", null, part.status),
+        el("td", null, part.reasons.join("; ")));
+      table.tBodies[0].append(row);
+    }
+    const scroll = el("div", "table-scroll");
+    scroll.append(table);
+    box.append(scroll);
+    dom.alike.replaceChildren(box);
+  }
+
+  async function checkAlike() {
+    const asked = ++alikeAsked;
+    const now = read();
+    try {
+      const answer = await api("/api/v1/parts/alike", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ipn: initial.ipn || "",
+          category: dom.category ? now.category : initial.category || "",
+          description: now.description,
+          footprint: now.footprint,
+          fields: now.fields,
+          mpns: now.sources.map((source) => source.mpn),
+        }),
+      });
+      if (asked === alikeAsked) showAlike(answer.parts);
+    } catch {
+      // A hint that could not be had is not worth an error beside the form.
+    }
+  }
+
+  function checkAlikeSoon() {
+    clearTimeout(alikeTimer);
+    alikeTimer = setTimeout(checkAlike, 400);
   }
 
   function read() {
@@ -282,9 +364,12 @@ function start() {
     }
   }
 
+  // A symbol and footprint may be given in the address: the upload page
+  // leads here with what was just added.
+  const asked = new URLSearchParams(window.location.search);
   dom.description.value = initial.description || "";
-  dom.symbol.value = initial.symbol || "";
-  dom.footprint.value = initial.footprint || "";
+  dom.symbol.value = initial.symbol || asked.get("symbol") || "";
+  dom.footprint.value = initial.footprint || asked.get("footprint") || "";
   layOutFields(initial.fields || {});
   for (const source of initial.sources || []) addSource(source);
   if (!dom.sources.children.length) addSource();
@@ -300,7 +385,23 @@ function start() {
     save();
   });
 
-  loadChoices().catch((error) => notice(dom.result, "bad", error.message));
+  form.addEventListener("input", checkAlikeSoon);
+  form.addEventListener("change", checkAlikeSoon);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      loadLists()
+        .then(() => {
+          for (const row of dom.sources.children) row.describe();
+        })
+        .catch(() => {});
+    }
+  });
+
+  loadChoices()
+    .then(() => {
+      if (initial.ipn) checkAlike();
+    })
+    .catch((error) => notice(dom.result, "bad", error.message));
 }
 
 start();

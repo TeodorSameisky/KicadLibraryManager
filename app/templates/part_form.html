@@ -61,6 +61,11 @@
           <datalist id="footprints"></datalist>
         </div>
       </div>
+      <p class="hint">
+        A symbol or footprint the library does not have yet can be
+        <a href="{{ root_path }}/library/upload" target="_blank" rel="noopener">uploaded</a>
+        first. The lists here are read again when you come back to this page.
+      </p>
 
       <fieldset class="group">
         <legend>Fields</legend>
@@ -83,6 +88,10 @@
         <datalist id="manufacturers"></datalist>
         <button type="button" class="button" id="add-source">Add a manufacturer part</button>
       </fieldset>
+
+      {# Parts the library already has that look like this one, as it is
+         filled in: see part-form.js. #}
+      <div id="part-alike" aria-live="polite"></div>
 
       <div class="form">
         <div class="field field--wide">

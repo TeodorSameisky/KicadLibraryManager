@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.domain import rules
+from app.domain import duplicates, rules
 from app.domain.manufacturers import Manufacturer, Manufacturers, name_key, spelling_groups
 from app.domain.parts import IPN_PATTERN, Category, Lifecycle, Mpn, MpnRef, Part, PartStatus
 from app.domain.rules import Finding, Rule
@@ -517,6 +517,17 @@ class _Loader:
                             part.path,
                         )
                     )
+
+        # The same part under two numbers: the way a part master decays. Said
+        # of the later number, which is the one that should not have been made.
+        for found in duplicates.duplicates(self.index.parts.values()):
+            self.report(
+                Issue.warning(
+                    "duplicate-part",
+                    f"{found.part.ipn} looks the same as {found.earlier.ipn}: {found.reason}",
+                    found.part.path,
+                )
+            )
 
 
 def load_parts(root: Path) -> PartsIndex:
