@@ -523,6 +523,51 @@ part can be changed or retired.
 One BOM is kept per project and revision. Uploading the same revision again
 replaces it, after asking.
 
+### What a BOM costs
+
+A stored BOM's *Cost* page works out what building a number of boards costs,
+from what the [suppliers](#suppliers) say. Type how many boards; each fitted
+line is then bought where it costs least for the quantity needed:
+
+- **What is bought is what is needed, or the fewest that can be.** Ten boards
+  of a part used twice is twenty. A supplier that sells no fewer than ten, or
+  whose first price break is ten, sells ten for a single board, and the page
+  says how many more than needed that is. The price is the one for the
+  quantity bought, so a larger build reaches the cheaper breaks.
+- **Every approved source is weighed**, the preferred one and its alternates
+  alike: the library has said any of them will do. Between two that cost the
+  same, the preferred one.
+- **From stock where possible.** A supplier with enough in stock is chosen
+  before one that does not say, and that before one that has too few, however
+  cheap: a price for what cannot be delivered is not a price.
+- **In one currency.** The costing is totalled in the currency most prices are
+  in, and a line is bought in it where it can be. A line that can only be
+  bought in another currency is priced in that one and totalled apart: no rate
+  is guessed at.
+
+The page shows the total, the cost of one board, and how many lines have a
+price; a line that has none says why -- not fitted, not a library part, no
+manufacturer part, not asked yet, no supplier lists it. The costing downloads
+as a spreadsheet, line by line, with the supplier, its order code, the quantity
+to buy, the unit price and the line's cost.
+
+**Working it out asks nobody.** It goes by what the suppliers have already
+said, as it is kept, so the page can be opened and the number of boards
+changed as often as anyone likes. What has not been asked yet is said, and
+*Ask the suppliers* asks about it: a few seconds at a time, the preferred
+sources first, the page filling in after each round. A BOM of a few hundred
+manufacturer parts is more calls than a supplier allows in a minute; asking
+stops when a round gets no further, says so, and asking again later asks only
+what is still missing. Each answer is kept like any other: once asked, a part
+costs nothing to price again until its answer stops holding
+(`SUPPLIER_CACHE_HOURS`). An answer that no longer holds is used, and the line
+says which day its price is from.
+
+What is not in it: shipping, duty, tax, and the price breaks of packagings
+other than the one with the smallest order (a full reel is often cheaper per
+piece at large quantities). Order multiples -- some parts are sold in tens --
+are not known for every supplier and are not applied.
+
 ### Products
 
 A company makes families of products, and each family is several devices: an
@@ -969,6 +1014,9 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/api/v1/boms` | `GET` the stored BOMs; `POST` one as JSON `{project, revision, note, filename, content, device, replace}` | |
 | `/api/v1/boms/{id}` | `GET` a BOM against the library; `DELETE` it (librarians) | |
 | `/api/v1/boms/{id}/export.csv`, `/source.csv` | The BOM with library columns added; the file as uploaded | |
+| `/api/v1/boms/{id}/cost?boards=` | What building that many boards costs, from what suppliers have said; asks nobody | |
+| `POST /api/v1/boms/{id}/cost/ask?boards=` | Asks the suppliers about the BOM's parts not known yet, for a few seconds, and answers with the costing; repeat while `unasked` goes down | |
+| `/api/v1/boms/{id}/cost.csv?boards=` | The costing, line by line | |
 | `PUT /api/v1/boms/{id}/device` | Say which device a stored BOM is the BOM of: `{device: "akd/mv-3"}`, or `""` for none | |
 | `/api/v1/products` | The product tree, each device with its BOMs, and those on none | |
 | `/api/v1/parts/{ipn}/where-used` | The stored BOMs a part is on | |
@@ -976,6 +1024,7 @@ unhandled error is logged in full and answered with nothing but that id.
 | `/ipn/{ipn}` | The part's page; where `Datasheet` points | |
 | `/ipn/{ipn}/history`, `/api/v1/parts/{ipn}/history` | What was changed in the part, by whom, and when | |
 | `/boms`, `/boms/{id}` | Uploading BOMs; one BOM against the library | |
+| `/boms/{id}/cost?boards=` | What a BOM costs to build, and asking the suppliers for what is missing | |
 | `/products` | Families, devices, their repositories and BOMs; searchable | |
 | `/issues` | The issue list | |
 | `/docs` | Interactive API reference: every JSON answer, field by field | ✓ |

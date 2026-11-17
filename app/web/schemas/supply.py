@@ -21,7 +21,9 @@ class AnswerOut(BaseModel):
     supplier: str  # its id: "digikey"
     name: str  # what it is called
     # "found", "not-found" (asked, and it does not list the part),
-    # "over-limit" (not asked: today's calls are used up) or "failed".
+    # "over-limit" (not asked: the calls it allows are used up for now),
+    # "failed", or -- where what is kept is looked at without asking --
+    # "not-asked".
     state: str
     asked_at: float | None  # when what is shown was asked; epoch seconds
     # Whether it is an answer that no longer holds, shown because a new one

@@ -52,6 +52,23 @@ templates.env.filters["moment"] = lambda stamp: time.strftime(
 templates.env.filters["references"] = compact_references
 
 
+def money(amount: float, currency: str = "", exact: bool = False) -> str:
+    """A price, with its currency after it: "1,234.50 EUR".
+
+    To the cent; or, for what one piece costs, to as many as four places --
+    a resistor costs a fraction of a cent, and 0.00 says nothing.
+    """
+    if exact:
+        whole, _, places = f"{amount:,.4f}".partition(".")
+        text = f"{whole}.{places.rstrip('0').ljust(2, '0')}"
+    else:
+        text = f"{amount:,.2f}"
+    return f"{text} {currency}".strip()
+
+
+templates.env.filters["money"] = money
+
+
 def render(request: Request, template: str, *, status_code: int = 200, **context: Any) -> Response:
     """Render a template with what every page needs.
 

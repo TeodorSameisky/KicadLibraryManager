@@ -17,4 +17,5 @@ repository on disk.
     rules      what is asked of a part, said once for the library and the forms
     policy     who may change what
     supply     what a supplier says about a manufacturer part, in one shape
+    costing    what buying a BOM line from a supplier comes to, and which to choose
 """

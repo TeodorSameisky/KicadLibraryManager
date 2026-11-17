@@ -22,7 +22,7 @@ BAD = "bad"
 WARN = "warn"
 
 
-def _cell(value: object) -> object:
+def safe_cell(value: object) -> object:
     """Keep a spreadsheet from treating text as a formula.
 
     The export is opened in Excel, which runs a cell that starts like a
@@ -119,7 +119,7 @@ class BomReport:
         for item, row in enumerate(self.lines, start=1):
             line, part, source = row.line, row.part, row.source
             writer.writerow(
-                _cell(value)
+                safe_cell(value)
                 for value in [
                     item,
                     ", ".join(line.references),

@@ -17,6 +17,7 @@ NOT_JSON = {
     ("GET", "/api/v1/parts/{ipn}/model.step"),
     ("GET", "/api/v1/boms/{bom_id}/export.csv"),
     ("GET", "/api/v1/boms/{bom_id}/source.csv"),
+    ("GET", "/api/v1/boms/{bom_id}/cost.csv"),
     ("GET", "/api/v1/backup"),
     ("DELETE", "/api/v1/boms/{bom_id}"),  # 204
     ("POST", "/api/v1/session/logout"),  # 204

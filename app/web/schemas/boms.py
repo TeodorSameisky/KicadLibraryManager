@@ -9,6 +9,7 @@ from app.boms.store import Bom, Usage
 from app.boms.tree import ProductTree
 from app.domain.parts import Part
 from app.services.boms import BomUpload
+from app.services.costing import Costing, LineCost
 
 # A BOM of ten thousand lines is under a megabyte.
 MAX_BOM_CHARACTERS = 4 * 1024 * 1024
@@ -271,4 +272,130 @@ class ProductTreeOut(BaseModel):
                 for node in tree.families
             ],
             unassigned=[BomSummary.of(bom) for bom in tree.unassigned],
+        )
+
+
+# -- what a BOM costs -------------------------------------------------------------
+
+
+class PurchaseOut(BaseModel):
+    """Where a line is bought, and what it comes to."""
+
+    supplier: str  # its id: "digikey"
+    name: str  # what it is called
+    sku: str  # the supplier's own number for the part
+    mpn: str  # the manufacturer part bought, as the library has it
+    manufacturer: str  # as the supplier calls it
+    preferred: bool  # whether it is the part's preferred source
+    quantity: int  # how many are bought: what is needed, or the smallest order
+    surplus: int  # how many of those are more than needed
+    unit_price: float  # each, at that quantity
+    cost: float  # for the line
+    currency: str
+    stock: int | None  # what the supplier has; None if it does not say
+    # "enough", "short", or "unknown" where it does not say.
+    in_stock: str
+    lead_weeks: int | None
+    status: str  # in the supplier's words
+    url: str | None  # the part's page at the supplier
+    asked_at: float | None  # when the supplier said so; epoch seconds
+    old: bool  # whether that answer no longer holds, and is shown for want of one
+
+
+class CostLine(BaseModel):
+    item: int
+    references: list[str]
+    quantity: int  # on one board
+    needed: int  # for all the boards; 0 where it is not fitted
+    dnp: bool
+    ipn: str | None
+    description: str
+    bought: PurchaseOut | None
+    # Why it has no price: "not fitted", "not in the library", "not asked
+    # yet", "no supplier lists it", and so on. Empty where it has one.
+    note: str
+    # Whether the supplier it is bought from has the part as worse than the
+    # library does: obsolete, or not for new designs.
+    warns: bool
+
+    @classmethod
+    def of(cls, row: LineCost, costing: Costing) -> CostLine:
+        bought = row.bought
+        return cls(
+            item=row.item,
+            references=list(row.line.references),
+            quantity=row.line.quantity,
+            needed=row.needed,
+            dnp=row.line.dnp,
+            ipn=row.line.ipn,
+            description=row.part.description if row.part else "",
+            bought=None
+            if bought is None
+            else PurchaseOut(
+                supplier=bought.offer.supplier,
+                name=costing.name_of(bought.offer.supplier),
+                sku=bought.offer.sku,
+                mpn=bought.mpn,
+                manufacturer=bought.offer.manufacturer,
+                preferred=bought.preferred,
+                quantity=bought.quantity,
+                surplus=bought.surplus,
+                unit_price=bought.unit_price,
+                cost=bought.cost,
+                currency=bought.currency,
+                stock=bought.offer.stock,
+                in_stock=bought.stock,
+                lead_weeks=bought.offer.lead_weeks,
+                status=bought.offer.status,
+                url=bought.offer.url,
+                asked_at=bought.asked_at,
+                old=bought.old,
+            ),
+            note=row.note,
+            warns=row.warns,
+        )
+
+
+class CostTotal(BaseModel):
+    currency: str
+    total: float  # for all the boards
+    per_board: float
+
+
+class BomCost(BaseModel):
+    """What building a number of boards from a BOM costs, from what the
+    suppliers have said."""
+
+    id: int
+    boards: int
+    # What the costing is totalled in: the currency most prices are in.
+    currency: str
+    # One for each currency there are prices in, that one first. Prices in
+    # two currencies are two totals: no rate is guessed at.
+    totals: list[CostTotal]
+    fitted: int  # lines that are fitted
+    priced: int  # of those, the ones with a price
+    # How many answers the BOM's manufacturer parts need -- one from each
+    # supplier for each -- and how many of those are not here yet, or old.
+    questions: int
+    unasked: int
+    suppliers: bool  # whether there is any supplier to ask
+    lines: list[CostLine]
+
+    @classmethod
+    def of(cls, costing: Costing) -> BomCost:
+        return cls(
+            id=costing.bom.id,
+            boards=costing.boards,
+            currency=costing.currency,
+            totals=[
+                CostTotal(currency=currency, total=total, per_board=total / costing.boards)
+                for currency, total in costing.totals
+            ],
+            fitted=len(costing.fitted),
+            priced=costing.priced,
+            questions=costing.questions,
+            unasked=costing.unasked,
+            suppliers=costing.suppliers,
+            lines=[CostLine.of(row, costing) for row in costing.lines],
         )

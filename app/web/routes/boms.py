@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from app.boms.report import BomReport, build_report
@@ -22,10 +22,20 @@ from app.domain.parts import Part
 from app.domain.policy import Actor
 from app.library.snapshot import Snapshot
 from app.services import boms as service
-from app.web.deps import get_actor, get_boms, get_snapshot, require_access, require_part
+from app.services import costing
+from app.services.supply import Supply
+from app.web.deps import (
+    get_actor,
+    get_boms,
+    get_snapshot,
+    get_supply,
+    require_access,
+    require_part,
+)
 from app.web.schemas.boms import (
     BomAttached,
     BomConflict,
+    BomCost,
     BomDetail,
     BomList,
     BomSummary,
@@ -126,6 +136,50 @@ def bom_source(bom: Bom = Depends(_require_bom), boms: BomStore = Depends(get_bo
     return _csv(boms.source(bom.id) or "", _attachment_name(bom, "-as-uploaded.csv"))
 
 
+# -- what it costs: worked out from what is kept, asked for on request
+
+_BOARDS = Query(1, ge=1, le=costing.MAX_BOARDS, description="How many boards are built")
+
+
+@api.get("/boms/{bom_id}/cost")
+def bom_cost(
+    boards: int = _BOARDS,
+    bom: Bom = Depends(_require_bom),
+    snapshot: Snapshot = Depends(get_snapshot),
+    supply: Supply = Depends(get_supply),
+) -> BomCost:
+    """What building `boards` boards costs, from what the suppliers have
+    already said. Asks none of them: `unasked` says how much is not known."""
+    return BomCost.of(costing.cost_bom(bom, snapshot, supply, boards))
+
+
+@api.post("/boms/{bom_id}/cost/ask")
+def ask_bom_cost(
+    boards: int = _BOARDS,
+    bom: Bom = Depends(_require_bom),
+    snapshot: Snapshot = Depends(get_snapshot),
+    supply: Supply = Depends(get_supply),
+) -> BomCost:
+    """Ask the suppliers about the BOM's manufacturer parts that nothing is
+    known of, for a few seconds, and say what the cost now comes to. Asked
+    again while `unasked` goes down, it gets through a BOM of any size
+    without asking a supplier more often than it allows."""
+    costing.ask_for_bom(bom, snapshot, supply)
+    return BomCost.of(costing.cost_bom(bom, snapshot, supply, boards))
+
+
+@api.get("/boms/{bom_id}/cost.csv")
+def export_bom_cost(
+    boards: int = _BOARDS,
+    bom: Bom = Depends(_require_bom),
+    snapshot: Snapshot = Depends(get_snapshot),
+    supply: Supply = Depends(get_supply),
+) -> Response:
+    """The costing, line by line: where each is bought and what it comes to."""
+    worked_out = costing.cost_bom(bom, snapshot, supply, boards)
+    return _csv(worked_out.csv(), _attachment_name(bom, f"-cost-{worked_out.boards}.csv"))
+
+
 @api.delete("/boms/{bom_id}", status_code=204)
 def delete_bom(
     bom_id: int, boms: BomStore = Depends(get_boms), actor: Actor = Depends(get_actor)
@@ -172,6 +226,25 @@ def bom_page(
         products=products,
         device=products.device(report.bom.device),
         family=products.family(report.bom.device.partition("/")[0]),
+    )
+
+
+@pages.get("/boms/{bom_id}/cost")
+def bom_cost_page(
+    request: Request,
+    # Text and not a number: it comes from a form, and something typed that
+    # is not a number is one board, not an error page.
+    boards: str = Query("1", max_length=12),
+    bom: Bom = Depends(_require_bom),
+    snapshot: Snapshot = Depends(get_snapshot),
+    supply: Supply = Depends(get_supply),
+) -> Response:
+    return render(
+        request,
+        "bom_cost.html",
+        bom=bom,
+        costing=costing.cost_bom(bom, snapshot, supply, costing.boards_of([boards])),
+        max_boards=costing.MAX_BOARDS,
     )
 
 

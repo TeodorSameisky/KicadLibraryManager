@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Cost of {{ bom.label }} &middot; {{ provider_name }}{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/boms/{{ bom.id }}">&larr; {{ bom.label }}</a>
+
+  <header>
+    <div class="title">
+      <h1 class="title--plain">Cost of {{ bom.project }}</h1>
+      {% if bom.revision %}<span class="tag">revision {{ bom.revision }}</span>{% endif %}
+    </div>
+    <p class="byline">
+      Each line bought where it costs least for the quantity needed, from a
+      supplier with enough in stock where there is one. Suppliers' list prices,
+      without shipping, duty or tax.
+    </p>
+  </header>
+
+  <h2 class="section">How many to build</h2>
+  <form class="form" method="get" action="{{ root_path }}/boms/{{ bom.id }}/cost">
+    <div class="field field--short">
+      <label for="boards">Boards</label>
+      <input type="number" id="boards" name="boards" min="1" max="{{ max_boards }}" step="1"
+             value="{{ costing.boards }}" inputmode="numeric" />
+    </div>
+    <div class="field field--action">
+      <button type="submit" class="button">Work it out</button>
+    </div>
+  </form>
+
+  {% if not costing.suppliers %}
+    <div class="notice">
+      <p class="notice__title">No supplier is set up</p>
+      <p>
+        Prices come from the suppliers, and this deployment has the keys of none
+        of them. The <a href="{{ root_path }}/">status page</a> says which settings
+        each one needs.
+      </p>
+    </div>
+  {% else %}
+    {# Outside what is replaced as answers come in, so that it keeps its state
+       while the suppliers are being asked. #}
+    <div class="actions" id="cost-ask" data-bom-id="{{ bom.id }}" data-boards="{{ costing.boards }}"
+         data-unasked="{{ costing.unasked }}">
+      <button type="button" class="button" id="cost-ask-start" {{ "hidden" if not costing.unasked }}>Ask the suppliers</button>
+      <button type="button" class="button" id="cost-ask-stop" hidden>Stop asking</button>
+      <span class="muted" id="cost-ask-progress" aria-live="polite"></span>
+    </div>
+  {% endif %}
+
+  <div id="costing">
+    <div class="figures">
+      <div class="figure">
+        <span class="figure__value">{{ costing.total | money(costing.currency) if costing.currency else "—" }}</span>
+        <span class="figure__label">for {{ costing.boards }} board{{ "s" if costing.boards != 1 }}</span>
+      </div>
+      <div class="figure">
+        <span class="figure__value">{{ costing.per_board | money(costing.currency) if costing.currency else "—" }}</span>
+        <span class="figure__label">a board</span>
+      </div>
+      {# Coloured while something is missing: a total of part of a BOM is not its cost. #}
+      <div class="figure {{ 'is-warn' if not costing.complete }}">
+        <span class="figure__value">{{ costing.priced }} of {{ costing.fitted | length }}</span>
+        <span class="figure__label">lines priced</span>
+      </div>
+    </div>
+
+    {% if costing.totals | length > 1 %}
+      <p class="hint">
+        Some lines are priced in another currency, and are not in the total above:
+        {% for currency, total in costing.totals[1:] -%}
+          {{ total | money(currency) }}{{ ", " if not loop.last }}
+        {%- endfor %}. No rate is guessed at.
+      </p>
+    {% endif %}
+
+    {% if costing.suppliers and costing.questions %}
+      <p class="hint" id="cost-answers">
+        {{ costing.questions - costing.unasked }} of {{ costing.questions }} supplier answers are here.
+        {% if costing.unasked %}
+          The rest have not been asked for yet, or are from an earlier day. Asking
+          uses the suppliers' daily calls, so it is done when someone says to.
+        {% endif %}
+      </p>
+    {% endif %}
+
+    <div class="table-scroll">
+      <table class="table table--bom">
+        <thead>
+          <tr>
+            <th scope="col" class="num">#</th>
+            <th scope="col">References</th>
+            <th scope="col" class="num">Needed</th>
+            <th scope="col">Part</th>
+            <th scope="col">Bought from</th>
+            <th scope="col" class="num">Buy</th>
+            <th scope="col" class="num">Each</th>
+            <th scope="col" class="num">Cost</th>
+            <th scope="col">Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in costing.lines %}
+            {% set bought = row.bought %}
+            <tr class="{{ 'is-dnp' if not row.fitted }}">
+              <td class="num muted">{{ row.item }}</td>
+              <td class="refs">{{ row.line.references | references }}</td>
+              <td class="num">
+                {% if row.fitted %}
+                  {{ "{:,}".format(row.needed) }}
+                  {% if costing.boards > 1 %}<span class="small muted block">{{ row.line.quantity }} a board</span>{% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if row.part %}
+                  <a class="mono" href="{{ root_path }}/ipn/{{ row.line.ipn | urlencode }}"><strong>{{ row.line.ipn }}</strong></a>
+                  <span class="small muted block">{{ row.part.description }}</span>
+                {% elif row.line.ipn %}
+                  <span class="mono">{{ row.line.ipn }}</span>
+                {% else %}
+                  <span class="muted">{{ row.line.value }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if bought %}
+                  {% set offer = bought.offer %}
+                  {% if offer.url %}
+                    <a href="{{ offer.url }}" target="_blank" rel="noopener noreferrer"
+                       data-external="The {{ costing.name_of(offer.supplier) }} page">{{ costing.name_of(offer.supplier) }}</a>
+                  {% else %}
+                    {{ costing.name_of(offer.supplier) }}
+                  {% endif %}
+                  {% if offer.sku %}<span class="small muted block mono">{{ offer.sku }}</span>{% endif %}
+                  <span class="small muted block"><span class="mono">{{ bought.mpn }}</span>{{ " · alternate" if not bought.preferred }}</span>
+                {% endif %}
+              </td>
+              <td class="num">{{ "{:,}".format(bought.quantity) if bought else "" }}</td>
+              <td class="num">{{ bought.unit_price | money(bought.currency, exact=True) if bought else "" }}</td>
+              <td class="num">{{ bought.cost | money(bought.currency) if bought else "" }}</td>
+              <td>
+                {% if not row.fitted %}
+                  <span class="tag">not fitted</span>
+                {% elif row.note %}
+                  <span class="tag {{ 'tag--warn' if row.note != 'not asked yet' }}">{{ row.note }}</span>
+                {% endif %}
+                {% if bought %}
+                  {% if bought.stock == "short" %}
+                    <span class="tag tag--warn">{{ "{:,}".format(bought.offer.stock) }} in stock</span>
+                  {% endif %}
+                  {% if row.warns %}
+                    <span class="tag tag--warn">{{ bought.offer.status or bought.offer.lifecycle }}</span>
+                  {% endif %}
+                  {% if bought.old %}
+                    <span class="tag">price of {{ bought.asked_at | day }}</span>
+                  {% endif %}
+                  {% if bought.surplus %}
+                    <span class="small muted block">{{ "{:,}".format(bought.surplus) }} more than needed: the smallest order</span>
+                  {% endif %}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="actions">
+    <a class="button" href="{{ root_path }}/api/v1/boms/{{ bom.id }}/cost.csv?boards={{ costing.boards }}">Download the costing</a>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  {% if costing.suppliers %}
+    <script type="module" src="{{ root_path }}/static/js/bom-cost.js"></script>
+  {% endif %}
+{% endblock %}

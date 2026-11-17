@@ -219,7 +219,8 @@ a.masthead__status { text-decoration: underline; }
 
 .field label { display: block; margin-bottom: 0.2rem; color: var(--ink-2); font-size: var(--size-s); }
 
-.field input[type="text"] {
+.field input[type="text"],
+.field input[type="number"] {
   width: 100%;
   height: 2rem;
   padding: 0 0.625rem;
@@ -230,7 +231,8 @@ a.masthead__status { text-decoration: underline; }
   font: inherit;
 }
 
-.field input[type="text"]:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.field input[type="text"]:focus,
+.field input[type="number"]:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .field input::placeholder { color: var(--ink-3); }
 
 /* A note: several lines, so it grows downwards and no other way. */
@@ -564,6 +566,10 @@ a.masthead__status { text-decoration: underline; }
 .icon { display: block; flex: none; }
 
 .table--bom { margin-top: 1.25rem; }
+/* A line that is not fitted costs nothing, and is there to be accounted for. */
+.table--bom tr.is-dnp td { color: var(--ink-3); }
+/* A price and its currency are read as one. */
+.table--bom td.num { white-space: nowrap; }
 .table--bom td:nth-child(5) { min-width: 12rem; }
 
 /* -- a list of names and their values */

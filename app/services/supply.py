@@ -65,6 +65,7 @@ class State(StrEnum):
     NOT_FOUND = "not-found"  # it was asked, and does not list it
     OVER_LIMIT = "over-limit"  # not asked: the calls it allows are used up, for now
     FAILED = "failed"  # asked, and it did not answer
+    NOT_ASKED = "not-asked"  # nothing is kept, and it was not asked: see `Supply.kept`
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,28 @@ class Supply:
             for supplier in self._suppliers
             if supplier.configured
         )
+
+    def kept(self, query: Query, manufacturers: Manufacturers) -> tuple[Answer, ...]:
+        """What each supplier that can be asked has said about a manufacturer
+        part, without asking any of them.
+
+        What is kept, read: an answer that no longer holds is given, and said
+        to be old. Where nothing is kept the state is NOT_ASKED. Costs no call,
+        so it is what a page that looks at many parts at once goes by, asking
+        only when someone says to.
+        """
+        now = self._clock()
+        found = []
+        for supplier in self._suppliers:
+            if not supplier.configured:
+                continue
+            held = self._store.get(supplier.id, supplier.asks(query))
+            found.append(
+                Answer(supplier.id, supplier.name, State.NOT_ASKED)
+                if held is None
+                else self._answer(supplier, held, query, manufacturers, stale=not held.holds(now))
+            )
+        return tuple(found)
 
     def _ask(self, supplier: Supplier, query: Query, manufacturers: Manufacturers) -> Answer:
         asked = supplier.asks(query)

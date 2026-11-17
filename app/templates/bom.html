@@ -51,6 +51,7 @@
   </div>
 
   <div class="actions" id="bom-actions" data-bom-id="{{ bom.id }}">
+    <a class="button" href="{{ root_path }}/boms/{{ bom.id }}/cost">Cost</a>
     <a class="button" href="{{ root_path }}/api/v1/boms/{{ bom.id }}/export.csv">Download with library data</a>
     <a class="button" href="{{ root_path }}/api/v1/boms/{{ bom.id }}/source.csv">Download as uploaded</a>
     {# Offered to librarians only; the route refuses anyone else regardless. #}
