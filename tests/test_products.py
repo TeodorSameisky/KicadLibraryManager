@@ -208,6 +208,7 @@ def test_a_bom_database_from_before_devices_gets_the_column_and_keeps_its_boms(t
         connection.execute("PRAGMA user_version = 0")
         connection.execute("DROP TABLE supplier_answers")
         connection.execute("DROP TABLE supplier_calls")
+        connection.execute("DROP TABLE tokens")
 
     reopened = BomStore(path)
 
