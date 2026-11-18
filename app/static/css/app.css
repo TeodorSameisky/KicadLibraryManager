@@ -111,6 +111,7 @@ kbd {
 
 .muted { color: var(--ink-2); }
 .small { font-size: var(--size-s); }
+.wrap-anywhere { overflow-wrap: anywhere; }
 .mono { font-family: var(--font-mono); font-size: var(--size-s); }
 .block { display: block; }
 

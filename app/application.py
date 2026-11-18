@@ -20,6 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import __version__
 from app.auth.oidc import OidcClient
 from app.auth.sessions import SessionStore
+from app.auth.tokens import TokenStore
 from app.boms.store import BomStore
 from app.config import Settings
 from app.db.backup import Backups, keep_backups
@@ -42,6 +43,7 @@ from app.web.routes import boms as bom_routes
 from app.web.routes import catalog, pages, provider, session, system, template_admin
 from app.web.routes import editing as editing_routes
 from app.web.routes import history as history_routes
+from app.web.routes import httplib as httplib_routes
 from app.web.routes import library as library_routes
 from app.web.routes import manufacturers as manufacturer_routes
 from app.web.routes import products as product_routes
@@ -163,6 +165,9 @@ def create_app(
         database=database,
     )
 
+    # Personal tokens, for KiCad's HTTP library. In the same file again.
+    app.state.tokens = TokenStore(database)
+
     # The last one added is the outermost, so the hardening headers also land
     # on the error response the request middleware writes for a crash.
     app.add_middleware(RequestContextMiddleware)
@@ -186,6 +191,7 @@ def create_app(
         template_admin,
         manufacturer_routes,
         asset_routes,
+        httplib_routes,
         history_routes,
         pages,
     ):

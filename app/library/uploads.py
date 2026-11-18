@@ -133,6 +133,9 @@ class Plan:
     # What was done to the files on the way, or is worth knowing: said, not
     # refused.
     notes: list[str] = field(default_factory=list)
+    # Library tables to write, from the top of the repository, with their new
+    # text: a library this upload begins is added to them.
+    tables: dict[str, str] = field(default_factory=dict)
 
     @property
     def replaces(self) -> bool:
@@ -370,7 +373,67 @@ def plan_upload(library: str, files: Sequence[UploadedFile], snapshot: Snapshot)
     plan.items = [item for item in items if not item.unchanged]
     if items and not plan.items and not problems:
         problems.append("Everything uploaded is in the library already, exactly as it is.")
+    if own is not None and not problems:
+        _add_to_tables(plan, own)
     return plan
+
+
+# The library tables a repository may carry, for whoever uses it checked out:
+# KiCad's HTTP library finds the drawings through them.
+_TABLES = {AssetKind.SYMBOL: "sym-lib-table", AssetKind.FOOTPRINT: "fp-lib-table"}
+
+
+def _value(entry: SExpr, key: str) -> str | None:
+    """`(name "Passives")` inside a library table's entry, as "Passives"."""
+    found = entry.child(key)
+    return found.arg(0) if found is not None else None
+
+
+def _add_to_tables(plan: Plan, own: AssetIndex) -> None:
+    """Add a library this upload begins to the repository's library tables.
+
+    Only to tables the repository has, and written the way its other entries
+    are: the address is theirs with the library's directory in place of
+    theirs, so `${KICAD_LIBRARY_DIR}/symbols/Passives.kicad_symdir` gives
+    `${KICAD_LIBRARY_DIR}/symbols/Regulators.kicad_symdir`. The file is
+    changed by adding a line, so the rest of it stays as it was written.
+    """
+    for kind, name in _TABLES.items():
+        if not any(item.kind is kind for item in plan.items):
+            continue
+        path = own.root / name
+        try:
+            text = path.read_text(encoding="utf-8")
+            tree = loads(text)
+        except (OSError, UnicodeDecodeError, ParseError):
+            continue
+        entries = [(_value(entry, "name"), _value(entry, "uri")) for entry in tree.children("lib")]
+        if any(library == plan.library for library, _ in entries):
+            continue
+
+        prefix = "${KICAD_LIBRARY_DIR}/" if not entries else None
+        for library, uri in entries:
+            if not library or not uri:
+                continue
+            theirs = own.relative(asset_directory(own.root, kind, library))
+            if uri.replace("\\", "/").endswith(theirs):
+                prefix = uri[: len(uri) - len(theirs)]
+                break
+        if prefix is None:
+            plan.notes.append(
+                f"{name} lists its libraries in a way this app does not follow; add "
+                f"{plan.library} to it by hand."
+            )
+            continue
+
+        directory = own.relative(asset_directory(own.root, kind, plan.library))
+        line = (
+            f'  (lib (name "{plan.library}")(type "KiCad")(uri "{prefix}{directory}")'
+            '(options "")(descr ""))'
+        )
+        closing = text.rstrip().rfind(")")
+        plan.tables[name] = f"{text[:closing].rstrip()}\n{line}\n{text[closing:]}"
+        plan.notes.append(f"{plan.library} is added to {name}.")
 
 
 def _symbol_items(read: Sequence[_Read], problems: list[str]) -> list[Item]:
@@ -642,6 +705,8 @@ def write_upload(root: Path, plan: Plan) -> str:
         target = root / item.path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(item.data)
+    for name, text in plan.tables.items():
+        (root / name).write_text(text, encoding="utf-8", newline="\n")
     return upload_subject(plan)
 
 

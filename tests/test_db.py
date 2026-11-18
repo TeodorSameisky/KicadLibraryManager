@@ -13,7 +13,7 @@ from app.db.migrations import MIGRATIONS, sql, version
 from tests.test_boms import KICAD_DEFAULT
 
 # Everything that is kept, each with a store of its own.
-TABLES = {"boms", "bom_lines", "sessions", "supplier_answers", "supplier_calls"}
+TABLES = {"boms", "bom_lines", "sessions", "supplier_answers", "supplier_calls", "tokens"}
 
 
 def tables(path) -> set[str]:

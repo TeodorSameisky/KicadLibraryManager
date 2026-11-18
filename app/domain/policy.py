@@ -63,3 +63,8 @@ def may_replace_assets(actor: Actor) -> bool:
     """A symbol or footprint that is replaced changes every part drawn with it;
     one that is removed is gone from every schematic still to be drawn."""
     return actor.librarian
+
+
+def may_revoke_any_token(actor: Actor) -> bool:
+    """Someone who leaves still has their tokens; a librarian can take them."""
+    return actor.librarian

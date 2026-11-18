@@ -269,6 +269,38 @@ def _check_symbols(index: AssetIndex) -> None:
             )
 
 
+def _check_tables(index: AssetIndex) -> None:
+    """A library missing from the library tables the repository carries.
+
+    Someone using the library checked out -- as KiCad's HTTP library needs --
+    has its libraries through those tables, and a part drawn from one they do
+    not list cannot be placed there. Only a repository that has a table is
+    asked: one without leaves it to whoever uses it.
+    """
+    for table, kind, libraries in (
+        ("sym-lib-table", "symbol", {library for library, _ in index.symbols}),
+        ("fp-lib-table", "footprint", {library for library, _ in index.footprints}),
+    ):
+        path = index.root / table
+        if not path.is_file():
+            continue
+        try:
+            tree = loads(path.read_text(encoding="utf-8"))
+        except (ParseError, UnicodeDecodeError, OSError):
+            index.issues.append(Issue.error("unparseable", "cannot be read", table))
+            continue
+        listed = {name.arg(0) for entry in tree.children("lib") if (name := entry.child("name"))}
+        for library in sorted(libraries - listed):
+            index.issues.append(
+                Issue.warning(
+                    "library-not-in-table",
+                    f"the {kind} library {library} is not in {table}, so it is missing for "
+                    "whoever uses the library checked out",
+                    table,
+                )
+            )
+
+
 def index_repository(root: Path) -> AssetIndex:
     """Index every asset under `root`."""
     index = AssetIndex(root=root)
@@ -276,4 +308,5 @@ def index_repository(root: Path) -> AssetIndex:
     _index_footprints(index)
     _index_models(index)
     _check_symbols(index)
+    _check_tables(index)
     return index

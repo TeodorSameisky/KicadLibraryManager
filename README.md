@@ -1,7 +1,7 @@
 # KiCad Library Manager
 
 Serves an internal part library to the **Remote Symbols** panel in KiCad 10 and
-later.
+later, and to KiCad 8 and later as an **HTTP library**.
 
 The library lives in git. This app indexes it, shows it as a searchable catalog
 inside KiCad, and places parts on the schematic: symbol, footprint and 3D model
@@ -16,6 +16,7 @@ where it is used.
 - [Finding a part](#finding-a-part)
 - [Requesting and approving parts](#requesting-and-approving-parts)
 - [Symbols, footprints and 3D models](#symbols-footprints-and-3d-models)
+- [KiCad's HTTP library](#kicads-http-library)
 - [BOMs and where used](#boms-and-where-used)
 - [Suppliers](#suppliers)
 - [Configuration](#configuration)
@@ -588,6 +589,52 @@ reason: the app does not write LFS, and a model committed as an ordinary file
 would sit where every clone expects a pointer. Such a model is added with git,
 and its footprint can then be uploaded alone.
 
+## KiCad's HTTP library
+
+The Remote Symbols panel needs KiCad 10. KiCad 8 and later can also take a
+library from a REST API -- an *HTTP library* -- and this app serves one: the
+symbol chooser lists each category as a library, with its parts under it, and
+places them with the same fields the panel does.
+
+**It gives KiCad data, not drawings.** An HTTP library names the symbol and
+footprint each part is drawn with (`Passives:R_0603`), and KiCad finds them in
+the designer's own library tables. So whoever uses it has the library's
+repository checked out, with `KICAD_LIBRARY_DIR` pointing at it and its
+libraries added under the names it uses -- which its `sym-lib-table` and
+`fp-lib-table` list. A library begun by an [upload](#symbols-footprints-and-3d-models)
+is added to those two files in the same commit, written the way their other
+entries are, so a pull brings it. A library the files do not list -- one added
+before this, or by hand -- is on the issues page as `library-not-in-table`. The panel needs none of this: it sends the
+drawings with the part.
+
+**The fields** are the panel's: Value (built by the template where the part
+has none), Footprint, Datasheet (the part's page), Description, IPN, MPN,
+Manufacturer, and the part's own fields, all but Value hidden on the sheet. The
+footprint is named as the library names it, since that is what the designer
+has; the panel names the library KiCad files received footprints under. The
+part's manufacturer parts and their makers are its keywords, so the chooser
+finds it by MPN. Retired parts are not offered. Drafts are, as the catalog
+offers them, with "Draft:" before their description. A part that names no
+symbol is left out.
+
+**Tokens.** KiCad has no sign-in for an HTTP library: its `.kicad_httplib` file
+holds a token, and KiCad sends it with every request as
+`Authorization: Token <token>`. At `/kicad-library` a person signed in makes a
+token -- one for each computer, named for it -- and saves the file with the
+token already in it. The token is shown that once; only a hash of it is kept,
+as for sessions, so a copy of the database holds nothing that could be used.
+A token reads the HTTP library as the person who made it and does nothing
+else: not the rest of the API, and not making more tokens. Each person can
+revoke their own; a librarian sees everyone's and can revoke any, for when
+someone leaves. When a token was last used is kept, to the nearest few
+minutes. With sign-in switched off the library is open, and the page offers
+one file for everyone.
+
+In KiCad: Preferences -> Manage Symbol Libraries, add the file as a library of
+type *HTTP*. By KiCad's own account a part is read again after
+`timeout_parts_seconds` (60 in the file given here) and a new category is seen
+after KiCad is restarted.
+
 ## BOMs and where used
 
 Export a project's BOM from KiCad's schematic editor (Tools → Generate Bill of
@@ -1106,6 +1153,10 @@ unhandled error is logged in full and answered with nothing but that id.
 | `POST /api/v1/assets` | The same, with `replace` and `note`: add them, as one commit. Replacing is for librarians | |
 | `DELETE /api/v1/assets/{kind}/{ref}` | Remove a symbol, footprint or 3D model that nothing uses; librarians | |
 | `/library`, `/library/{kind}/{ref}`, `/library/upload` | The library's drawings, one of them, and uploading | |
+| `/kicad-httplib/v1/`, `/categories.json`, `/parts/category/{code}.json`, `/parts/{ipn}.json` | KiCad's HTTP library: the endpoints, the categories, a category's parts with every field, one part. With a token (`Authorization: Token ...`) or a session | |
+| `/api/v1/tokens` | `GET` your tokens (a librarian's: everyone's); `POST {label}` makes one and answers with it, once, and the `.kicad_httplib` file | |
+| `DELETE /api/v1/tokens/{id}` | Revoke a token: your own, or anyone's for a librarian | |
+| `/kicad-library` | Making tokens and getting the file | |
 | `PUT`, `DELETE /api/v1/templates/{category}` | Create or replace a category's template, or remove it; librarians | |
 | `/templates`, `/templates/{category}/edit` | Listing and editing templates; librarians | |
 | `/api/v1/manufacturers` | `GET` the manufacturers and the names not on the list; `PUT {was, name, aliases, note}` adds one or changes the one called `was`, `DELETE {name, note}` removes one (librarians) | |

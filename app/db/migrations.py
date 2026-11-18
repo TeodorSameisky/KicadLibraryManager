@@ -114,8 +114,26 @@ _suppliers = sql(
     """,
 )
 
+# Personal tokens, for what cannot sign in through a browser: KiCad's HTTP
+# library sends one with every request. Only a hash of each is kept, as for
+# sessions. See `app.auth.tokens`.
+_tokens = sql(
+    """
+    CREATE TABLE tokens (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        key          TEXT NOT NULL UNIQUE,   -- a hash of the token
+        subject      TEXT NOT NULL,          -- whose it is
+        claims       TEXT NOT NULL,          -- who they were when they made it
+        label        TEXT NOT NULL DEFAULT '',
+        created_at   REAL NOT NULL,
+        last_used_at REAL
+    )
+    """,
+    "CREATE INDEX tokens_by_subject ON tokens (subject)",
+)
+
 # In order. Add to the end; never change or remove one that has been released.
-MIGRATIONS: tuple[Migration, ...] = (_baseline, _suppliers)
+MIGRATIONS: tuple[Migration, ...] = (_baseline, _suppliers, _tokens)
 
 
 def version(connection: sqlite3.Connection) -> int:

@@ -107,6 +107,11 @@ class LibraryService:
         return self._checked_at
 
     @property
+    def sources(self) -> tuple[Source, ...]:
+        """The repositories the library is read from, in the order configured."""
+        return self._sources
+
+    @property
     def writable(self) -> bool:
         """Whether this deployment can change the library, not only read it."""
         return self._writer is not None and bool(self._sources)

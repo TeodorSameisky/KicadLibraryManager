@@ -11,9 +11,11 @@ from typing import cast
 
 from fastapi import Depends, Request
 
+from app.auth.identity import Principal
 from app.auth.oidc import OidcClient
 from app.auth.roles import actor_for
 from app.auth.sessions import Session, SessionStore
+from app.auth.tokens import TokenStore
 from app.boms.store import BomStore
 from app.config import Settings
 from app.db.backup import Backups
@@ -54,6 +56,10 @@ def get_supply(request: Request) -> Supply:
     return cast(Supply, request.app.state.supply)
 
 
+def get_tokens(request: Request) -> TokenStore:
+    return cast(TokenStore, request.app.state.tokens)
+
+
 def get_snapshot(library: LibraryService = Depends(get_library)) -> Snapshot:
     """The index as it stands. Held for the whole request, so one response
     never mixes two of them."""
@@ -85,6 +91,31 @@ def require_access(
     if settings.auth_configured and session is None:
         raise NotSignedIn
     return session
+
+
+def require_reader(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    session: Session | None = Depends(current_session),
+    tokens: TokenStore = Depends(get_tokens),
+) -> Principal | None:
+    """Let a reader of the HTTP library through: KiCad, with a personal token.
+
+    KiCad sends the token from the `.kicad_httplib` file as
+    `Authorization: Token <token>`. A session is accepted as well, so the same
+    answers can be looked at in a browser. With authentication off, as for
+    everything else, everyone is let through.
+    """
+    if not settings.auth_configured:
+        return None
+    if session is not None:
+        return session.principal
+    scheme, _, secret = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() in ("token", "bearer"):
+        principal = tokens.principal(secret.strip())
+        if principal is not None:
+            return principal
+    raise NotSignedIn
 
 
 def get_actor(

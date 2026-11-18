@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}KiCad HTTP library &middot; {{ provider_name }}{% endblock %}
+{% block page_class %}page--narrow{% endblock %}
+
+{% block content %}
+  <a class="back" href="{{ root_path }}/library">&larr; Library</a>
+
+  <header>
+    <div class="title"><h1 class="title--plain">Use the library as a KiCad HTTP library</h1></div>
+    <p class="byline">
+      For KiCad 8 and later: the parts appear in the symbol chooser, one library for
+      each category. The Remote Symbols panel needs KiCad 10.
+    </p>
+  </header>
+
+  <h2 class="section">1. Have the drawings</h2>
+  <p>
+    An HTTP library gives KiCad each part's data, not its drawings: the symbol and
+    footprint a part names are found in your own library tables. So check the
+    library out, and add its libraries under the names it uses.
+  </p>
+  <ol>
+    <li>
+      Clone
+      {% for source in sources %}
+        <span class="mono wrap-anywhere">{{ source.url }}</span>{% if not loop.last %} and {% endif %}
+      {% endfor %}
+      somewhere on your computer, and pull it now and then: new drawings arrive that way.
+    </li>
+    <li>
+      In KiCad, Preferences &rarr; Configure Paths: set <span class="mono">KICAD_LIBRARY_DIR</span>
+      to that folder, and the variable its footprints name their 3D models with
+      to its <span class="mono">3dmodels</span> folder.
+    </li>
+    <li>
+      Add its symbol and footprint libraries, under the same names. Its
+      <span class="mono">sym-lib-table</span> and <span class="mono">fp-lib-table</span> list
+      them; the libraries uploaded here are added to those files too.
+    </li>
+  </ol>
+
+  <h2 class="section">2. Add the HTTP library</h2>
+  {% if open_file %}
+    <p>
+      Sign-in is switched off on this deployment, so the file needs no token and is
+      the same for everyone.
+    </p>
+    <div class="actions">
+      <button type="button" class="button" id="download-open">Download the .kicad_httplib file</button>
+    </div>
+    <script type="application/json" id="open-file">{{ open_file | tojson }}</script>
+  {% elif signed_in %}
+    <p>
+      KiCad sends a token with every request. Make one for each computer you use;
+      it reads the library as you, and can be revoked here.
+    </p>
+    <form class="form" id="token-form" novalidate>
+      <div class="field">
+        <label for="token-label">What it is for</label>
+        <input type="text" id="token-label" maxlength="100" autocomplete="off" placeholder="Laptop" />
+      </div>
+      <div class="field field--action">
+        <button type="submit" class="button" id="token-submit">Make a token</button>
+      </div>
+    </form>
+    <div id="token-result" aria-live="polite"></div>
+  {% endif %}
+  <p class="hint">
+    Then in KiCad, Preferences &rarr; Manage Symbol Libraries: add the file as a
+    library of the type HTTP. Parts are read again after a minute; a new category
+    shows after KiCad is restarted. The address it reads is
+    <span class="mono wrap-anywhere">{{ root_url }}</span>.
+  </p>
+
+  {% if signed_in %}
+    <h2 class="section">{{ "Tokens" if librarian else "Your tokens" }}</h2>
+    {% if tokens %}
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">For</th>
+              {% if librarian %}<th scope="col">Whose</th>{% endif %}
+              <th scope="col">Made</th>
+              <th scope="col">Last used</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for token in tokens %}
+              <tr>
+                <td>{{ token.label or "—" }}</td>
+                {% if librarian %}<td>{{ token.owner }}{% if token.yours %} <span class="muted">(you)</span>{% endif %}</td>{% endif %}
+                <td class="muted" data-time="{{ token.created_at }}"></td>
+                <td class="muted" data-time="{{ token.last_used_at or '' }}">never</td>
+                <td class="num">
+                  <button type="button" class="button button--danger" data-revoke="{{ token.id }}">Revoke</button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">None yet.</p>
+    {% endif %}
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ root_path }}/static/js/kicad-library.js"></script>
+{% endblock %}

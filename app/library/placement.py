@@ -99,26 +99,16 @@ def _read_symbol(symbol: Symbol) -> SExpr:
     return node
 
 
-def placed_symbol(part: Part, snapshot: Snapshot, options: PlacementOptions) -> PlacedSymbol:
-    """The symbol for `part`, self-contained and carrying the part's data."""
-    ref = LibraryRef.parse(part.symbol)
-    if ref is None:
-        raise PlacementError(f"{part.ipn} names no usable symbol ({part.symbol!r})")
+def part_fields(
+    part: Part, snapshot: Snapshot, options: PlacementOptions, *, received: bool
+) -> dict[str, str]:
+    """What a placed part carries, by field name, in the order they are set.
 
-    try:
-        ancestry = snapshot.catalog.symbol_ancestry(ref)
-    except LookupError as exc:
-        raise PlacementError(
-            f"{part.ipn} names symbol {part.symbol!r}, which no source provides"
-        ) from exc
-    except BrokenInheritance as exc:
-        raise PlacementError(
-            f"{part.ipn} cannot be placed: {exc}, so the part would have no body"
-        ) from exc
-
-    # KiCad saves one symbol per payload, so the chain is collapsed into it.
-    node = symbol_tree.flatten([_read_symbol(s) for s in reversed(ancestry)], ref.name)
-
+    The same whichever way the part reaches the sheet. `received` says the
+    footprint is one KiCad was sent, and so filed under the library it saves
+    received ones to; otherwise it is the library's own name for it, which a
+    designer with the library checked out has under that name.
+    """
     fields: dict[str, str] = {"IPN": part.ipn}
     if part.description:
         fields["Description"] = part.description
@@ -142,7 +132,7 @@ def placed_symbol(part: Part, snapshot: Snapshot, options: PlacementOptions) -> 
     # Where KiCad will file the footprint, not where the library keeps it: a
     # symbol naming the source library points at one the user does not have.
     footprint = LibraryRef.parse(part.footprint)
-    if footprint is not None:
+    if footprint is not None and received:
         fields["Footprint"] = f"{options.remote_library(footprint.library)}:{footprint.name}"
     elif part.footprint:
         fields["Footprint"] = part.footprint
@@ -152,6 +142,31 @@ def placed_symbol(part: Part, snapshot: Snapshot, options: PlacementOptions) -> 
         fields["MPN"] = part.preferred_mpn
     if preferred is not None and preferred.manufacturer:
         fields["Manufacturer"] = preferred.manufacturer
+
+    return fields
+
+
+def placed_symbol(part: Part, snapshot: Snapshot, options: PlacementOptions) -> PlacedSymbol:
+    """The symbol for `part`, self-contained and carrying the part's data."""
+    ref = LibraryRef.parse(part.symbol)
+    if ref is None:
+        raise PlacementError(f"{part.ipn} names no usable symbol ({part.symbol!r})")
+
+    try:
+        ancestry = snapshot.catalog.symbol_ancestry(ref)
+    except LookupError as exc:
+        raise PlacementError(
+            f"{part.ipn} names symbol {part.symbol!r}, which no source provides"
+        ) from exc
+    except BrokenInheritance as exc:
+        raise PlacementError(
+            f"{part.ipn} cannot be placed: {exc}, so the part would have no body"
+        ) from exc
+
+    # KiCad saves one symbol per payload, so the chain is collapsed into it.
+    node = symbol_tree.flatten([_read_symbol(s) for s in reversed(ancestry)], ref.name)
+
+    fields = part_fields(part, snapshot, options, received=True)
 
     for name, value in fields.items():
         symbol_tree.set_property(node, name, value)
