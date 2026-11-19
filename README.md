@@ -11,6 +11,15 @@ It also keeps the BOMs of the projects built from that library, so that each
 BOM can be read against the library as it stands today, and each part can say
 where it is used.
 
+This README describes the whole app. Guides for each kind of reader are in
+[docs/](docs/README.md):
+[using the library](docs/designers.md) for designers,
+[keeping the library](docs/librarians.md) for librarians,
+[the library's files](docs/library-files.md) for whoever edits them in git,
+[setting it up](docs/setting-up.md) for whoever runs the server,
+[when something is wrong](docs/troubleshooting.md), and
+[working on the app](docs/development.md).
+
 - [How it works](#how-it-works)
 - [The library](#the-library)
 - [Finding a part](#finding-a-part)
