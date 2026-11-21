@@ -12,6 +12,11 @@ order, and where to read more.
 | run the server | [Setting it up](setting-up.md) |
 | have something not working | [When something is wrong](troubleshooting.md) |
 | change the app's code | [Working on the app](development.md) |
+| want to know what we would ask KiCad for | [What we would ask KiCad for](kicad-feature-ideas.md) |
+| want to know how design blocks will work (not built yet) | [Design blocks](specs/design-blocks.md) |
+
+The words the app uses are defined in [CONTEXT.md](../CONTEXT.md); decisions
+that are hard to undo are recorded in [adr/](adr/).
 
 Three words come up everywhere:
 
